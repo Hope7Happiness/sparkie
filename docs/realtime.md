@@ -122,3 +122,13 @@ A separated-human producer can send human_turn/start immediately and human_turn/
 Task results whose announcements are cut off remain pending for fresh generation after the user's turn. Generated or SDK-submitted speech is never marked heard automatically. Fully submitted, uninterrupted announcements remain unconfirmed without repeatedly waking the agent; explicit human confirmation prevents later automatic reannouncement.
 
 Focused offline validation: uv run --frozen python -m unittest discover -s tests -p test_semantic_interruption.py -v. These tests use a fake audio bridge and WebSocket and provide no live audibility evidence. Native cancellation protocol is unchanged; no SDK rebuild is required for this feature.
+
+### Zoom 默认输出静音（当前 MVP）
+
+以上 Zoom 普通问答步骤现在需要句首点名，例如 “Hey Sparkie, explain the architecture in detail”。只关闭 Sparkie 的 Zoom 输出；Realtime 会话/输入上下文、Deepgram 和 Codex 后台任务持续运行。未点名的普通会议发言进入现有 Realtime 上下文，但不会触发无必要的助手生成。浏览器/local 模式不变。
+
+使用原有 Sparkie/Sparky（可带 Hi/Hey/Hello）最终转写唤醒；完整回答和所属工具续答结束、队列排空后自动静音。没有 12 秒或其他产品发言时长截断；保留有界音频积压保护及会话总时长。授权请求产生的后台任务，其结果通知可以单独唤醒输出；其他任务不能。
+
+终端每行一个 JSON：{"action":"mute"} 停止并清空全部播放，不取消后台任务；{"action":"unmute"} 仅允许下一条最终人类转写触发一条回答链，不恢复旧音频。也可说 “Sparkie, stop” / “不用了”等既有取消词；播放期间 Zoom 混合输入仍受回声门控，需终端或可信分离人声控制实现该窗口内取消。普通混合 VAD 不再自行打断 Zoom 回答，最终文本负责 wake/cancel。
+
+测试时分别核对：未点名讨论零输出；长回答完整；自动重新静音；后台任务归属；mute/unmute 不复活旧音频。使用同一会话观察输入/转写持续。SDK 提交不代表远端听到；需另行真人验证最终转写延迟、音质、停播残留和误唤醒。完整契约见 interfaces.md 的 Zoom output mute MVP。

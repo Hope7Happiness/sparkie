@@ -73,6 +73,10 @@ class TaskCenter:
             (j for j in self.jobs.values() if j.get('announcement', {}).get('state') == 'pending'),
             key=lambda j: j['announcement']['order'])]
 
+    def mark_output_origin(self, task_id):
+        self.jobs[task_id]['zoom_output_origin'] = 'addressed_turn'
+        self._save(self.jobs[task_id])
+
     def offer_announcements(self, task_ids):
         offers = []
         for task_id in task_ids:

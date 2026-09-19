@@ -68,8 +68,14 @@ async def run(args):
                                   echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit)
     worker = configured_task_worker()
     center = TaskCenter(ledger, worker, emit)
+    output_policy = None
+    if transport_name == 'zoom':
+        from .zoom_output import ZoomOutputPolicy
+        # EventOutput is initialized below before any asynchronous session work.
+        output_policy = ZoomOutputPolicy(audio, lambda *a, **k: None)
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
-                          model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1')
+                          model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
+                          output_policy=output_policy)
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
@@ -89,11 +95,19 @@ async def run(args):
     dg_active = True
     async def transcribe():
         nonlocal dg_active
+        handling_transcript = False
         try:
             async for record in ears.transcribe(frames(queues[1])):
                 ledger.append(record)
                 emit('transcript', **asdict(record))
+                if output_policy is not None:
+                    handling_transcript = True
+                    await agent.human_transcript(asdict(record))
+                    handling_transcript = False
         except Exception as exc:
+            if handling_transcript:
+                stop.set()
+                raise  # Agent/native failures are not degraded Deepgram coverage.
             dg_active = False
             record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
                       'timestamp_ms': round(audio.captured_samples / 24)}
@@ -141,7 +155,7 @@ async def run(args):
                         raise ValueError('invalid control')
                     if browser_transport and command.get('action') in ('audio_input', 'audio_progress', 'audio_settings'):
                         audio.accept(command)
-                    elif command.get('action') in ('interrupt', 'human_turn', 'confirm_delivery'):
+                    elif command.get('action') in ('interrupt', 'human_turn', 'confirm_delivery', 'mute', 'unmute'):
                         await agent.control(command)
                     elif command.get('action') == 'cancel_task':
                         center.cancel(command.get('task_id'))
@@ -160,6 +174,9 @@ async def run(args):
     failure = None
     # Browser output is a media protocol; CLI output is only a view of events.jsonl.
     console = EventOutput(sys.stdout, required=browser_transport)
+    if output_policy is not None:
+        output_policy.emit = emit
+        emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
     try:
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('task_backend_config', backend=worker.backend, model=worker.model)
@@ -209,6 +226,8 @@ async def run(args):
         done, _ = await asyncio.wait([rt, capturer, sender, stopper, notifier], return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
+        if dg.done():
+            dg.result()
         if stopper in done:
             reason = 'stopped'
             audio.request_stop()

@@ -96,7 +96,7 @@ def session_config(model):
 
 
 class RealtimeAgent:
-    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect):
+    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None):
         self.key, self.audio, self.tasks, self.emit = key, audio, tasks, emit
         self.model, self.connector = model, connector
         self.ready = asyncio.Event()
@@ -136,6 +136,35 @@ class RealtimeAgent:
         # Older injected task implementations only expose notifications/status.
         # Keep their obligations in memory; production TaskCenter persists its own.
         self.legacy_announcements = {}
+        self.output_policy = output_policy
+
+    async def human_transcript(self, record):
+        if self.output_policy is None or self.external_input:
+            return
+        async with self.turn_lock:
+            if record.get('source', 'human') != 'human' or not record.get('is_final'):
+                return
+            identifier = (record.get('meeting_id'), record.get('event_id'))
+            if identifier in self.output_policy.seen:
+                return
+            self.output_policy.seen.add(identifier)
+            await self._zoom_transcript(record['text'])
+
+    async def _zoom_transcript(self, text):
+        policy = self.output_policy
+        decision = policy.decision(text)
+        if decision == 'ignore':
+            return
+        await self._interrupt()
+        if decision == 'mute':
+            self.awaiting_turn = False
+            return
+        policy.open('addressed_turn')
+        # Keep the live input stream/context. Deepgram and Realtime lack a shared
+        # turn ID, so explicitly identify this finalized request instead of guessing.
+        await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
+            'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}})
+        await self.user_turn_available()
 
     def collect_legacy_notice(self, job):
         if not hasattr(self.tasks, 'pending_announcements') and isinstance(job, dict):
@@ -145,8 +174,12 @@ class RealtimeAgent:
 
     def pending_announcements(self):
         if hasattr(self.tasks, 'pending_announcements'):
-            return self.tasks.pending_announcements()
-        return [job for job in self.legacy_announcements.values() if job['announcement']['state'] == 'pending']
+            jobs = self.tasks.pending_announcements()
+        else:
+            jobs = [job for job in self.legacy_announcements.values() if job['announcement']['state'] == 'pending']
+        if self.output_policy is not None:
+            jobs = [j for j in jobs if j['task_id'] in self.output_policy.task_ids]
+        return jobs
 
     def offer_announcements(self, task_ids):
         if hasattr(self.tasks, 'offer_announcements'):
@@ -176,10 +209,14 @@ class RealtimeAgent:
             await self._request_response()
 
     async def _request_response(self):
+        if self.output_policy is not None and self.output_policy.chain is None:
+            return
         if self.response_id or self.response_pending or self.user_speaking or self.awaiting_turn:
             return
         self.response_pending = True
         self.turn_response_due = False
+        if self.output_policy is not None:
+            self.output_policy.requested()
         try:
             await self.supply_semantics()
             await self.send({'type': 'response.create'})
@@ -214,7 +251,12 @@ class RealtimeAgent:
         async with self.connector(url, additional_headers={'Authorization': 'Bearer ' + self.key},
                                   open_timeout=15, close_timeout=2, max_size=4 * 2**20) as ws:
             self.ws = ws
-            await self.send(session_config(self.model))
+            config = session_config(self.model)
+            if self.output_policy is not None:
+                # Final human text owns Zoom wake/cancel; asynchronous mixed VAD
+                # must not cancel a newly authorized reply to that same utterance.
+                config['session']['audio']['input']['turn_detection']['interrupt_response'] = False
+            await self.send(config)
             async for raw in ws:
                 await self.handle(json.loads(raw))
         raise ProviderError('realtime_disconnected')
@@ -233,6 +275,8 @@ class RealtimeAgent:
             await self._interrupt(cancel=cancel)
 
     async def _interrupt(self, cancel=True):
+        if self.output_policy is not None:
+            self.output_policy.revoke('interrupted')
         self.awaiting_turn = True
         self.turn_response_due = False
         if self.response_pending:
@@ -286,7 +330,15 @@ class RealtimeAgent:
             if not isinstance(command, dict):
                 raise ValueError('invalid control')
             action = command.get('action')
-            if action == 'interrupt':
+            if action in ('mute', 'unmute'):
+                if self.output_policy is None:
+                    raise ValueError('Zoom output control requires Zoom transport')
+                await self._interrupt()
+                self.awaiting_turn = False
+                if action == 'unmute':
+                    self.output_policy.manual_next = True
+                self.emit('zoom_output_control', action=action, next_final_turn_armed=action == 'unmute')
+            elif action == 'interrupt':
                 await self._interrupt()
             elif action == 'human_turn':
                 turn_id, phase = command.get('turn_id'), command.get('phase')
@@ -303,7 +355,10 @@ class RealtimeAgent:
                     self.external_turn = turn_id
                     first_external_turn = not self.external_input
                     self.external_input = True
+                    manual_next = self.output_policy.manual_next if self.output_policy else False
                     await self._interrupt()
+                    if self.output_policy is not None:
+                        self.output_policy.manual_next = manual_next
                     if first_external_turn:
                         self.emit('human_input_mode', mode='external_text', mixed_realtime_input='silence')
                     # Discard the partial mixed-input turn; final text below is authoritative.
@@ -317,7 +372,17 @@ class RealtimeAgent:
                     await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
                         'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}})
                     self.emit('human_turn_committed', turn_id=turn_id, source='human', text=text)
-                    await self.user_turn_available()
+                    if self.output_policy is not None:
+                        # Text already entered above; evaluate it without changing
+                        # the external-human input contract or adding a duplicate.
+                        decision = self.output_policy.decision(text)
+                        if decision == 'wake':
+                            self.output_policy.open('external_addressed_turn')
+                            await self.user_turn_available()
+                        else:
+                            self.awaiting_turn = False
+                    else:
+                        await self.user_turn_available()
             elif action == 'confirm_delivery':
                 if (command.get('source') != 'human' or not isinstance(command.get('task_id'), str) or
                         not hasattr(self.tasks, 'confirm_announcement') or not self.tasks.confirm_announcement(
@@ -376,7 +441,8 @@ class RealtimeAgent:
                 return
             self.active_audio_turn = item_id
             self.user_speaking = True
-            await self._interrupt(cancel=False)  # Server VAD already cancels generation.
+            if self.output_policy is None:
+                await self._interrupt(cancel=False)  # Server VAD already cancels generation.
             self.emit('user_speech_started')
         elif kind == 'input_audio_buffer.speech_stopped':
             if self.external_input or event.get('item_id') in self.ignored_audio_turns:
@@ -400,16 +466,27 @@ class RealtimeAgent:
                 self.seen_audio_turns.add(item_id)
                 if not self.active_audio_turn or self.active_audio_turn == item_id:
                     self.active_audio_turn = None
-                    await self.user_turn_available()
+                    if self.output_policy is None:
+                        await self.user_turn_available()
+                    else:
+                        # Input remains in this live Realtime conversation. A final
+                        # human transcript separately authorizes a Zoom answer.
+                        self.user_speaking = False
+                        self.awaiting_turn = False
+                        if self.turn_response_due:
+                            await self._request_response()
         elif kind == 'response.created':
             response_id = event['response']['id']
             if response_id in self.response_offers or response_id in self.completed_responses or response_id == self.response_id:
                 return
             self.response_pending = False
             self.response_id = response_id
+            if self.output_policy is not None:
+                self.output_policy.created(response_id)
             self.response_offers[self.response_id] = self.pending_offers
             self.pending_offers = []
-            if self.reject_pending or self.awaiting_turn or self.external_turn is not None:
+            if (self.reject_pending or self.awaiting_turn or self.external_turn is not None or
+                    (self.output_policy is not None and not self.output_policy.allows(response_id))):
                 self.reject_pending = False
                 self.cancelled.add(self.response_id)
                 await self.send({'type': 'response.cancel', 'response_id': self.response_id})
@@ -417,6 +494,8 @@ class RealtimeAgent:
         elif kind == 'response.output_audio.delta':
             self.item_responses[event['item_id']] = event.get('response_id')
             self.content_indexes[event['item_id']] = event.get('content_index', 0)
+            if self.output_policy is not None and not self.output_policy.accept_item(event.get('response_id'), event['item_id']):
+                self.cancelled.add(event.get('response_id'))
             if event.get('response_id') not in self.cancelled and not self.awaiting_turn:
                 self.speaking_item = event['item_id']
                 try:
@@ -493,6 +572,12 @@ class RealtimeAgent:
                     result = self.tasks.cancel(arguments.get('task_id'))
                 else:
                     result = {'error': 'unknown_tool'}
+                if (name in ('delegate_task', 'create_desktop_file', 'open_website') and
+                        self.output_policy is not None and self.output_policy.allows(event.get('response_id'))
+                        and result.get('task_id')):
+                    self.output_policy.task_ids.add(result['task_id'])
+                    if hasattr(self.tasks, 'mark_output_origin'):
+                        self.tasks.mark_output_origin(result['task_id'])
             except (ValueError, TypeError, AttributeError):
                 result = {'error': 'invalid_arguments'}
             await self.send({'type': 'conversation.item.create', 'item': {
@@ -530,8 +615,12 @@ class RealtimeAgent:
                 # The tool response can itself have queued audio. Retain its
                 # ownership as well as the continuation's until that audio drains.
                 self.pending_offers.extend(self.response_offers.get(response_id, []))
+                if self.output_policy is not None:
+                    self.turn_response_due = True
             if self.turn_response_due or (continuation and response_id not in self.cancelled):
                 await self._request_response()
+            if self.output_policy is not None:
+                self.output_policy.finished(response_id, continuation and response_id not in self.cancelled)
 
     async def track_cancelled_content(self, event):
         item_id = event['item_id']
@@ -555,6 +644,8 @@ class RealtimeAgent:
     def notification_ready(self):
         if self.response_id or self.response_pending or self.user_speaking or self.awaiting_turn:
             return False
+        if self.output_policy is not None and self.output_policy.chain is not None:
+            return False
         # Leave a short conversational pause before unsolicited task results.
         if time.monotonic() - self.last_user_stop < .75:
             return False
@@ -577,7 +668,10 @@ class RealtimeAgent:
                     while not self.tasks.notifications.empty():
                         self.collect_legacy_notice(self.tasks.notifications.get_nowait())
                     if self.pending_announcements():
-                        await self._request_response()
+                        if self.output_policy is None or not self.output_policy.notifications_paused:
+                            if self.output_policy is not None:
+                                self.output_policy.open('eligible_task_notification')
+                            await self._request_response()
                     break
 
     async def report_task(self, task_id):
@@ -592,6 +686,11 @@ class RealtimeAgent:
         if not self.notification_ready():
             self.emit('control_rejected', reason='wait_until_speech_finishes')
             return
+        if self.output_policy is not None:
+            if task_id not in self.output_policy.task_ids:
+                self.emit('control_rejected', reason='task_not_from_addressed_turn')
+                return
+            self.output_policy.open('explicit_task_report')
         # An explicit rereport of an unconfirmed result owns a new attempt too.
         notice = job.get('announcement', {})
         if notice.get('state') == 'offered':
