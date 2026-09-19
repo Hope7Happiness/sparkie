@@ -1,5 +1,5 @@
 export class BrowserVoice {
-  constructor(onFailure) { this.onFailure = onFailure; this.sequence = 0; this.closed = false; }
+  constructor(onFailure) { this.onFailure = onFailure; this.sequence = 0; this.closed = false; this.muted = false; this.captureEpoch = 0; }
   async prepare(inputDevice) {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: {
@@ -47,12 +47,20 @@ export class BrowserVoice {
       if (this.closed) return;
       if (data.type === 'capture') {
         const bytes = new Uint8Array(data.pcm);
+        if (this.muted || data.epoch !== this.captureEpoch) bytes.fill(0);
         this.send({ action: 'audio_input', sequence: this.sequence++, pcm: btoa(String.fromCharCode(...bytes)) });
       } else if (data.type === 'progress') {
         // Worklet reports rendered frames; this is not an independently measured DAC timestamp.
         this.send({ action: 'audio_progress', item_id: data.item_id, generation: data.generation, played_bytes: data.played_bytes });
       } else if (data.type === 'error') this.fail('音频播放跟不上，请重新开始。');
     };
+  }
+  setMuted(muted) {
+    if (this.closed) return;
+    this.muted = Boolean(muted);
+    this.captureEpoch++;
+    this.stream?.getAudioTracks().forEach(track => { track.enabled = !this.muted; });
+    this.node?.port.postMessage({ type: 'mute', muted: this.muted, epoch: this.captureEpoch });
   }
   send(message) {
     if (this.closed) return;

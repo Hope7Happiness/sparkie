@@ -3,9 +3,13 @@ class SparkieVoice extends AudioWorkletProcessor {
   constructor() {
     super();
     this.chunks = []; this.offset = 0; this.generation = 0;
-    this.capture = new Int16Array(480); this.captureOffset = 0; this.enabled = false;
+    this.capture = new Int16Array(480); this.captureOffset = 0; this.enabled = false; this.muted = false; this.captureEpoch = 0;
     this.played = new Map(); this.pendingProgress = new Map(); this.progressFrames = 0;
     this.port.onmessage = ({ data }) => {
+      if (data.type === 'mute') {
+        this.muted = data.muted; this.captureEpoch = data.epoch;
+        this.capture.fill(0);
+      }
       if (data.type === 'enable') this.enabled = true;
       if (data.type === 'clear') { this.chunks = []; this.offset = 0; this.generation = data.generation; this.pendingProgress.clear(); }
       if (data.type === 'output' && data.generation >= this.generation) {
@@ -19,9 +23,9 @@ class SparkieVoice extends AudioWorkletProcessor {
     const input = inputs[0]?.[0], output = outputs[0]?.[0];
     if (input && this.enabled) {
       for (const sample of input) {
-        this.capture[this.captureOffset++] = Math.round(Math.max(-1, Math.min(1, sample)) * 32767);
+        this.capture[this.captureOffset++] = this.muted ? 0 : Math.round(Math.max(-1, Math.min(1, sample)) * 32767);
         if (this.captureOffset === this.capture.length) {
-          this.port.postMessage({ type: 'capture', pcm: this.capture.buffer }, [this.capture.buffer]);
+          this.port.postMessage({ type: 'capture', epoch: this.captureEpoch, pcm: this.capture.buffer }, [this.capture.buffer]);
           this.capture = new Int16Array(480); this.captureOffset = 0;
         }
       }

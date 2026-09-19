@@ -46,6 +46,14 @@ function processEvent(event) {
   if (event.type === 'control_rejected') $('#error').textContent = event.reason === 'wait_until_speech_finishes' ? '请等当前回复播放结束，再播报结果。' : '任务尚未完成。';
   if (event.type === 'provider_error') $('#error').textContent = `OpenAI 连接错误：${event.code || 'unknown'}`;
 }
+function renderMute() {
+  const muted = Boolean(voice?.muted);
+  $('#mute').hidden = !busy;
+  $('#mute').disabled = !voice || voice.closed;
+  $('#mute').textContent = muted ? '取消静音' : '静音';
+  $('#mute').setAttribute('aria-pressed', String(muted));
+  if (muted) { $('#notice').textContent = '麦克风已静音'; $('#level').style.width = '0%'; }
+}
 async function poll() {
   try {
     const state = await api('status');
@@ -62,6 +70,7 @@ async function poll() {
     if (state.error) $('#error').textContent = state.error;
     if (busy) $('#notice').textContent = state.status === 'starting' ? '正在连接…' : state.status === 'stopping' ? '正在结束…' : state.gated ? '正在回复' : '我在听';
     else if (state.id) $('#notice').textContent = '聊完了，随时继续。';
+    renderMute();
     for (const event of state.events) {
       if (event.sequence > rendered) { processEvent(event); rendered = event.sequence; }
     }
@@ -98,6 +107,7 @@ $('#setup').onsubmit = async event => {
   } finally { starting = false; $('#start').disabled = busy; }
 };
 $('#stop').onclick = () => { voice?.close(); voice = null; api('stop', {}).catch(error); };
+$('#mute').onclick = () => { voice?.setMuted(!voice.muted); renderMute(); if (!voice?.muted) $('#notice').textContent = '我在听'; };
 $('#interrupt').onclick = () => api('control', { action: 'interrupt' }).catch(error);
 $('#devices').onclick = () => devices().catch(error);
 $('#export').onclick = async () => {
