@@ -9,7 +9,8 @@ from pathlib import Path
 from .backends import configured_brain
 from .engine import Primitive
 from .providers import DeepgramEars, DeepgramMouth, ProviderError
-from .zoom_audio import ZoomAudioMeeting
+from .zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
+from .zoom_config import selected_platform
 
 
 async def zoom_session(args):
@@ -19,7 +20,13 @@ async def zoom_session(args):
     session_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid4().hex[:6]
     output = args.output / session_id
     output.mkdir(parents=True)
-    meeting = ZoomAudioMeeting(Path('.runtime/zoom-voice') / session_id, max_seconds=args.seconds)
+    runtime = Path('.runtime/zoom-voice') / session_id
+    if selected_platform() == 'macos':
+        from .zoom_macos import paths
+        meeting = ZoomMacAudioMeeting(runtime, paths(Path(__file__).resolve().parents[2])[2],
+                                      max_seconds=args.seconds)
+    else:
+        meeting = ZoomAudioMeeting(runtime, max_seconds=args.seconds)
     brain = configured_brain() if args.response_mode == 'qa' else None
     ears = DeepgramEars(key, session_id, language=args.language,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3')
@@ -30,7 +37,8 @@ async def zoom_session(args):
             log.write(line+'\n'); log.flush()
             print(line, flush=True)
         engine = Primitive(meeting, ears, mouth, reply=os.getenv('SPARKIE_REPLY') or "I'm here.",
-                           brain=brain, mode='zoom-audio', event_sink=sink)
+                           brain=brain, mode='zoom-audio', event_sink=sink,
+                           question_reply=os.getenv('SPARKIE_QUESTION_REPLY') or 'Let me think for a moment.')
         meeting.on_event = engine.log
         ears.on_ready = lambda: engine.log('listening_ready', language=args.language, platform='zoom')
         if brain:

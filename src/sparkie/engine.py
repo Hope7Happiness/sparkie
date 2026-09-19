@@ -8,9 +8,12 @@ from .wake import ADDRESS, CANCEL, addressed_request
 
 
 class Primitive:
-    def __init__(self, meeting, ears, mouth, *, reply="我在。", brain=None, mode="simulate", event_sink=None):
+    def __init__(self, meeting, ears, mouth, *, reply="我在。", brain=None, mode="simulate", event_sink=None,
+                 question_reply="Let me think for a moment."):
         self.meeting, self.ears, self.mouth = meeting, ears, mouth
         self.reply, self.brain, self.mode = reply, brain, mode
+        self.question_reply = question_reply
+        self.question_audio = None
         self.context = deque(maxlen=50)
         self.events = []
         self.seen = set()
@@ -51,14 +54,14 @@ class Primitive:
         self.context.append("[Sparkie answer, not a participant decision] " + answer)
         return answer
 
-    async def respond(self, snapshot, cached, detected, utterance_end_at=None, response_id=None, answer_requested=True):
+    async def respond(self, snapshot, cached, detected, utterance_end_at=None, response_id=None, answer_requested=True, reply_text=None):
         inference = None
         phase = "acknowledgement"
         try:
             if self.brain and answer_requested:
                 # Start reasoning while the cached acknowledgement plays.
                 inference = asyncio.create_task(self.generate_answer(snapshot, response_id, detected))
-            self.log("reply", response_id=response_id, text=self.reply, cached=True,
+            self.log("reply", response_id=response_id, text=self.reply if reply_text is None else reply_text, cached=True,
                      detection_to_output_call_ms=round((time.monotonic() - detected) * 1000))
             await self.meeting.play_audio(cached, 32000)
             self.playback_timing("acknowledgement", response_id, detected, utterance_end_at)
@@ -126,14 +129,21 @@ class Primitive:
                  answer_requested=bool(self.brain and request))
         origin = getattr(self.meeting, "audio_origin", None)
         utterance_end_at = origin + event.timestamp_ms / 1000 if origin is not None else None
+        reply_text = self.reply
+        if self.brain and request and self.question_audio is not None:
+            cached, reply_text = self.question_audio, self.question_reply
         self.response_task = asyncio.create_task(self.respond(list(self.context), cached, time.monotonic(),
-                                                                utterance_end_at, event.event_id, bool(request)))
+                                                                utterance_end_at, event.event_id, bool(request), reply_text))
 
     async def run(self):
         self.log("session_started", mode=self.mode, response_mode="qa" if self.brain else "wake")
         # Resolve TTS credentials/voice failures before entering the meeting.
         cached = await self.mouth.synthesize(self.reply)
         self.log("reply_prepared", bytes=len(cached))
+        if self.brain:
+            self.question_audio = (cached if self.question_reply == self.reply
+                                   else await self.mouth.synthesize(self.question_reply))
+            self.log("reply_prepared", purpose="question", bytes=len(self.question_audio))
         try:
             await self.meeting.join()
             self.log("meeting_joined", simulated=self.mode in {"simulate", "hybrid-tts"})

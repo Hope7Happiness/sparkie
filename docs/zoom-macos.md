@@ -1,6 +1,6 @@
 # macOS Zoom 接收探针
 
-保留 Linux Docker 探针，增加直接使用 macOS Meeting SDK 的原生入口。两个入口都只做 **真实入会 → 主持人授权 → 原始音频帧 / 峰值统计**。它们还没有连接 Python `AudioMeeting`、Deepgram、LLM 或会议语音回复，也不保存 PCM 录音。
+保留 Linux Docker 探针，增加直接使用 macOS Meeting SDK 的原生入口。`zoom-sanity.py --platform macos` 的探针模式只做 **真实入会 → 主持人授权 → 原始音频帧 / 峰值统计**，不保存 PCM 录音。同一二进制在 `voice` 配置下运行完整语音桥：`bash scripts/zoom.sh` 在 `ZOOM_PLATFORM=macos` 时直接启动本 app 并复用与 Linux 相同的 loopback PCM 协议（见 [接口约定](interfaces.md#zoom-音频桥)）。语音模式已实现并通过 SDK 加载检查，**尚未完成真实会议收发验收**。
 
 ## 配置
 

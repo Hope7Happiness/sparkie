@@ -177,28 +177,31 @@ class DeepgramEars:
         async with self.connector(self.key, self.rate, self.model, self.language) as ws:
             if self.on_ready:
                 self.on_ready()
+            last_sent = asyncio.get_running_loop().time()
+            send_lock = asyncio.Lock()
+
             async def send():
-                iterator = frames.__aiter__()
-                pending = None
-                try:
-                    while True:
-                        pending = asyncio.create_task(anext(iterator))
-                        while not pending.done():
-                            done, _ = await asyncio.wait({pending}, timeout=3)
-                            if not done:
-                                await ws.send(json.dumps({"type": "KeepAlive"}))
-                        try:
-                            frame = pending.result()
-                        except StopAsyncIteration:
-                            break
-                        if frame.sample_rate != self.rate or not frame.pcm or len(frame.pcm) % 2:
-                            raise ProviderError("Audio must be nonempty PCM16 mono at the configured sample rate")
+                nonlocal last_sent
+                count = 0
+                async for frame in frames:
+                    if frame.sample_rate != self.rate or not frame.pcm or len(frame.pcm) % 2:
+                        raise ProviderError("Audio must be nonempty PCM16 mono at the configured sample rate")
+                    async with send_lock:
                         await ws.send(frame.pcm)
+                        last_sent = asyncio.get_running_loop().time()
+                    count += 1
+                    # Buffered input and websocket sends may both complete inline.
+                    if count % 32 == 0:
+                        await asyncio.sleep(0)
+                async with send_lock:
                     await ws.send(json.dumps({"type": "CloseStream"}))
-                finally:
-                    if pending and not pending.done():
-                        pending.cancel()
-                        await asyncio.gather(pending, return_exceptions=True)
+
+            async def keepalive():
+                while True:
+                    await asyncio.sleep(3)
+                    async with send_lock:
+                        if asyncio.get_running_loop().time() - last_sent >= 3:
+                            await ws.send(json.dumps({"type": "KeepAlive"}))
 
             async def receive():
                 sequence = 0
@@ -213,11 +216,14 @@ class DeepgramEars:
             async def supervise():
                 tx = asyncio.create_task(send())
                 rx = asyncio.create_task(receive())
+                heartbeat = asyncio.create_task(keepalive())
                 try:
-                    done, _ = await asyncio.wait({tx, rx}, return_when=asyncio.FIRST_COMPLETED)
+                    done, _ = await asyncio.wait({tx, rx, heartbeat}, return_when=asyncio.FIRST_COMPLETED)
                     for task in done:
                         task.result()
                     if tx in done:
+                        heartbeat.cancel()
+                        await asyncio.gather(heartbeat, return_exceptions=True)
                         await asyncio.wait_for(rx, timeout=10)
                     elif not tx.done():
                         raise ProviderError("Deepgram closed before the audio source ended")
@@ -225,9 +231,9 @@ class DeepgramEars:
                 except Exception as exc:
                     await queue.put(exc)
                 finally:
-                    for task in (tx, rx):
+                    for task in (tx, rx, heartbeat):
                         task.cancel()
-                    await asyncio.gather(tx, rx, return_exceptions=True)
+                    await asyncio.gather(tx, rx, heartbeat, return_exceptions=True)
 
             runner = asyncio.create_task(supervise())
             try:

@@ -50,7 +50,8 @@ async def local_session(args):
         ears = DeepgramEars(key, session_id, model=os.getenv("DEEPGRAM_MODEL") or "nova-3", language=language)
         mouth = DeepgramMouth(key, os.getenv("DEEPGRAM_TTS_MODEL") or "aura-2-thalia-en")
         engine = Primitive(meeting, ears, mouth, reply=os.getenv("SPARKIE_REPLY") or "I'm here.",
-                           brain=brain, mode="local-audio", event_sink=event_sink)
+                           brain=brain, mode="local-audio", event_sink=event_sink,
+                           question_reply=os.getenv("SPARKIE_QUESTION_REPLY") or "Let me think for a moment.")
         if brain:
             engine.log("reasoning_config", backend=os.getenv("SPARKIE_BACKEND") or "codex",
                        model=brain.model, reasoning_effort=getattr(brain, "reasoning_effort", None))
