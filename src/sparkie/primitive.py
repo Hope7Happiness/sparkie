@@ -16,6 +16,7 @@ from .simulation import ScriptedDeepgram, SimulatedSpeech, SimulatedMeeting
 from .providers import DeepgramMouth, DeepgramEars, ProviderError
 from .audio import AudioFrame
 from .backends import configured_brain
+from .zoom_config import selected_platform, sdk_path, sdk_present
 
 
 def doctor():
@@ -23,22 +24,37 @@ def doctor():
     for name in ["DEEPGRAM_API_KEY", "DEEPGRAM_TTS_MODEL",
                  "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_MEETING_ID", "ZOOM_MEETING_PASSWORD"]:
         checks[name] = bool(os.getenv(name))
-    sdk = Path(os.environ.get("ZOOM_SDK_PATH") or ".runtime/missing-sdk")
-    checks["ZOOM_SDK_FILES"] = (sdk / "h").is_dir() and (sdk / "libmeetingsdk.so").is_file()
-    checks["DOCKER_RUNNING"] = False
-    if shutil.which("docker"):
-        try:
-            checks["DOCKER_RUNNING"] = subprocess.run(
-                ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
-            ).returncode == 0
-        except (subprocess.TimeoutExpired, OSError):
-            pass
+    try:
+        target = selected_platform()
+    except ValueError as error:
+        print(str(error))
+        return 1
+    checks["ZOOM_SDK_FILES"] = sdk_present(target, sdk_path(target))
+    if target == "macos":
+        checks["MACOS_HOST"] = platform.system() == "Darwin"
+        checks["XCODE_AVAILABLE"] = False
+        if checks["MACOS_HOST"] and shutil.which("xcodebuild"):
+            try:
+                checks["XCODE_AVAILABLE"] = subprocess.run(
+                    ["xcodebuild", "-version"], stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=10).returncode == 0
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+    else:
+        checks["DOCKER_RUNNING"] = False
+        if shutil.which("docker"):
+            try:
+                checks["DOCKER_RUNNING"] = subprocess.run(
+                    ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
+                ).returncode == 0
+            except (subprocess.TimeoutExpired, OSError):
+                pass
     for name, present in checks.items():
         print(f"{'OK     ' if present else 'MISSING'} {name}")
     for name in ["OPENAI_API_KEY", "OPENAI_MODEL"]:
         print(f"{'SET' if os.getenv(name) else 'OPTIONAL'} {name} (not needed for fixed reply)")
     print(f"Backend: {os.getenv('SPARKIE_BACKEND') or 'codex'}; Codex CLI: {'found' if shutil.which('codex') else 'missing'}")
-    print(f"Host architecture: {platform.machine()}; SDK must match Linux runtime architecture.")
+    print(f"Zoom platform: {target}; host architecture: {platform.machine()}; SDK must match its runtime architecture.")
     print("Presence check only; this does not authenticate keys, verify SDK compatibility or join Zoom.")
     return 0 if all(checks.values()) else 1
 
