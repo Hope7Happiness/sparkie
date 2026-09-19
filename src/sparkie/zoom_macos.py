@@ -72,6 +72,10 @@ def build(root):
                     "-framework", "ZoomSDK", "-F", str(frameworks),
                     "-Wl,-rpath,@executable_path/../Frameworks", str(root / "native/zoom-macos/main.m"),
                     "-o", str(contents / "MacOS/SparkieZoom")], check=True)
+    # Finder/iCloud metadata on a Documents checkout can invalidate code signing.
+    # Strip only prohibited resource metadata from the copy, preserving quarantine.
+    for attribute in ("com.apple.FinderInfo", "com.apple.ResourceFork"):
+        subprocess.run(["xattr", "-dr", attribute, str(staging)], check=True)
     # Sign only the copied runtime, never modify the user's SDK download.
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(staging)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(staging)], check=True)
