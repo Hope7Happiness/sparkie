@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const python = path.join(root, '.venv/bin/python');
@@ -12,7 +13,7 @@ const runFile = promisify(execFile);
 export function validateOptions(value) {
   if (!value || !['en', 'zh-CN'].includes(value.language) ||
       !['speaker', 'headphones'].includes(value.echoMode) ||
-      !['wake', 'qa'].includes(value.responseMode) ||
+      !['wake', 'qa', 'realtime'].includes(value.responseMode) ||
       !Number.isInteger(value.seconds) || value.seconds < 10 || value.seconds > 300) {
     throw new Error('请选择问答模式、语言、播放方式和 10–300 秒的时长。');
   }
@@ -39,19 +40,23 @@ export class SessionController {
   start(options) {
     validateOptions(options);
     if (this.child) throw new Error('测试正在运行，请先停止当前测试。');
-    const args = ['-m', 'sparkie.primitive', 'local', '--language', options.language,
+    const args = ['-m', ...(options.responseMode === 'realtime' ? ['sparkie.realtime_session'] : ['sparkie.primitive', 'local']), '--language', options.language,
       '--seconds', String(options.seconds), '--echo-mode', options.echoMode,
-      '--response-mode', options.responseMode];
+      ];
+    if (options.responseMode !== 'realtime') args.push('--response-mode', options.responseMode);
     for (const [key, flag] of [['inputDevice', '--input-device'], ['outputDevice', '--output-device']]) {
       if (options[key] !== '') args.push(flag, String(options[key]));
     }
     this.state = { id: randomUUID(), status: 'starting', startedAt: this.clock(), options,
       events: [], level: 0, gated: false, timingReliable: true };
+    this.outputDirectory = null;
+    this.eventSequence = 0;
     this.lastSeen = this.clock();
     this.lastAudioAt = null;
     this.captureActive = false;
-    const child = this.spawnChild(python, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = this.spawnChild(python, args, { cwd: root, stdio: [options.responseMode === 'realtime' ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     this.child = child;
+    child.stdin?.on('error', () => { this.state.warning = '控制连接已结束。'; });
     const lines = createInterface({ input: child.stdout });
     lines.on('line', line => {
       try {
@@ -67,6 +72,10 @@ export class SessionController {
           this.state.timingReliable &&= event.timing_reliable;
           return;
         }
+        if (event.type === 'configuration_error') this.state.error = `缺少配置：${event.missing.join(', ')}`;
+        if (event.type === 'session_failed') this.state.error = `实时会话失败（${event.error_type}），请检查连接与配置。`;
+        if (event.type === 'session_created') this.outputDirectory = event.output;
+        event.sequence = ++this.eventSequence;
         this.state.events.push(event);
         if (this.state.events.length > 2000) this.state.events.shift();
         if (event.type === 'listening_ready' && this.state.status === 'starting') {
@@ -104,6 +113,13 @@ export class SessionController {
     this.deadlineTimer.unref?.();
     return this.state;
   }
+  control(command) {
+    if (!this.child || this.state.options?.responseMode !== 'realtime' ||
+        !['interrupt', 'cancel_task', 'report_task'].includes(command.action) ||
+        (command.action !== 'interrupt' && !/^[a-f0-9]{12}$/.test(command.task_id || ''))) throw new Error('Invalid control');
+    this.child.stdin.write(JSON.stringify(command) + '\n');
+    return { ok: true };
+  }
   stop(reason = 'user') {
     if (this.child && this.state.status !== 'stopping') {
       this.state.status = 'stopping';
@@ -131,7 +147,7 @@ export class SessionController {
   }
 }
 
-export function localApi() {
+export function localApi(port = 5178) {
   const controller = new SessionController();
   return {
     name: 'sparkie-local-api', apply: 'serve',
@@ -148,12 +164,23 @@ export function localApi() {
           res.end(JSON.stringify(data));
         };
         const origin = req.headers.origin;
-        const allowed = new Set(['http://127.0.0.1:5178', 'http://localhost:5178']);
-        if (!['127.0.0.1:5178', 'localhost:5178'].includes(req.headers.host) || (origin && !allowed.has(origin))) {
+        const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+        if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host) || (origin && !allowed.has(origin))) {
           return send(403, { error: '仅允许本机页面访问。' });
         }
         try {
           if (req.method === 'GET' && req.url === '/status') return send(200, controller.snapshot());
+          if (req.method === 'GET' && req.url === '/transcript') {
+            if (!controller.outputDirectory) return send(200, { records: [] });
+            const directory = path.resolve(root, controller.outputDirectory);
+            if (!directory.startsWith(path.join(root, 'output') + path.sep)) return send(403, { error: 'Invalid session' });
+            const data = await readFile(path.join(directory, 'transcript.jsonl'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+            return send(200, { records: data.split('\n').filter(Boolean).map(line => JSON.parse(line)) });
+          }
+          if (req.method === 'GET' && req.url === '/config') {
+            const { stdout } = await runFile(python, ['-c', 'from dotenv import load_dotenv; import os,json; load_dotenv(); print(json.dumps({k:bool(os.getenv(k)) for k in ["OPENAI_API_KEY","DEEPGRAM_API_KEY"]}))'], { cwd: root, timeout: 5000 });
+            return send(200, JSON.parse(stdout));
+          }
           if (req.method === 'GET' && req.url === '/devices') {
             const code = 'import sounddevice as s,json; print(json.dumps({"devices":[{"id":i,"name":d["name"],"input":d["max_input_channels"]>0,"output":d["max_output_channels"]>0} for i,d in enumerate(s.query_devices())],"defaults":list(s.default.device)}))';
             const { stdout } = await runFile(python, ['-c', code], { cwd: root, timeout: 10000 });
@@ -168,6 +195,7 @@ export function localApi() {
             }
             const options = JSON.parse(body);
             if (req.url === '/start') return send(200, controller.start(options));
+            if (req.url === '/control') return send(200, controller.control(options));
             if (req.url === '/stop') return send(200, controller.stop());
           }
           send(404, { error: 'Not found' });

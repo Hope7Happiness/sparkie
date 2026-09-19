@@ -1,29 +1,16 @@
 <!doctype html>
-<html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#f5f3ee"><title>Sparkie · Voice Lab</title></head>
-<body>
-  <div class="app">
-    <header><a class="brand" href="/" aria-label="Sparkie 首页"><span class="brand-icon">✳</span> sparkie<span class="brand-tag">VOICE LAB</span></a><span class="connection" id="connection">连接本地服务…</span></header>
-    <main>
-      <div class="intro"><div><div class="eyebrow">从听见到听懂 / 02</div><h1>问一句，<span>聊得下去。</span></h1><p>叫醒 Sparkie，问一个问题，或聊聊刚才的讨论。</p></div><span class="local-tag">● 本机麦克风测试</span></div>
-      <div class="workspace">
-        <section class="panel session-panel" aria-labelledby="session-title">
-          <div class="panel-top"><h2 id="session-title">语音测试</h2><span class="status" id="status">准备就绪</span></div>
-          <div class="voice-stage" id="stage"><div class="orb"><svg width="34" height="42" viewBox="0 0 34 42" fill="none" aria-hidden="true"><rect x="11" y="2" width="12" height="24" rx="6" stroke="currentColor" stroke-width="2.5"/><path d="M4 19v2a13 13 0 0026 0v-2M17 34v6m-6 0h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></div><h3 id="prompt">准备好就开口</h3><p id="hint">点击开始，等待连接后说 “Sparkie”</p><div class="wave" id="wave" aria-label="实时麦克风电平"></div><span class="mic-note" id="mic-note">麦克风尚未开启</span></div>
-          <div class="settings"><label>测试模式<select id="mode"><option value="qa">真实问答 · 记住本轮对话</option><option value="wake">只测唤醒 · 固定回复</option></select></label><label>输入设备<select id="input"><option value="">系统默认麦克风</option></select></label><label>输出设备<select id="output"><option value="">系统默认扬声器</option></select></label><div class="settings-row"><label>识别语言<select id="language"><option value="en">English</option><option value="zh-CN">中文</option></select></label><label>播放方式<select id="echo"><option value="speaker">扬声器</option><option value="headphones">耳机</option></select></label><label>测试时长<select id="seconds"><option value="60">60 秒</option><option value="120" selected>120 秒</option><option value="300">5 分钟</option></select></label></div></div>
-          <button class="primary" id="start" disabled><span>●</span> 开始测试</button><button class="stop" id="stop" hidden>■ 停止测试</button>
-          <p class="privacy">音频发送至 Deepgram；问答模式将本轮上下文发送给推理服务，回答暂为英文。不保存原始录音。扬声器播放时暂停识别。</p>
-          <p class="warning" id="warning" role="status" hidden></p><p class="error" id="error" role="alert" hidden></p>
-        </section>
-        <div class="results">
-          <section class="panel latency-panel" aria-labelledby="latency-title"><div class="panel-top"><h2 id="latency-title">最近一次答案</h2><span class="small-label">设备时间估算</span></div><div class="latency-main"><span id="total">—</span><span class="unit">ms</span></div><p class="metric-caption" id="metric-caption">说完问题 → 开始朗读答案</p><div class="latency-breakdown"><div><span class="dot coral"></span><span>说完 → 识别唤醒</span><strong id="recognition">—</strong></div><div><span class="dot green"></span><span id="playback-label">识别唤醒 → 实际回答</span><strong id="playback">—</strong></div></div><div class="breakdown-track"><span id="recognition-bar"></span><span id="playback-bar"></span></div><div class="answer-metrics" id="answer-metrics"><div><span>确认回应</span><strong id="ack-time">—</strong></div><div><span>答案文字出现</span><strong id="text-time">—</strong></div><div><span>完整答案播完</span><strong id="complete-time">—</strong></div></div><p class="fine" id="answer-note"><span id="reasoning-model">本轮模型连接后显示</span> · 最近 50 条对话，新一轮清空。</p><p class="fine">包含断句等待与服务响应；不包含页面刷新耗时。不是独立声学测量，丢帧时不计入统计。</p></section>
-          <section class="panel transcript-panel" aria-labelledby="transcript-title"><div class="panel-top"><h2 id="transcript-title">本轮对话</h2><span class="small-label" id="elapsed">00:00</span></div><div class="transcripts" id="transcripts" role="log" aria-live="polite"><div class="empty"><span>“ ”</span><p>你的声音会出现在这里</p><small>试试 “Sparkie, what is a WebSocket?”，然后停顿。</small></div></div></section>
-        </div>
-      </div>
-      <section class="panel history-panel" aria-labelledby="history-title"><div class="panel-top"><div class="history-heading"><h2 id="history-title">本轮测试记录</h2><span class="count" id="count">0 次唤醒</span></div><button id="download" class="text-button" disabled>导出记录 ↗</button></div><div class="stats"><span><span id="stats-label">答案样本</span> <strong id="samples">0</strong></span><span>平均 <strong id="average">—</strong></span><span>最快 <strong id="fastest">—</strong></span><span>最慢 <strong id="slowest">—</strong></span></div><div class="table-scroll"><table><thead><tr><th>次数</th><th>唤醒语句</th><th>确认回应</th><th>答案首声</th><th>问答状态</th></tr></thead><tbody id="trials"><tr><td colspan="5" class="table-empty">开始测试后，每一次唤醒都会记录在这里。</td></tr></tbody></table></div></section>
-      <details class="event-details"><summary>查看事件与会话编号</summary><pre id="events">尚无会话</pre></details>
-      <footer><span>SPARKIE / LOCAL AUDIO PRIMITIVE</span><span>先说一句，再快一点。</span></footer>
-    </main>
-  </div>
-  <script type="module" src="/src/main.js"></script>
-</body></html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sparkie</title></head>
+<body><main class="lab">
+<header><a class="brand" href="/" aria-label="Sparkie 首页"><span>✳</span> sparkie</a><span id="state" role="status">准备就绪</span></header>
+<section class="hero"><p class="eyebrow">LET’S THINK TOGETHER</p><h1>聊着，把事情做了。</h1><p>随时开口，复杂的事交给我。</p></section>
+<section class="session"><form id="setup"><div class="voice-stage"><div class="voice-orb" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/></svg></div><div class="meter" aria-label="麦克风电平"><div id="level"></div></div><p id="notice" role="status">准备好就开口</p><div class="actions"><button id="start" type="submit">开始对话</button><button id="stop" type="button" class="secondary" hidden>结束对话</button><button id="interrupt" type="button" class="quiet" hidden>打断</button></div></div>
+<details class="settings-drawer"><summary>设置</summary><div class="settings">
+<label>语言<select name="language"><option value="zh-CN">中文</option><option value="en">English</option></select></label>
+<label>播放方式<select name="echoMode"><option value="headphones">耳机</option><option value="speaker">扬声器</option></select></label>
+<label>麦克风<select name="inputDevice"><option value="">系统默认</option></select></label>
+<label>输出设备<select name="outputDevice"><option value="">系统默认</option></select></label>
+<label>时长<select name="seconds"><option value="300">5 分钟</option><option value="120">2 分钟</option><option value="30">30 秒</option></select></label>
+</div><button id="devices" type="button" class="quiet">刷新设备</button><p class="privacy">音频由 OpenAI、Deepgram 处理；转写和任务结果保存在本机。</p></details></form><p id="error" role="alert"></p></section>
+<div class="columns"><section class="panel"><div class="section-title"><h2>对话</h2><button id="export" class="quiet">导出</button></div><div id="conversation" class="feed"><p class="empty">从一句话开始。</p></div></section>
+<section class="panel"><div class="section-title"><h2>后台任务</h2><span id="task-count">0</span></div><div id="tasks"><p class="empty">需要深入思考的事，交给我。</p></div></section></div>
+</main><script type="module" src="/src/realtime.js"></script></body></html>

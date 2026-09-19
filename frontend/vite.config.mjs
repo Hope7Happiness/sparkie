@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
-import frontendHelper from '@frontend-helper/vite';
 import { localApi } from './server.mjs';
 
+const port = Number(process.env.SPARKIE_WEB_PORT || 5178);
 export default defineConfig({
-  plugins: [localApi(), frontendHelper({ initiallyOpen: false })],
-  server: { host: '127.0.0.1', port: 5178, strictPort: true, open: false },
+  plugins: [localApi(port)],
+  server: { host: '127.0.0.1', port, strictPort: true, open: false },
 });

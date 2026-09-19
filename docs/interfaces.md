@@ -51,3 +51,26 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。
 
 `zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。
+
+## Realtime 前台与后台分析（本地验收）
+
+新的唯一网页入口 `/` 使用 `sparkie.realtime_session`；`qa` / `wake` 仍可从旧 CLI 启动。
+输入 PCM 分成两个独立有界队列：OpenAI Realtime 直接接收音频，Deepgram 只负责最终转写。
+Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网络失败会记录覆盖缺口，实时对话继续。
+
+`RealtimeAudioTransport`（`audio.py`）使用 PCM16LE、mono、24 kHz：`join` / `audio` / `append_output(item_id, pcm)` / `finish_output(item_id)` / `stop_speaking` / `leave`。
+`append_output` 必须立即入有界播放队列；`finish_output` 只标记生成完成，不表示音频已播放。
+`outputs` 保存每个 item 的字节数、取消标志和 `played_ms()`；打断会清空待播内容并向 Realtime 发送截断时间，防止未听到的内容留在模型上下文。
+本地实现使用 PortAudio DAC 时间估算实际播放进度。Zoom 当前 32 kHz 整段播放协议不满足该接口，需另行实现流式播放、24↔32 kHz 重采样及可靠的播放进度；不能直接声称兼容。
+
+`delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
+worker 一次只运行一个任务，最多三项待处理，每会话最多八项，每任务最多 90 秒。
+委派时完整最终转写、生成的助手文本、播放截断标记、覆盖缺口一并快照，不再受旧问答的 50 条限制。
+尚未到达的 Deepgram 转写不会伪装成已收集：工具描述要求前台补充当前请求与最近口述；任务记录明确快照截止语义。
+单份上下文超过 256 KB 时明确失败，不静默截断。Codex CLI 复用登录、剔除项目密钥、临时只读工作目录，禁用 shell / web；这版仅分析和起草，不执行外部操作。
+
+`output/realtime/<session>/transcript.jsonl` 保存全部记录，`tasks.json` 保存任务、不可变输入快照和结果，`events.jsonl` 保存诊断事件，`run.json` 保存会话报告；不保存原始音频。
+转写持久化成功后才发送 UI 事件。助手的完整生成文本不代表全部已播放，以 `realtime_interrupted` 为准。
+扬声器回声门控写入 coverage_gap / coverage_resumed；转写不能宣称覆盖缺口内的说话。
+结果完成后仅更新界面，不主动打断。用户问进展时用 task_status；点击播报调用 `/api/control` 的 report_task，仅当前语音空闲时执行。
+页面只显示对话与任务，诊断事件仍可在日志中查看；`realtime_audio_started.latency_ms` 是最近口述结束到设备首音频的估算，不是后台任务最终答案延迟，也不是独立声学测量。

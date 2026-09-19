@@ -32,6 +32,7 @@ class LocalAudioMeeting:
         self.echo_mode, self.echo_tail = echo_mode, echo_tail_ms / 1000
         self.max_seconds, self.driver, self.on_event = max_seconds, driver, on_event
         self.rate = 32000
+        self.stream_latency = .2
         self._queue = queue.Queue(maxsize=100)  # Bounded native audio blocks.
         self._stop = threading.Event()
         self._playback = None
@@ -123,7 +124,7 @@ class LocalAudioMeeting:
             self.driver.check_output_settings(device=self.output_device, channels=1, dtype="int16", samplerate=self.rate)
             self._stream = self.driver.RawStream(
                 samplerate=self.rate, blocksize=0, device=(self.input_device, self.output_device),
-                channels=(1, 1), dtype="int16", latency=.2, callback=self._callback,
+                channels=(1, 1), dtype="int16", latency=self.stream_latency, callback=self._callback,
             )
             self._last_capture_at = time.monotonic()
             self._stream.start()
@@ -131,7 +132,7 @@ class LocalAudioMeeting:
             if self._stream:
                 self._stream.close()
                 self._stream = None
-            raise ProviderError("Cannot open microphone/speaker; check device IDs, 32kHz support and microphone permission (" + type(exc).__name__ + ")") from None
+            raise ProviderError("Cannot open microphone/speaker; check device IDs, PCM sample-rate support and microphone permission (" + type(exc).__name__ + ")") from None
         if self.on_event:
             self.on_event("audio_open", echo_mode=self.echo_mode, sample_rate=self.rate)
 
