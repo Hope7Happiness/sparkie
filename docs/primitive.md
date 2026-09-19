@@ -48,16 +48,18 @@ Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终
 
 `Primitive(..., brain=configured_brain())` 可接入推理；固定回复 CLI 默认不启用 brain。两种真实 brain 均用英文回答，匹配当前 Deepgram 英文声音。
 
-## 接口与负责人
+## 接口与状态
 
-| 模块 | 文件 | 状态 / 负责人 |
+第一轮由 `@Hope7Happiness` 与 Codex 统一实现和集成，`@YIFANK` 与 `@bowenyu066` 测试可运行版本；后续轮换角色，模块边界不代表固定人员分工。
+
+| 模块 | 文件 | 状态 |
 | --- | --- | --- |
-| Zoom 音频边界 | `audio.py` 的 `AudioMeeting` | A 待实现原生 SDK 接入：join/audio/play_audio/stop_speaking/leave |
+| Zoom 音频边界 | `audio.py` 的 `AudioMeeting` | 待实现原生 SDK 接入：join/audio/play_audio/stop_speaking/leave |
 | 模拟会议、STT、TTS | `simulation.py` | 可运行，脚本 transcript 与静音占位 |
-| Deepgram STT | `providers.py` 的 `DeepgramEars` | B；真实 WebSocket 检查通过 |
-| Deepgram TTS | `providers.py` 的 `DeepgramMouth` | C；真实 Aura REST PCM 检查通过 |
-| Codex 后端 | `backends.py` 的 `CodexBrain` | B；真实非交互调用通过 |
-| OpenAI API 后端 | `providers.py` 的 `OpenAIBrain` | B；key 认证通过，推理为模拟协议测试 |
+| Deepgram STT | `providers.py` 的 `DeepgramEars` | 真实 WebSocket 检查通过 |
+| Deepgram TTS | `providers.py` 的 `DeepgramMouth` | 真实 Aura REST PCM 检查通过 |
+| Codex 后端 | `backends.py` 的 `CodexBrain` | 真实非交互调用通过 |
+| OpenAI API 后端 | `providers.py` 的 `OpenAIBrain` | key 认证通过，推理为模拟协议测试 |
 | 唤醒与回复 | `engine.py`、`wake.py` | 非阻塞回复，最近 50 条人类 transcript 上下文 |
 
 ## 已知限制

@@ -1,16 +1,18 @@
-# 人工配置清单：三人可与代码开发并行
+# 人工配置清单
+
+当前采用[一人编码、两人测试反馈](team-first-steps.md)；本清单不再分配固定模块负责人。
 
 核验日期：2026-09-19。Deepgram key 已通过真实 TTS→流式 STT 检查；本机 Codex CLI 已通过真实上下文回答测试；OpenAI key 的模型列表请求返回 HTTP 200。未检查账号余额或套餐。默认模拟原型不发起外部请求，显式 live 检查会消耗对应服务额度。
 
-| 谁来做 | 服务 | 人工动作 | 放入本地 `.env` |
+| 配置责任 | 服务 | 人工动作 | 放入本地 `.env` |
 | --- | --- | --- | --- |
-| A | Zoom | 开发者账号、General App、开启 Meeting SDK、下载匹配架构的 Linux SDK | `ZOOM_CLIENT_ID`、`ZOOM_CLIENT_SECRET`、`ZOOM_SDK_PATH` |
-| A | 测试会议 / 环境 | 由应用所属账号主持；准备会议号密码；允许入会、录制权限与麦克风；启动 Docker | `ZOOM_MEETING_ID`、`ZOOM_MEETING_PASSWORD` |
-| B | Deepgram（已配置） | STT / TTS 共用现有 key；真实英文检查已通过 | `DEEPGRAM_API_KEY` |
-| B | Codex / OpenAI | 默认复用本机 Codex 登录；OpenAI API key 已配置，切换 API 时另填模型 | `SPARKIE_BACKEND=codex`；可选 `OPENAI_MODEL` |
-| C | Deepgram TTS | 选择声音和英文回复，无需额外 ElevenLabs 账号 | `DEEPGRAM_TTS_MODEL`、`SPARKIE_REPLY` |
+| 账号持有人配合当轮编码负责人 | Zoom | 开发者账号、General App、开启 Meeting SDK、下载匹配架构的 Linux SDK | `ZOOM_CLIENT_ID`、`ZOOM_CLIENT_SECRET`、`ZOOM_SDK_PATH` |
+| 账号持有人配合当轮编码负责人 | 测试会议 / 环境 | 由应用所属账号主持；准备会议号密码；允许入会、录制权限与麦克风；启动 Docker | `ZOOM_MEETING_ID`、`ZOOM_MEETING_PASSWORD` |
+| 当轮编码负责人 | Deepgram（已配置） | STT / TTS 共用现有 key；真实英文检查已通过 | `DEEPGRAM_API_KEY` |
+| 当轮编码负责人 | Codex / OpenAI | 默认复用本机 Codex 登录；OpenAI API key 已配置，切换 API 时另填模型 | `SPARKIE_BACKEND=codex`；可选 `OPENAI_MODEL` |
+| 当轮编码负责人 | Deepgram TTS | 选择声音和英文回复，无需额外 ElevenLabs 账号 | `DEEPGRAM_TTS_MODEL`、`SPARKIE_REPLY` |
 
-## A：Zoom 是关键路径
+## Zoom 是关键路径
 
 1. 登录 [Zoom App Marketplace](https://marketplace.zoom.us/)。账号需为 owner/admin，或有 Zoom for developers 角色及 SDK View/Edit 权限。
 2. 创建 **General App**，在 **Features → Embed → Meeting SDK** 开启功能，保存应用的 Client ID 和 Client Secret。不要拿 Server-to-Server OAuth 凭据替代 Meeting SDK 凭据。
@@ -21,13 +23,13 @@
 
 **跨账号入会是后续配置：** 应用需要 Zoom 审核，并采用适用的 ZAK/OBF 用户授权；OAuth、相关 scopes、用户安装授权以及 token 获取都要按该流程配置。不能仅给一个任意会议链接就假定 bot 可进入。[Zoom 入会授权](https://developers.zoom.us/docs/meeting-sdk/auth/)
 
-## B：Deepgram 与 OpenAI
+## Deepgram 与 OpenAI
 
 Deepgram：在 [Console](https://console.deepgram.com/) 建立项目并生成 API key，确认账户有测试额度。程序使用 `Authorization: Token ...` 连接流式服务。当前预设 Nova-3、`zh-CN`；英文 demo 改为 `en`。中文和中英混说的实际识别率需要测试，不能仅凭支持语言列表保证效果。[认证](https://developers.deepgram.com/guides/fundamentals/authenticating)、[流式转录](https://developers.deepgram.com/docs/live-streaming-audio)、[语言支持](https://developers.deepgram.com/docs/models-languages-overview)
 
 OpenAI：在 [API Platform](https://platform.openai.com/) 创建项目 API key，确认可调用的模型、用量限制和 API 额度。`OPENAI_MODEL` 填项目实际可用的模型 ID，不默认假定权限。首个固定“我在”闭环不调用 OpenAI；该 adapter 用于下一阶段上下文问答。[官方 quickstart](https://developers.openai.com/api/docs/quickstart)
 
-## C：Deepgram TTS
+## Deepgram TTS
 
 STT 和 TTS 共用现有 Deepgram key。当前使用 `aura-2-thalia-en`，请求 `/v1/speak`，输出无容器的 PCM16 mono 32kHz，再保存为 WAV 或交给会议音频层。固定回复为 **I'm here.**。已用真实 key 生成 `output/deepgram/reply.wav`，不再要求 ElevenLabs API key 或 Voice ID。[TTS 接口](https://developers.deepgram.com/docs/text-to-speech)、[输出格式](https://developers.deepgram.com/docs/tts-media-output-settings)
 
