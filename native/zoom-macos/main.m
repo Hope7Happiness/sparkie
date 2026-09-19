@@ -20,25 +20,31 @@
 
 @implementation SparkieReceiver
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    BOOL checkOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--check"];
+    if (!checkOnly) {
+        NSString *configPath = NSProcessInfo.processInfo.environment[@"SPARKIE_ZOOM_CONFIG"];
+        NSData *data = configPath ? [NSData dataWithContentsOfFile:configPath] : nil;
+        self.config = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (![self.config isKindOfClass:NSDictionary.class]) {
+            printf("CONFIG_MISSING_OR_INVALID\n"); exit(1);
+        }
+        for (NSString *key in @[@"token", @"meeting_number", @"meeting_password", @"display_name"]) {
+            if (![self.config[key] isKindOfClass:NSString.class] || ![self.config[key] length]) {
+                printf("CONFIG_INVALID\n"); exit(1);
+            }
+        }
+    }
     ZoomSDKInitParams *params = [ZoomSDKInitParams new];
     params.zoomDomain = @"https://zoom.us";
     params.needCustomizedUI = NO;
     params.enableLog = NO;
+    printf("SDK_INIT_BEGIN (check macOS Keychain prompts if this stalls)\n");
     ZoomSDKError result = [[ZoomSDK sharedSDK] initSDKWithParams:params];
     printf("SDK_INIT result=%d\n", result);
     if (result != ZoomSDKError_Success) { self.exitCode = 1; [self shutdown]; return; }
-    if ([NSProcessInfo.processInfo.arguments containsObject:@"--check"]) {
+    if (checkOnly) {
         printf("SDK_LOAD_CHECK_OK (no authentication or meeting join attempted)\n");
         [self shutdown]; return;
-    }
-    NSString *configPath = NSProcessInfo.processInfo.environment[@"SPARKIE_ZOOM_CONFIG"];
-    NSData *data = configPath ? [NSData dataWithContentsOfFile:configPath] : nil;
-    self.config = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    if (![self.config isKindOfClass:NSDictionary.class]) { printf("CONFIG_MISSING_OR_INVALID\n"); self.exitCode = 1; [self shutdown]; return; }
-    for (NSString *key in @[@"token", @"meeting_number", @"meeting_password", @"display_name"]) {
-        if (![self.config[key] isKindOfClass:NSString.class] || ![self.config[key] length]) {
-            printf("CONFIG_INVALID\n"); self.exitCode = 1; [self shutdown]; return;
-        }
     }
     ZoomSDKAuthService *auth = [[ZoomSDK sharedSDK] getAuthService];
     auth.delegate = self;

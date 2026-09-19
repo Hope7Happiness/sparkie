@@ -87,7 +87,10 @@ def check(root):
     _, _, binary = paths(root)
     if not binary.is_file():
         raise ValueError("Build the macOS receiver first: zoom-sanity.py build --platform macos")
-    subprocess.run([str(binary), "--check"], check=True, timeout=30)
+    try:
+        subprocess.run([str(binary), "--check"], check=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise ValueError("SDK initialization timed out. Check macOS Keychain prompts; rebuilding an ad-hoc signed app may require approval again. See docs/zoom-macos.md.") from None
 
 
 def start(root):

@@ -120,6 +120,17 @@ class MacLifecycleTests(unittest.TestCase):
                 self.assertEqual(config['meeting_password'], '001234')
                 self.assertNotIn('secret-test', (runtime / 'config.json').read_text())
 
+    def test_load_check_timeout_explains_system_prompt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, binary = zoom_macos.paths(root)
+            binary.parent.mkdir(parents=True)
+            binary.touch()
+            with patch.object(zoom_macos, 'running_pid', return_value=None), \
+                 patch.object(zoom_macos.subprocess, 'run', side_effect=subprocess.TimeoutExpired('probe', 30)):
+                with self.assertRaisesRegex(ValueError, 'Keychain'):
+                    zoom_macos.check(root)
+
     def test_macos_doctor_does_not_require_docker(self):
         env = dict(ENV, DEEPGRAM_API_KEY='test', DEEPGRAM_TTS_MODEL='test', ZOOM_PLATFORM='macos')
         with patch.dict(os.environ, env, clear=True), patch('sparkie.primitive.sdk_present', return_value=True), \

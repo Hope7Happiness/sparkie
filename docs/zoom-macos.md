@@ -42,7 +42,7 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 
 构建会复制 SDK 到 `.runtime/zoom-macos/SparkieZoom.app`，编译仓库里的 Objective-C 接收器，并对运行副本做本地 ad-hoc 签名。不会修改下载目录、安装系统音频驱动、要求 Apple Developer 付费账号，或提交 SDK 二进制。保留约 1.5 GB 空间供 staging 和最终 app 使用。它不是已公证的分发包，也不支持无桌面的 Linux/SSH 环境。
 
-`start` 启动后台进程并写私有日志，但**进程启动不等于入会成功**。macOS 可能显示原生 Zoom 窗口和权限提示。探针以 Sparkie 名称、关闭视频、麦克风静音的设置入会；测试时不要在原生会议 UI 中手动开启视频或取消静音。主持人在等待室接纳，并允许本地录制权限。Zoom 的录制提示用于原始音频访问；本程序只计算帧数和峰值。
+`start` 启动后台进程并写私有日志，但**进程启动不等于入会成功**。macOS 可能显示原生 Zoom 窗口和权限提示。SDK 初始化还可能请求访问自身的钥匙串条目；重新 ad-hoc 签名后可能需要再次由本人处理系统提示，密码只在系统窗口输入。本工具不读取或更改钥匙串权限。探针以 Sparkie 名称、关闭视频、麦克风静音的设置入会；测试时不要在原生会议 UI 中手动开启视频或取消静音。主持人在等待室接纳，并允许本地录制权限。Zoom 的录制提示用于原始音频访问；本程序只计算帧数和峰值。
 
 ## 验收
 
@@ -58,6 +58,7 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 | --- | --- |
 | SDK 文件缺失 | 确认下载的是 macOS 包，路径指向解压根目录 |
 | 构建失败 | 完整 Xcode 26+、许可状态、SDK 架构；不要用 Linux 包 |
+| 停在 SDK_INIT_BEGIN / check 超时 | 查看系统钥匙串授权提示；SDK 的同步初始化可能在等待本人授权，30 秒的 check 超时不表示 JWT 无效 |
 | check 出现重复 Objective-C 类警告 | 本机 SDK 7.1.5 加载时观察到上游 bundle 重复类警告，但初始化返回 0；保留记录，不将它视为会议验证 |
 | 再次要求密码 / 密码错误 | 对照当前会议邀请中的实际 Passcode；不是 Client Secret 或 URL 的 pwd 参数 |
 | 认证请求返回 0，但没有认证回调 | 等待最多 60 秒；`SDK_AUTH_TIMEOUT` 会停止进程，不宣称认证成功 |
@@ -66,7 +67,8 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 
 ## 本次验证记录与限制
 
-- 本机用官方 macOS SDK 7.1.5.84750 完成原生编译、签名验证、`SDK_INIT result=0`、`SDK_LOAD_CHECK_OK` 和正常退出。
+- 本机用官方 macOS SDK 7.1.5.84750 完成原生编译、签名验证；首次版本运行观察到 `SDK_INIT result=0`、`SDK_LOAD_CHECK_OK` 和正常退出。
+- 后续重新签名的版本初始化检查超时；进程采样定位到 SDK 的 `SecItemCopyMatching` / 钥匙串访问等待，需本人处理系统授权后重测最终版本。未绕过或修改系统保护。
 - 自动化覆盖共用 JWT、会议号处理、Linux 命令兼容、私有配置权限、macOS 子进程环境和陈旧 PID 防护；离线 primitive/demo 仍可运行。
 - 用户此前已成功用官方 macOS Sample 加入会议；**这不等于本 PR 新接收器已完成真实会议与非静音音频验收**。新接收器的这些步骤仍待真人测试。
 - Linux 已有实测记录见 [原有流程](zoom-sanity.md)，本次没有重新完成 Linux 真实会议验收。

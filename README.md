@@ -30,4 +30,4 @@ uv run --frozen python -m unittest discover -s tests -v
 
 本机网页测试台：`bash scripts/web.sh`，打开 http://127.0.0.1:5178；默认真实问答（Terra Medium）；叫出 Sparkie 后紧接问题，可查看转录、答案和分别计时的确认/回答延迟。详见 [primitive](docs/primitive.md#网页语音测试台)。
 
-Zoom 接收探针支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker 配置；设为 `macos` 可使用官方 macOS SDK，无需 Docker。两者共用 `.env` 的 Zoom 凭证，新 macOS 探针已验证编译和 SDK 初始化，真实会议音频仍待验收。
+Zoom 接收探针支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker 配置；设为 `macos` 可使用官方 macOS SDK，无需 Docker。两者共用 `.env` 的 Zoom 凭证，新 macOS 探针已验证编译，首次 SDK 初始化通过；重建后的钥匙串授权与真实会议音频仍待验收。
