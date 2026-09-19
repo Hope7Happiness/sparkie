@@ -96,3 +96,26 @@ test('a short input stall warning clears when samples resume', () => {
   assert.equal(controller.state.warning,undefined);
   child.emit('close',0);
 });
+
+test('realtime launches separate runner and validates control messages', () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough(); child.kill = () => {};
+  let command;
+  const controller = new SessionController((exe, args, options) => { command = { args, options }; return child; });
+  controller.start({ language: 'zh-CN', echoMode: 'headphones', responseMode: 'realtime', seconds: 120, inputDevice: '', outputDevice: '' });
+  assert.equal(command.args[1], 'sparkie.realtime_session');
+  assert.equal(command.options.stdio[0], 'pipe');
+  assert.throws(() => controller.control({ action: 'arbitrary' }));
+  controller.control({ action: 'interrupt' });
+  assert.equal(JSON.parse(child.stdin.read().toString()).action, 'interrupt');
+  child.emit('close', 0, null);
+});
+
+test('bounded event history retains monotonic cursors after rollover', () => {
+  const { controller, child } = harness();
+  controller.start(options);
+  for (let i = 0; i < 2010; i++) child.stdout.write('{"type":"test"}\n');
+  assert.equal(controller.state.events.length, 2000);
+  assert.equal(controller.state.events.at(-1).sequence, 2010);
+  child.emit('close', 0);
+});
