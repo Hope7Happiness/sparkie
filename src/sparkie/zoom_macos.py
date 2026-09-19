@@ -1,5 +1,6 @@
 """Build and manage the native macOS receive-only probe. SDK stays outside Git."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import platform
@@ -45,7 +46,11 @@ def build(root):
         raise ValueError("ZOOM_MACOS_SDK_PATH (or ZOOM_SDK_PATH) must contain ZoomSDK/ZoomSDK.framework")
     runtime, app, binary = paths(root)
     # Build in staging; a compiler/signing failure leaves the previous app intact.
-    staging = runtime / "staging/SparkieZoom.app"
+    # iCloud Documents can reattach FinderInfo during signing. Keep binaries local.
+    identity = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
+    storage = Path.home() / "Library/Application Support/Sparkie/ZoomReceivers" / identity
+    installed = storage / "SparkieZoom.app"
+    staging = storage / "staging/SparkieZoom.app"
     if staging.exists():
         shutil.rmtree(staging)
     contents = staging / "Contents"
@@ -79,9 +84,15 @@ def build(root):
     # Sign only the copied runtime, never modify the user's SDK download.
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(staging)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(staging)], check=True)
-    if app.exists():
+    if installed.exists():
+        shutil.rmtree(installed)
+    staging.rename(installed)
+    runtime.mkdir(parents=True, exist_ok=True)
+    if app.is_symlink():
+        app.unlink()
+    elif app.exists():
         shutil.rmtree(app)
-    staging.rename(app)
+    app.symlink_to(installed, target_is_directory=True)
     print("macOS receiver built. Run check to verify local SDK loading; start joins a real meeting.")
 
 

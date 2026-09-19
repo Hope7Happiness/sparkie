@@ -40,7 +40,7 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 
 `--platform` 覆盖 `ZOOM_PLATFORM`；两者都没有时仍使用 **linux**，不会因为运行在 Mac 上就改变团队现有工作流。设好 `ZOOM_PLATFORM=macos` 后可省略参数。
 
-构建会复制 SDK 到 `.runtime/zoom-macos/SparkieZoom.app`，编译仓库里的 Objective-C 接收器，并对运行副本做本地 ad-hoc 签名。不会修改下载目录、安装系统音频驱动、要求 Apple Developer 付费账号，或提交 SDK 二进制。保留约 1.5 GB 空间供 staging 和最终 app 使用。它不是已公证的分发包，也不支持无桌面的 Linux/SSH 环境。
+构建会复制 SDK 到本机 `~/Library/Application Support/Sparkie/ZoomReceivers/<项目路径摘要>/SparkieZoom.app`，并从 `.runtime/zoom-macos/SparkieZoom.app` 建立链接，避免 iCloud Documents 自动添加 Finder 属性导致签名失败。随后编译仓库里的 Objective-C 接收器，并对运行副本做本地 ad-hoc 签名。不会修改下载目录、安装系统音频驱动、要求 Apple Developer 付费账号，或提交 SDK 二进制。保留约 1.5 GB 空间供 staging 和最终 app 使用。它不是已公证的分发包，也不支持无桌面的 Linux/SSH 环境。
 
 `start` 启动后台进程并写私有日志，但**进程启动不等于入会成功**。macOS 可能显示原生 Zoom 窗口和权限提示。SDK 初始化还可能请求访问自身的钥匙串条目；重新 ad-hoc 签名后可能需要再次由本人处理系统提示，密码只在系统窗口输入。本工具不读取或更改钥匙串权限。探针以 Sparkie 名称、关闭视频、麦克风静音的设置入会；测试时不要在原生会议 UI 中手动开启视频或取消静音。主持人在等待室接纳，并允许本地录制权限。Zoom 的录制提示用于原始音频访问；本程序只计算帧数和峰值。
 
