@@ -127,3 +127,38 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output, b'\1\0' * 2)
         self.audio._callback(bytes(4), output, 2, timing, status)
         self.assertEqual(output, b'\2\0' * 2)
+
+    async def test_speaker_gate_blocks_echo_during_stream_gaps_and_tail_then_resumes(self):
+        from unittest.mock import patch
+        self.audio.echo_mode = 'speaker'
+        timing = SimpleNamespace(inputBufferAdcTime=0, outputBufferDacTime=0, currentTime=0)
+        status = SimpleNamespace(input_overflow=False, output_underflow=False)
+        echo = b'\x40\x1f' * 240  # Speaker sound picked up by the microphone.
+        self.audio.append_output('reply', echo)
+        output = bytearray(len(echo))
+        with patch('sparkie.realtime_audio.time.monotonic', return_value=100):
+            self.audio._callback(echo, output, 240, timing, status)
+        self.assertEqual(bytes(output), echo)
+        self.assertEqual(self.audio._queue.get_nowait().pcm, bytes(len(echo)))
+        # No next packet yet, but generation is still active: gate must stay closed.
+        with patch('sparkie.realtime_audio.time.monotonic', return_value=100.2):
+            self.audio._callback(echo, output, 240, timing, status)
+        self.assertEqual(self.audio._queue.get_nowait().pcm, bytes(len(echo)))
+        self.audio.finish_output('reply')
+        # Room/speaker tail after final output is protected too.
+        with patch('sparkie.realtime_audio.time.monotonic', return_value=100.4):
+            self.audio._callback(echo, output, 240, timing, status)
+        self.assertEqual(self.audio._queue.get_nowait().pcm, bytes(len(echo)))
+        with patch('sparkie.realtime_audio.time.monotonic', return_value=100.7):
+            self.audio._callback(echo, output, 240, timing, status)
+        self.assertEqual(self.audio._queue.get_nowait().pcm, echo)
+        self.assertEqual(self.audio.gated_samples, 720)
+
+    async def test_headphones_intentionally_keep_microphone_open_for_barge_in(self):
+        timing = SimpleNamespace(inputBufferAdcTime=0, outputBufferDacTime=0, currentTime=0)
+        status = SimpleNamespace(input_overflow=False, output_underflow=False)
+        speech = b'\x40\x1f' * 240
+        self.audio.append_output('reply', speech)
+        self.audio._callback(speech, bytearray(len(speech)), 240, timing, status)
+        self.assertEqual(self.audio._queue.get_nowait().pcm, speech)
+        self.assertEqual(self.audio.gated_samples, 0)

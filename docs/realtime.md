@@ -13,7 +13,7 @@ bash scripts/web.sh
 SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 ```
 
-点击开始才打开麦克风。默认中文、耳机模式、五分钟。设置可选输入输出设备、扬声器和时长。耳机模式可语音打断；扬声器模式在回复期间暂停输入，以防自身回声触发，日志记录转写缺口。macOS 首次运行需要给启动服务的终端/应用麦克风权限。
+点击开始才打开麦克风。默认中文、扬声器模式、五分钟。设置可选输入输出设备、扬声器和时长。实际使用耳机时可在设置中切换耳机模式，支持语音打断；默认扬声器模式使用「打断」按钮，在回复期间暂停输入，以防自身回声触发，日志记录转写缺口。macOS 首次运行需要给启动服务的终端/应用麦克风权限。
 
 ## 验收范围
 
@@ -34,3 +34,7 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 - 真人语音的首声延迟、音质、打断体验等待用户验收。日志 `realtime_audio_started` 使用设备估算；后台耗时见 tasks.json 的 started_at / finished_at。
 
 官方接口参考：[Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)、[VAD](https://developers.openai.com/api/docs/guides/realtime-vad)、[gpt-realtime-2.1](https://developers.openai.com/api/docs/models/gpt-realtime-2.1)。
+
+## 本地扬声器自我打断修正
+
+验收日志记录默认 headphones 模式下播放 421 ms / 330 ms 后被 speech_started 取消，echo_gated_seconds 为 0。此传输是 PortAudio，不具备 Personal Agent 中 AVAudioEngine.setVoiceProcessingEnabled 的原生回声消除。现将网页与 Realtime CLI 默认模式改成 speaker，启用已有输入静音及播放尾音保护，与 Personal Agent 未启用 Voice Processing 时的备用方案一致。无需改动 VAD 或关闭耳机模式的语音打断。音频回调回归验证了播放、流式包间停顿和尾音阶段的回音不能进入两条上游音频流，结束保护后真实输入恢复。真实设备验收需重新开始一轮会话。

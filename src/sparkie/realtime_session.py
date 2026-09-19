@@ -196,7 +196,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--language', choices=['en', 'zh-CN'], default='zh-CN')
     parser.add_argument('--seconds', type=int, default=120)
-    parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='headphones')
+    parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')
     parser.add_argument('--input-device')
     parser.add_argument('--output-device')
     parser.add_argument('--output', type=Path, default=Path('output/realtime'))
