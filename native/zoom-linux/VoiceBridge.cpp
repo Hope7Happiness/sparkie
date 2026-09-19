@@ -55,7 +55,9 @@ void playback() {
           data.swap(pending); gen=generation.load(); }
         bool ok=true;
         playing=true;
-        auto next=Clock::now();
+        auto next=Clock::now(), began=next, previous=next;
+        double maxGap=0, minGap=1000000, earlyMaxGap=0, maxSend=0;
+        unsigned frames=0, shortGaps=0, longGaps=0;
         for(size_t offset=4; offset<data.size(); offset+=1280) {
             if(gen!=generation.load()) { ok=false; break; }
             vector<char> chunk(1280,0);
@@ -63,12 +65,26 @@ void playback() {
             SDKError result;
             { lock_guard<mutex> lock(senderMutex);
               if(!sender || !sending) { ok=false; break; }
-              result=sender->send(chunk.data(),chunk.size(),32000,ZoomSDKAudioChannel_Mono); }
+              auto now=Clock::now();
+              double gap=chrono::duration<double,milli>(now-previous).count();
+              if(frames) { maxGap=max(maxGap,gap); minGap=min(minGap,gap);
+                  if(now-began<chrono::seconds(2)) earlyMaxGap=max(earlyMaxGap,gap);
+                  if(gap<5) ++shortGaps; if(gap>40) ++longGaps; }
+              previous=now; ++frames;
+              result=sender->send(chunk.data(),chunk.size(),32000,ZoomSDKAudioChannel_Mono);
+              maxSend=max(maxSend,chrono::duration<double,milli>(Clock::now()-now).count()); }
             if(result!=SDKERR_SUCCESS) { ok=false; break; }
             if(offset==4) emit('S',data.data(),4);
             next+=chrono::milliseconds(20);
+            // A missed deadline must not trigger a burst of stale PCM frames.
+            if(next<previous) next=previous+chrono::milliseconds(20);
             this_thread::sleep_until(next);
         }
+        uint32_t id; memcpy(&id,data.data(),4);
+        cout<<"BRIDGE_PLAYBACK id="<<ntohl(id)<<" frames="<<frames
+            <<" max_gap_ms="<<maxGap<<" min_gap_ms="<<minGap
+            <<" early_max_gap_ms="<<earlyMaxGap<<" gaps_under_5ms="<<shortGaps
+            <<" gaps_over_40ms="<<longGaps<<" max_send_ms="<<maxSend<<endl;
         gateUntil=millis()+350;
         playing=false;
         if(ok) emit('D',data.data(),4);
@@ -81,7 +97,7 @@ void serve() {
     int server=socket(AF_INET,SOCK_STREAM,0), one=1;
     setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
     sockaddr_in addr{}; addr.sin_family=AF_INET; addr.sin_port=htons(8769); addr.sin_addr.s_addr=INADDR_ANY;
-    if(bind(server,(sockaddr*)&addr,sizeof(addr)) || listen(server,1)) { cerr<<"BRIDGE_LISTEN_FAILED"<<endl; return; }
+    if(::bind(server,(sockaddr*)&addr,sizeof(addr)) || listen(server,1)) { cerr<<"BRIDGE_LISTEN_FAILED"<<endl; return; }
     cout<<"BRIDGE_LISTENING"<<endl;
     for(;;) {
         int fd=accept(server,nullptr,nullptr); if(fd<0) continue;

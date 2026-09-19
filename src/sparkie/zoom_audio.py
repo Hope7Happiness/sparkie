@@ -26,6 +26,9 @@ class ZoomAudioMeeting:
         self.playbacks = {}
         self.play_id = 0
         self.frames_received = self.bytes_received = 0
+        self.frames_consumed = self.max_queued_frames = 0
+        self.max_receive_gap_ms = 0
+        self._last_audio_at = None
         self.audio_origin = None  # Network input does not establish a remote acoustic clock.
         self.last_playback_started_at = None  # SDK acceptance is not a DAC timestamp.
         self._owns_container = False
@@ -106,6 +109,10 @@ class ZoomAudioMeeting:
                 if kind == b'A':
                     if not data or len(data) % 2:
                         raise RuntimeError('Invalid Zoom PCM frame')
+                    now = time.monotonic()
+                    if self._last_audio_at is not None:
+                        self.max_receive_gap_ms = max(self.max_receive_gap_ms, round((now - self._last_audio_at) * 1000))
+                    self._last_audio_at = now
                     self.frames_received += 1
                     self.bytes_received += len(data)
                     self.audio_ready.set()
@@ -113,8 +120,14 @@ class ZoomAudioMeeting:
                         self._backlogged = True
                         self.on_event("audio_warning", reason="zoom_input_backlog", queued_frames=self.queue.qsize())
                     self.queue.put_nowait(AudioFrame(self.frames_received, data))
+                    self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
+                    if self.frames_received % 32 == 0:
+                        # StreamReader may return buffered packets without suspending.
+                        # Give the STT consumer time to drain after a transport burst.
+                        await asyncio.sleep(0)
                     if self.frames_received % 50 == 0:
-                        self.on_event('zoom_audio', frames=self.frames_received,
+                        self.on_event('zoom_audio', frames=self.frames_received, queued_frames=self.queue.qsize(),
+                                      consumed_frames=self.frames_consumed, max_receive_gap_ms=self.max_receive_gap_ms,
                                       peak=max(abs(v[0]) for v in struct.iter_unpack('<h', data)))
                 elif kind == b'M':
                     self.mic_ready.set()
@@ -155,11 +168,14 @@ class ZoomAudioMeeting:
             try:
                 frame = self.queue.get_nowait()
             except asyncio.QueueEmpty:
-                await asyncio.sleep(.01)
-                continue
+                try:
+                    frame = await asyncio.wait_for(self.queue.get(), .1)
+                except TimeoutError:
+                    continue
             if self._backlogged and self.queue.qsize() < 50:
                 self._backlogged = False
                 self.on_event("zoom_input_recovered")
+            self.frames_consumed += 1
             yield frame
         if self.failure:
             raise self.failure
@@ -231,5 +247,6 @@ class ZoomAudioMeeting:
 
     def diagnostics(self):
         return {'frames_received': self.frames_received, 'bytes_received': self.bytes_received,
-                'raw_audio_saved': False, 'echo_mode': 'silence_during_playback_plus_350ms',
+                'frames_consumed': self.frames_consumed, 'max_queued_frames': self.max_queued_frames,
+                'max_receive_gap_ms': self.max_receive_gap_ms, 'raw_audio_saved': False, 'echo_mode': 'silence_during_playback_plus_350ms',
                 'remote_audible_latency_measured': False}

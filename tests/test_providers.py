@@ -132,3 +132,40 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0].text, "Sparkie，你在吗？")
         self.assertIsInstance(socket.sent[0], bytes)
         self.assertEqual(json.loads(socket.sent[-1])["type"], "CloseStream")
+
+    async def test_idle_keepalive_does_not_cancel_audio_source(self):
+        class Socket:
+            def __init__(self):
+                self.sent = []
+                self.keepalive = asyncio.Event()
+                self.closed = asyncio.Event()
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                pass
+            async def send(self, payload):
+                self.sent.append(payload)
+                if isinstance(payload, str):
+                    if json.loads(payload)['type'] == 'KeepAlive':
+                        self.keepalive.set()
+                    else:
+                        self.closed.set()
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                await self.closed.wait()
+                raise StopAsyncIteration
+        socket = Socket()
+        source_closed = []
+        async def frames():
+            try:
+                await socket.keepalive.wait()
+                yield AudioFrame(1, b'\0\0')
+            finally:
+                source_closed.append(True)
+        ears = DeepgramEars('test', 'idle', connector=lambda *args: socket)
+        async with asyncio.timeout(6):
+            self.assertEqual([event async for event in ears.transcribe(frames())], [])
+        self.assertEqual([json.loads(p)['type'] if isinstance(p, str) else 'PCM' for p in socket.sent],
+                         ['KeepAlive', 'PCM', 'CloseStream'])
+        self.assertEqual(source_closed, [True])

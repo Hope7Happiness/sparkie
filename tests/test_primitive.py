@@ -50,7 +50,13 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             meeting = SimulatedMeeting(events, Path(path), interval=.01, playback=0)
             brain = AsyncMock(answer=AsyncMock(return_value="A short answer."))
             mouth = AsyncMock(synthesize=AsyncMock(side_effect=lambda text: text.encode()))
-            engine = Primitive(meeting, ScriptedDeepgram(events), mouth, reply="I'm here.", brain=brain)
+            class SequentialEars:
+                async def transcribe(self, frames):
+                    for event in events:
+                        yield event
+                        # This test checks selection/cache behavior, not busy rejection.
+                        await engine.response_task
+            engine = Primitive(meeting, SequentialEars(), mouth, reply="I'm here.", brain=brain)
             result = await engine.run()
             replies = [e['text'] for e in result['events'] if e['type'] == 'reply']
             self.assertEqual(replies, ["I'm here.", "Let me think for a moment.", "Let me think for a moment."])

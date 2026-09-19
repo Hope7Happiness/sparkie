@@ -160,3 +160,51 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.meeting._backlogged)
         self.assertIn(('zoom_input_recovered', {}), self.events)
         await stream.aclose()
+
+    async def test_transport_burst_reaches_stt_without_overflow_or_lost_frames(self):
+        import json
+        from sparkie.providers import DeepgramEars
+
+        class Socket:
+            def __init__(self):
+                self.sent = []
+                self.closed = asyncio.Event()
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                pass
+            async def send(self, payload):
+                if isinstance(payload, bytes):
+                    self.sent.append(payload)
+                elif json.loads(payload)["type"] == "CloseStream":
+                    self.closed.set()
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                await self.closed.wait()
+                raise StopAsyncIteration
+
+        socket = Socket()
+        count = 4000
+        self.meeting.max_seconds = 60
+        expected = [struct.pack('<h', i) * 320 for i in range(count)]
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        async def frames():
+            async for frame in self.meeting.audio():
+                yield frame
+                if frame.sequence == count:
+                    return
+        ears = DeepgramEars('test', 'burst', connector=lambda *args: socket)
+        async def transcribe():
+            return [event async for event in ears.transcribe(frames())]
+        consumer = asyncio.create_task(transcribe())
+        try:
+            # Let the consumer block awaiting its first audio before TCP delivers a burst.
+            await asyncio.sleep(.01)
+            self.meeting.reader.feed_data(b''.join(packet(b'A', pcm) for pcm in expected))
+            await asyncio.wait_for(consumer, 10)
+            self.assertIsNone(self.meeting.failure)
+            self.assertEqual(socket.sent, expected)
+        finally:
+            consumer.cancel()
+            await asyncio.gather(consumer, return_exceptions=True)
