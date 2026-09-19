@@ -40,6 +40,9 @@ def failure_details(exc):
         'provider_closed_before_ready': ('openai', 'closed_before_ready'),
         'provider_closed_during_audio_join': ('openai', 'closed_during_audio_join'),
         'provider_closed_early': ('openai', 'closed_early'),
+        'Zoom cancellation acknowledgement timed out': ('zoom', 'cancel_ack_timeout'),
+        'Zoom cancellation aborted': ('zoom', 'cancel_aborted'),
+        'Zoom bridge requires cancel-v1; rebuild the native receiver': ('zoom', 'bridge_rebuild_required'),
     }
     provider, reason = reasons.get(str(exc), ('unknown', 'unclassified'))
     result = {'error_type': type(exc).__name__, 'provider': provider, 'reason': reason}

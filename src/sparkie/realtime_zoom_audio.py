@@ -58,6 +58,7 @@ class RealtimeZoomAudio:
         self.failure = None
         self.stopped = False
         self.interrupting = False
+        self._stop_lock = asyncio.Lock()
         self.captured_samples = 0
         self.audio_origin = None
         self.timing_reliable = False
@@ -80,7 +81,7 @@ class RealtimeZoomAudio:
 
     def input_gated(self):
         # Cover generation gaps and stalled SDK calls, not just estimated packet duration.
-        return (self.play_task is not None or
+        return (self.interrupting or self.play_task is not None or
                 any(not o.cancelled.is_set() and not o.drained for o in self.outputs.values()) or
                 time.monotonic() < self._gate_until)
 
@@ -221,6 +222,14 @@ class RealtimeZoomAudio:
             self.on_event('audio_failed', **failure_details(exc))
 
     async def stop_speaking(self):
+        async with self._stop_lock:
+            await self._stop_speaking()
+
+    async def _stop_speaking(self):
+        active = self.play_task is not None or any(
+            not o.cancelled.is_set() and not o.drained for o in self.outputs.values())
+        if not active:
+            return  # Preserve a real existing tail, but never create one for idle speech.
         self.interrupting = True
         for output in self.outputs.values():
             if not output.drained:
@@ -235,6 +244,10 @@ class RealtimeZoomAudio:
             await asyncio.gather(task, return_exceptions=True)
         try:
             await self.meeting.stop_speaking()
+        except BaseException as exc:
+            self.failure = exc if isinstance(exc, Exception) else ProviderError('zoom_cancel_aborted')
+            self.meeting.request_stop()
+            raise
         finally:
             self.interrupting = False
             self._gate_until = time.monotonic() + .35

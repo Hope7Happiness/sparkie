@@ -46,6 +46,10 @@ class ZoomAudioMeeting:
         self.duration_expired = False
         self.playback_event_interval = 0.0
         self._last_playback_event = float('-inf')
+        self._control_lock = asyncio.Lock()
+        self._cancel_id = 0
+        self._cancel_waiter = None
+        self.cancel_timeout = 5.0
 
     async def docker(self, *args):
         process = await asyncio.create_subprocess_exec('docker', *args, stdout=asyncio.subprocess.PIPE,
@@ -102,8 +106,9 @@ class ZoomAudioMeeting:
                 await self.writer.drain()
                 # The SDK side can accept TCP before its bridge starts listening.
                 kind, payload = await self.read_packet()
-                if kind != b'H' or payload:
-                    raise RuntimeError('Invalid Zoom bridge handshake')
+                if kind != b'H' or payload != b'cancel-v1':
+                    self.failure = RuntimeError('Zoom bridge requires cancel-v1; rebuild the native receiver')
+                    raise self.failure
                 return
             except (OSError, asyncio.IncompleteReadError):
                 if self.writer:
@@ -182,6 +187,10 @@ class ZoomAudioMeeting:
                                               note='SDK accepted first frame; remote audible latency is not measured.')
                         elif not entry.done():
                             entry.set_result(None)
+                elif kind == b'K' and len(data) == 4:
+                    ident = struct.unpack('!I', data)[0]
+                    if ident == self._cancel_id and self._cancel_waiter and not self._cancel_waiter.done():
+                        self._cancel_waiter.set_result(None)
                 elif kind == b'E':
                     raise ZoomBridgeError(data)
                 else:
@@ -195,6 +204,8 @@ class ZoomAudioMeeting:
             for future in self.playbacks.values():
                 if not future.done():
                     future.set_exception(exc)
+            if self._cancel_waiter and not self._cancel_waiter.done():
+                self._cancel_waiter.set_exception(exc)
             self.stopped.set()
             self.on_event('audio_failed', **failure_details(exc))
 
@@ -235,25 +246,50 @@ class ZoomAudioMeeting:
         future = asyncio.get_running_loop().create_future()
         self.playbacks[ident] = future
         try:
-            await self.send_packet(b'P', struct.pack('!I', ident) + pcm)
+            async with self._control_lock:
+                await self.send_packet(b'P', struct.pack('!I', ident) + pcm)
             await asyncio.wait_for(future, len(pcm) / 64000 + 5)
         except BaseException:
-            await self.stop_speaking()
+            if not self.failure:
+                await self.stop_speaking()
             raise
         finally:
             self.playbacks.pop(ident, None)
 
     async def stop_speaking(self):
-        if self.writer and not self.writer.is_closing():
-            with contextlib.suppress(Exception):
-                await self.send_packet(b'C')
+        async with self._control_lock:
+            if self.failure:
+                raise self.failure
+            if not self.writer or self.writer.is_closing():
+                return
+            self._cancel_id += 1
+            future = self._cancel_waiter = asyncio.get_running_loop().create_future()
+            try:
+                async with asyncio.timeout(self.cancel_timeout):
+                    await self.send_packet(b'C', struct.pack('!I', self._cancel_id))
+                    await future
+            except BaseException as exc:
+                # Never reuse a connection whose cancellation boundary is unknown.
+                self.failure = (RuntimeError('Zoom cancellation acknowledgement timed out')
+                                if isinstance(exc, TimeoutError) else
+                                RuntimeError('Zoom cancellation aborted') if isinstance(exc, asyncio.CancelledError) else exc)
+                self.stopped.set()
+                self.writer.close()
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                raise self.failure from None
+            finally:
+                if not future.done():
+                    future.cancel()
+                self._cancel_waiter = None
 
     def request_stop(self):
         self.stopped.set()
 
     async def _disconnect(self):
         self.request_stop()
-        await self.stop_speaking()
+        with contextlib.suppress(Exception):
+            await self.stop_speaking()
         if self.reader_task:
             self.reader_task.cancel()
             await asyncio.gather(self.reader_task, return_exceptions=True)

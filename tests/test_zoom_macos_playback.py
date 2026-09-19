@@ -28,6 +28,7 @@ enum { ZoomSDKError_Success = 0, ZoomSDKAudioChannel_Mono = 0 };
 ''')
         harness = r'''
 static int calls, mode;
+static _Atomic int entered = 0;
 static long long ended;
 static NSMutableData *received;
 @implementation ZoomSDKAudioRawDataSender
@@ -35,6 +36,7 @@ static NSMutableData *received;
     if (length != 1280 || rate != 32000 || channel != 0) _Exit(10);
     if (ended && bridge_millis() - ended < 10) _Exit(11);
     ++calls;
+    if (mode == 3 && calls == 1) { entered = 1; usleep(100000); }
     if (mode == 1 && calls == 3) return 20; // PreprocessRawdataError in installed header.
     [received appendBytes:data length:length];
     if (mode == 0 && calls == 2) usleep(75000);
@@ -57,6 +59,11 @@ int main(int argc, char **argv) {
         memset((char*)data.mutableBytes + 4, 7, size);
         pthread_mutex_lock(&play_mutex); bridge_pending = data;
         pthread_mutex_unlock(&play_mutex); pthread_cond_signal(&play_cv);
+        if (mode == 3 && id == 1) {
+            while (!entered) usleep(1000);
+            uint32_t cancel = htonl(77);
+            bridge_cancel([NSData dataWithBytes:&cancel length:4]);
+        }
         BOOL done = NO;
         for (int i = 0; i < 1000 && !done; ++i) {
             usleep(1000);
@@ -72,13 +79,22 @@ int main(int argc, char **argv) {
                         [error[@"sdk_result"] intValue] == -1 && calls == 0) _Exit(0);
                     _Exit(12);
                 }
-                if (bytes[0] == 'D') done = YES;
+                if (bytes[0] == 'D') {
+                    if (mode == 3 && id == 1) _Exit(16);
+                    done = YES;
+                }
+                if (bytes[0] == 'K') {
+                    uint32_t cancel; memcpy(&cancel, bytes + 5, 4);
+                    if (mode != 3 || id != 1 || ntohl(cancel) != 77 || bridge_playing || calls != 1) _Exit(17);
+                    done = YES;
+                }
             }
             if (done) [bridge_outgoing removeAllObjects];
             pthread_mutex_unlock(&out_mutex);
         }
-        if (!done || mode) _Exit(13);
+        if (!done || (mode && mode != 3)) _Exit(13);
     }
+    if (mode == 3) { if (calls != 2) _Exit(18); _Exit(0); }
     if (calls != 6 || received.length != 1280 * 6) _Exit(14);
     const unsigned char *p = received.bytes;
     for (unsigned i = 0; i < received.length; ++i) {
@@ -94,7 +110,7 @@ int main(int argc, char **argv) {
             build = subprocess.run(['clang', '-fobjc-arc', '-fblocks', '-framework', 'Cocoa',
                                     str(path / 'test.m'), '-o', str(path / 'test')], capture_output=True, text=True)
             self.assertEqual(build.returncode, 0, build.stderr)
-            for mode in ('0', '1', '2'):
+            for mode in ('0', '1', '2', '3'):
                 with self.subTest(mode=mode):
                     result = subprocess.run([str(path / 'test'), mode], capture_output=True, text=True, timeout=5)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

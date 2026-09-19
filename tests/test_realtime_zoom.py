@@ -164,6 +164,40 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         with patch('sparkie.realtime_zoom_audio.time.monotonic', return_value=self.audio._gate_until + .01):
             self.assertFalse(self.audio.input_gated())
 
+    async def test_idle_speech_start_preserves_pcm_and_existing_tail(self):
+        agent = RealtimeAgent('fake', self.audio, None, lambda *a, **k: None)
+        agent.ws = SimpleNamespace(send=AsyncMock())
+        await agent.handle({'type': 'input_audio_buffer.speech_started'})
+        self.assertFalse(self.audio.input_gated())
+        self.assertEqual(self.meeting.stop_calls, 0)
+        async def human_audio():
+            for i in range(100):
+                yield AudioFrame(i, b'\x00\x20' * 320, gated=self.audio.input_gated())
+        self.meeting.audio = human_audio
+        frames = [f async for f in self.audio.audio()]
+        self.assertTrue(all(not f.gated for f in frames))
+        self.assertTrue(any(any(f.pcm) for f in frames))
+        self.audio._gate_until = 123.0
+        with patch('sparkie.realtime_zoom_audio.time.monotonic', return_value=122.9):
+            await agent.handle({'type': 'input_audio_buffer.speech_started'})
+            self.assertEqual(self.audio._gate_until, 123.0)
+            self.assertTrue(self.audio.input_gated())
+
+    async def test_gate_stays_closed_while_waiting_for_native_cancel(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def cancel():
+            entered.set()
+            await release.wait()
+        self.meeting.stop_speaking = cancel
+        self.audio.append_output('pending', bytes(2))
+        stop = asyncio.create_task(self.audio.stop_speaking())
+        await entered.wait()
+        with patch('sparkie.realtime_zoom_audio.time.monotonic', return_value=100000000000):
+            self.assertTrue(self.audio.input_gated())
+        release.set()
+        await stop
+        self.assertTrue(self.audio.input_gated())
+
     async def test_generation_burst_cancels_reply_without_killing_session(self):
         import base64
         self.meeting.block = True

@@ -6,7 +6,7 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from sparkie.zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
 
@@ -16,6 +16,88 @@ def packet(kind, data=b''):
 
 
 class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handshake_requires_ack_capability(self):
+        for payload, valid in [(b'', False), (b'cancel-v1', True)]:
+            self.meeting.failure = None
+            reader = asyncio.StreamReader()
+            reader.feed_data(packet(b'H', payload))
+            writer = Mock(drain=AsyncMock())
+            self.meeting.port, self.meeting._token = 123, 'fake'
+            with patch('asyncio.open_connection', new=AsyncMock(return_value=(reader, writer))):
+                if valid:
+                    await self.meeting.connect()
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'rebuild'):
+                        await self.meeting.connect()
+            self.meeting.writer = None
+
+    async def test_cancel_ack_serializes_replacement_and_ignores_stale_ack(self):
+        self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+        self.meeting.send_packet = AsyncMock()
+        self.meeting.mic_ready.set()
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        stop = asyncio.create_task(self.meeting.stop_speaking())
+        await asyncio.sleep(0)
+        replacement = asyncio.create_task(self.meeting.play_audio(bytes(640), 32000))
+        self.meeting.reader.feed_data(packet(b'K', struct.pack('!I', 999)))
+        await asyncio.sleep(.01)
+        self.assertFalse(stop.done())
+        self.assertEqual([c.args[0] for c in self.meeting.send_packet.await_args_list], [b'C'])
+        self.meeting.reader.feed_data(packet(b'K', struct.pack('!I', 1)))
+        await asyncio.wait_for(stop, 1)
+        await asyncio.sleep(0)
+        self.assertEqual([c.args[0] for c in self.meeting.send_packet.await_args_list], [b'C', b'P'])
+        self.meeting.reader.feed_data(packet(b'D', struct.pack('!I', 1)))
+        await asyncio.wait_for(replacement, 1)
+        self.meeting.writer = None
+
+    async def test_cancel_timeout_aborts_connection_and_blocks_replacement(self):
+        self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+        self.meeting.send_packet = AsyncMock()
+        self.meeting.cancel_timeout = .01
+        with self.assertRaisesRegex(RuntimeError, 'acknowledgement timed out'):
+            await self.meeting.stop_speaking()
+        self.meeting.writer.close.assert_called_once()
+        self.assertTrue(self.meeting.stopped.is_set())
+        self.assertIsNone(self.meeting._cancel_waiter)
+        self.meeting.mic_ready.set()
+        # The real send method enforces failure before sending any new bytes.
+        del self.meeting.send_packet
+        with self.assertRaisesRegex(RuntimeError, 'acknowledgement timed out'):
+            await self.meeting.play_audio(bytes(640), 32000)
+        self.meeting.writer = None
+
+    async def test_cancel_waiter_is_failed_by_disconnect_or_native_error(self):
+        for payload in (None, b'Zoom virtual microphone could not send audio'):
+            with self.subTest(payload=payload):
+                self.meeting.failure = None
+                self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+                self.meeting.reader = asyncio.StreamReader()
+                self.meeting.send_packet = AsyncMock()
+                stop = asyncio.create_task(self.meeting.stop_speaking())
+                await asyncio.sleep(0)
+                if payload is None:
+                    self.meeting.reader.feed_eof()
+                else:
+                    self.meeting.reader.feed_data(packet(b'E', payload))
+                await self.meeting.receive()
+                with self.assertRaises(Exception):
+                    await asyncio.wait_for(stop, 1)
+                self.assertIsNone(self.meeting._cancel_waiter)
+        self.meeting.writer = None
+
+    async def test_cancelled_ack_wait_aborts_connection(self):
+        self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+        self.meeting.send_packet = AsyncMock()
+        stop = asyncio.create_task(self.meeting.stop_speaking())
+        await asyncio.sleep(0)
+        stop.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await stop
+        self.assertTrue(self.meeting.stopped.is_set())
+        self.assertIsNone(self.meeting._cancel_waiter)
+        self.meeting.writer = None
+
     async def test_receive_gate_is_frozen_before_queueing(self):
         self.meeting.input_gate = lambda: True
         self.meeting.reader.feed_data(packet(b'A', b'\x01\x20' * 320))

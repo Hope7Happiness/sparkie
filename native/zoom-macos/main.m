@@ -25,6 +25,7 @@ static int bridge_port;
 static ZoomSDKAudioRawDataSender *bridge_sender;  // sender_mutex
 static NSMutableArray<NSData *> *bridge_outgoing; // out_mutex
 static NSData *bridge_pending;                    // play_mutex; first 4 bytes are the playback id
+static NSData *bridge_cancel_id;                  // play_mutex; acknowledgement after worker quiesces
 static pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t out_cv = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t play_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -68,6 +69,14 @@ static void bridge_error_detail(const char *reason, int result, unsigned playbac
     bridge_emit('E', payload.bytes, (unsigned)payload.length);
 }
 static void bridge_error(const char *reason) { bridge_error_detail(reason, -1, 0, 0); }
+static void bridge_cancel(NSData *identifier) {
+    pthread_mutex_lock(&play_mutex);
+    bridge_generation++;
+    bridge_pending = nil;
+    if (bridge_playing) bridge_cancel_id = identifier;
+    else bridge_emit('K', identifier.bytes, 4);
+    pthread_mutex_unlock(&play_mutex);
+}
 static BOOL bridge_transfer(int fd, void *data, size_t size, BOOL writing) {
     char *cursor = data;
     while (size) {
@@ -137,10 +146,16 @@ static void *bridge_playback(void *unused) {
         printf("BRIDGE_PLAYBACK id=%u frames=%u max_gap_ms=%.1f min_gap_ms=%.1f early_max_gap_ms=%.1f gaps_under_5ms=%u gaps_over_40ms=%u max_send_ms=%.1f\n",
                ntohl(playback_id), frames, max_gap, min_gap, early_max_gap, short_gaps, long_gaps, max_send);
         bridge_gate_until = bridge_millis() + 350;
+        pthread_mutex_lock(&play_mutex);
         bridge_playing = NO;
-        if (ok) bridge_emit('D', bytes, 4);
-        else if (gen == bridge_generation)
+        if (ok && gen == bridge_generation) bridge_emit('D', bytes, 4);
+        else if (!ok && gen == bridge_generation)
             bridge_error_detail(failure_reason, sdk_result, ntohl(playback_id), frames);
+        if (bridge_cancel_id) {
+            bridge_emit('K', bridge_cancel_id.bytes, 4);
+            bridge_cancel_id = nil;
+        }
+        pthread_mutex_unlock(&play_mutex);
     }
     return NULL;
 }
@@ -195,7 +210,7 @@ static void *bridge_serve(void *unused) {
         [bridge_outgoing removeAllObjects];
         pthread_mutex_unlock(&out_mutex);
         bridge_client = fd;
-        bridge_emit('H', NULL, 0);
+        bridge_emit('H', "cancel-v1", 9);
         if (bridge_sending) bridge_emit('M', NULL, 0);
         pthread_t writer;
         pthread_create(&writer, NULL, bridge_writer, (void *)(intptr_t)fd);
@@ -207,11 +222,8 @@ static void *bridge_serve(void *unused) {
             if (size > 1920004) break;
             NSMutableData *payload = [[NSMutableData alloc] initWithLength:size];
             if (size && !bridge_transfer(fd, payload.mutableBytes, size, NO)) break;
-            if (header[0] == 'C' && size == 0) {
-                bridge_generation++;
-                pthread_mutex_lock(&play_mutex);
-                bridge_pending = nil;
-                pthread_mutex_unlock(&play_mutex);
+            if (header[0] == 'C' && size == 4) {
+                bridge_cancel(payload);
             } else if (header[0] == 'P' && size > 4 && size % 2 == 0) {
                 pthread_mutex_lock(&play_mutex);
                 if (bridge_playing || bridge_pending) bridge_error("playback_active");
@@ -230,6 +242,7 @@ static void *bridge_serve(void *unused) {
         close(fd);
         pthread_mutex_lock(&play_mutex);
         bridge_pending = nil;
+        bridge_cancel_id = nil;
         pthread_mutex_unlock(&play_mutex);
     }
     return NULL;
