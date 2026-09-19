@@ -52,6 +52,8 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 
 SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。
 
+macOS `E` 现在为版本 1 JSON：`reason` 只允许 `sdk_send_failed` / `playback_active` / `microphone_unavailable` / `invalid_input_format`，另带整数 `sdk_result`、`playback_id`、`frame_index`（从 1 开始的发送尝试；无尝试为 0）。`sdk_result=-1` 表示未调用 SDK，没有实际返回码。原生日志保留相同 `BRIDGE_ERROR`。Python 兼容上述四种旧固定文本，未知内容只记 `unknown_native_error`，额外字段和任意正文不会进入遥测。`ZoomBridgeError` 的白名单字段进入 `audio_failed`、`session_failed` 和 `run.json.failure`；错误仍终止本轮，不盲目重试 SDK 发送。
+
 `zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。
 
 ## Realtime 前台与后台分析（本地验收）

@@ -15,6 +15,9 @@ class ProviderError(RuntimeError):
         super().__init__(message)
         self.provider_code = provider_code
 
+    def diagnostic_fields(self):
+        return {}
+
 
 class PlaybackLimitError(ProviderError):
     """Bounded playback capacity exhausted; cancel the reply, not the session."""
@@ -57,6 +60,8 @@ def failure_details(exc):
                     'sparkie.realtime_zoom_audio': 'zoom',
                 }.get(module, 'unknown')
         tb = tb.tb_next
+    if isinstance(exc, ProviderError):
+        result.update(exc.diagnostic_fields())
     return result
 
 

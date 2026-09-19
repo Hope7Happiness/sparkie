@@ -10,6 +10,8 @@ import struct
 import time
 
 from .audio import AudioFrame
+from .providers import failure_details
+from .zoom_errors import ZoomBridgeError
 from .zoom_config import meeting_config, private_write
 
 
@@ -171,8 +173,7 @@ class ZoomAudioMeeting:
                         elif not entry.done():
                             entry.set_result(None)
                 elif kind == b'E':
-                    # Only fixed native error messages; never forward arbitrary provider bodies.
-                    raise RuntimeError('Zoom bridge rejected audio; inspect container state')
+                    raise ZoomBridgeError(data)
                 else:
                     raise RuntimeError('Invalid Zoom bridge event')
         except asyncio.CancelledError:
@@ -185,7 +186,7 @@ class ZoomAudioMeeting:
                 if not future.done():
                     future.set_exception(exc)
             self.stopped.set()
-            self.on_event('audio_failed', reason=type(exc).__name__)
+            self.on_event('audio_failed', **failure_details(exc))
 
     async def audio(self):
         started = time.monotonic()

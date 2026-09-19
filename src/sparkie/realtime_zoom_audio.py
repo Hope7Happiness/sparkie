@@ -13,7 +13,7 @@ import numpy as np
 import soxr
 
 from .audio import AudioFrame
-from .providers import ProviderError, PlaybackLimitError
+from .providers import ProviderError, PlaybackLimitError, failure_details
 
 
 class PCMResampler:
@@ -177,7 +177,7 @@ class RealtimeZoomAudio:
         except Exception as exc:
             self.failure = exc
             self.meeting.request_stop()
-            self.on_event('audio_failed', reason=type(exc).__name__)
+            self.on_event('audio_failed', **failure_details(exc))
 
     async def stop_speaking(self):
         self.interrupting = True

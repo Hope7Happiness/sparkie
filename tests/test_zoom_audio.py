@@ -16,6 +16,45 @@ def packet(kind, data=b''):
 
 
 class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_error_resolves_playback_and_preserves_safe_details(self):
+        from sparkie.providers import failure_details
+        from sparkie.zoom_errors import ZoomBridgeError
+        self.meeting.send_packet = AsyncMock()
+        self.meeting.mic_ready.set()
+        play = asyncio.create_task(self.meeting.play_audio(bytes(6400), 32000))
+        await asyncio.sleep(0)
+        detail = {'version': 1, 'reason': 'sdk_send_failed', 'sdk_result': 20,
+                  'playback_id': 1, 'frame_index': 3, 'message': 'private secret'}
+        self.meeting.reader.feed_data(packet(b'S', struct.pack('!I', 1)) +
+                                      packet(b'E', json.dumps(detail).encode()))
+        await self.meeting.receive()
+        with self.assertRaises(ZoomBridgeError) as caught:
+            await asyncio.wait_for(play, 1)
+        fields = failure_details(caught.exception)
+        self.assertEqual(fields['provider'], 'zoom')
+        self.assertEqual(fields['reason'], 'sdk_send_failed')
+        self.assertEqual(fields['sdk_result'], 20)
+        self.assertEqual(fields['frame_index'], 3)
+        self.assertTrue(self.meeting.stopped.is_set())
+        self.assertEqual(self.meeting.playbacks, {})
+        self.assertNotIn('private', json.dumps(self.events) + json.dumps(fields))
+
+    async def test_native_error_legacy_and_untrusted_payloads(self):
+        from sparkie.zoom_errors import ZoomBridgeError
+        from sparkie.providers import failure_details
+        for payload, reason in ZoomBridgeError.LEGACY.items():
+            self.assertEqual(failure_details(ZoomBridgeError(payload))['reason'], reason)
+        for payload in (b'secret', b'[]', b'null', b'\xff', b'x' * 513,
+                        b'{"version":1,"reason":["secret"]}',
+                        b'{"version":1,"reason":"secret","sdk_result":20}'):
+            fields = failure_details(ZoomBridgeError(payload))
+            self.assertEqual(fields['reason'], 'unknown_native_error')
+            self.assertNotIn('secret', json.dumps(fields))
+        fields = failure_details(ZoomBridgeError(
+            b'{"version":1,"reason":"sdk_send_failed","sdk_result":true,"frame_index":"secret"}'))
+        self.assertNotIn('sdk_result', fields)
+        self.assertNotIn('frame_index', fields)
+
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.meeting = ZoomAudioMeeting(Path(self.temp.name), max_seconds=.1)
