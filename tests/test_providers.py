@@ -16,6 +16,20 @@ def message(text, start=0, final=True, end=True):
 
 
 class UtteranceTests(unittest.TestCase):
+    def test_latency_uses_last_word_end_not_trailing_silence(self):
+        parser = Utterances()
+        result = message("Sparkie", start=0)
+        result["duration"] = 2
+        result["channel"]["alternatives"][0]["words"] = [{"word": "Sparkie", "end": .6}]
+        self.assertEqual(parser.feed(result), "Sparkie")
+        self.assertEqual(parser.end_seconds, .6)
+
+    def test_utterance_end_flushes_once_without_speech_final(self):
+        parser = Utterances()
+        self.assertIsNone(parser.feed(message("Sparkie", end=False)))
+        self.assertEqual(parser.feed({"type": "UtteranceEnd"}), "Sparkie")
+        self.assertIsNone(parser.feed({"type": "UtteranceEnd"}))
+
     def test_accumulate_final_segments_and_ignore_duplicates(self):
         parser = Utterances()
         self.assertIsNone(parser.feed(message("wrong partial", final=False)))

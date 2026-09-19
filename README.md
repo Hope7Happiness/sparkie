@@ -6,6 +6,8 @@
 
 提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**Zoom 原生 adapter 待实现，尚未完成真实入会。**
 
+本地语音闭环已提供：`bash scripts/local.sh --language en --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
+
 ```bash
 uv sync --frozen
 bash scripts/primitive.sh

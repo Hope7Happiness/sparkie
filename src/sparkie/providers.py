@@ -107,7 +107,7 @@ def deepgram_url(rate: int, model: str, language: str) -> str:
     return "wss://api.deepgram.com/v1/listen?" + urlencode({
         "model": model, "language": language, "encoding": "linear16",
         "sample_rate": rate, "channels": 1, "interim_results": "true",
-        "endpointing": 300, "punctuate": "true", "keyterm": "Sparkie",
+        "endpointing": 300, "utterance_end_ms": 1000, "punctuate": "true", "keyterm": "Sparkie",
     })
 
 
@@ -122,10 +122,23 @@ class Utterances:
     def __init__(self):
         self.parts = []
         self.seen = set()
+        self.end_seconds = 0.0
+        self._pending_end = 0.0
+
+    def flush(self):
+        if not self.parts:
+            return None
+        result = " ".join(self.parts)
+        self.parts.clear()
+        self.end_seconds = self._pending_end
+        self._pending_end = 0.0
+        return result
 
     def feed(self, message: dict) -> str | None:
         if message.get("type") == "Error":
             raise ProviderError("Deepgram reported a streaming error")
+        if message.get("type") == "UtteranceEnd":
+            return self.flush()
         if message.get("type") != "Results" or not message.get("is_final"):
             return None
         alternatives = message.get("channel", {}).get("alternatives", [])
@@ -136,26 +149,33 @@ class Utterances:
             if len(self.seen) > 4096:
                 raise ProviderError("Transcript segment limit reached; restart primitive")
             self.parts.append(text)
+            words = alternatives[0].get("words", [])
+            # Last spoken word, not the result span which can include trailing silence.
+            end = words[-1].get("end") if words else None
+            if end is None:
+                end = message.get("start", 0) + message.get("duration", 0)
+            self._pending_end = max(self._pending_end, end)
         if sum(map(len, self.parts)) > 16000:
             raise ProviderError("Deepgram did not end the utterance; check endpointing")
-        if message.get("speech_final") and self.parts:
-            result = " ".join(self.parts)
-            self.parts.clear()
-            return result
+        if message.get("speech_final") or message.get("from_finalize"):
+            return self.flush()
         return None
 
 
 class DeepgramEars:
     """Streaming adapter for a future real AudioMeeting. No network in simulation."""
-    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect):
+    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect, on_ready=None):
         self.key, self.meeting_id, self.rate = key, meeting_id, rate
         self.model, self.language, self.connector = model, language, connector
+        self.on_ready = on_ready
 
     async def transcribe(self, frames):
         queue = asyncio.Queue(maxsize=128)
         utterances = Utterances()
 
         async with self.connector(self.key, self.rate, self.model, self.language) as ws:
+            if self.on_ready:
+                self.on_ready()
             async def send():
                 iterator = frames.__aiter__()
                 pending = None
@@ -186,7 +206,7 @@ class DeepgramEars:
                     text = utterances.feed(message)
                     if text:
                         sequence += 1
-                        timestamp_ms = round((message.get("start", 0) + message.get("duration", 0)) * 1000)
+                        timestamp_ms = round(utterances.end_seconds * 1000)
                         queue.put_nowait(TranscriptEvent(self.meeting_id, f"dg-{sequence}", timestamp_ms, text))
 
             async def supervise():

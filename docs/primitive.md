@@ -2,6 +2,26 @@
 
 当前技术栈：**Zoom + Deepgram STT/TTS + Codex CLI / OpenAI API**。已验证真实 Deepgram TTS→流式 STT、Codex 上下文回答；Zoom 原生 adapter 尚未实现，真实入会与会议内音频仍未验收。
 
+## 本地真人音频闭环
+
+```bash
+uv sync --frozen
+uv run --frozen sparkie devices
+bash scripts/local.sh --language en --seconds 60
+```
+
+等待 `listening_ready` 后说 **Sparkie** 或 **Sparkie, are you there?**，停顿后应听到 **I'm here.**。默认不调用 Codex/OpenAI，不需要 Zoom。Ctrl+C 停止；会话最长为 `--seconds` 指定的时间。真实麦克风音频发送给 Deepgram；只保存 transcript 与事件，不保存原始麦克风录音。
+
+可用 `--input-device 0 --output-device 1` 选择设备，编号以本机 `devices` 结果为准。macOS 首次运行可能需要在“系统设置 → 隐私与安全性 → 麦克风”允许启动程序访问。Linux 需要系统 PortAudio 库。
+
+默认扬声器模式在回复播放期间和结束后 350ms 将识别输入置为静音，避免声音回流。这个窗口内不支持语音打断，也不会转录用户的话；不是完整 AEC。戴耳机时加 `--echo-mode headphones` 可保持输入识别。中文输入加 `--language zh-CN`，回复仍为英文。
+
+每次运行输出到 `output/local/<session-id>/`：`events.jsonl` 实时记录，`run.json` 保存总结。`playback_timing` 使用最后一个识别词结束时间与音频设备预计 DAC 播放时间估算，不是独立声学测量。发生输入丢帧或输出欠载时不报告延迟数值；持续输入丢帧或队列积压会报错。设备原生 blocksize 与 100ms 缓冲用于降低调度抖动。
+
+第一轮由 `@YIFANK`、`@bowenyu066` 各记录 10 次叫醒、10 次普通对话，附 commit、设备、语言、session ID 和事件时间点。先检查能否听到回复、是否误触发及是否持续自唤醒，再评估延迟。
+
+2026-09-19 本机验证：MacBook Neo 麦克风与扬声器、英文、12 秒会话，用扬声器播放合成的 “Sparkie, are you there?”，真实麦克风采集后触发 1 次唤醒并完成 1 次回复播放，无音频丢帧/欠载。会话 `20260919T165126Z-fe49f4` 的设备时间估算为识别唤醒到播放 150ms、最后一个词结束到播放 5252ms；响应延迟仍待优化，单次合成声学测试不能替代真人验收或独立可听延迟测量。Ctrl+C 正常退出并保存报告；35 项自动测试及两项离线演示通过。日志留在本机忽略目录，不提交 transcript。
+
 ## 默认离线模拟
 
 ```bash
@@ -54,6 +74,7 @@ Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终
 
 | 模块 | 文件 | 状态 |
 | --- | --- | --- |
+| 本地音频 | `local_audio.py`、`local_session.py` | 已实现麦克风/扬声器、回声静音窗口和日志；真人多次验收待进行 |
 | Zoom 音频边界 | `audio.py` 的 `AudioMeeting` | 待实现原生 SDK 接入：join/audio/play_audio/stop_speaking/leave |
 | 模拟会议、STT、TTS | `simulation.py` | 可运行，脚本 transcript 与静音占位 |
 | Deepgram STT | `providers.py` 的 `DeepgramEars` | 真实 WebSocket 检查通过 |
@@ -66,6 +87,6 @@ Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终
 
 Deepgram 当前官方 TTS 列表没有中文，因此固定回复为 **I'm here.**，英语模型不会静默接受中文文本。ElevenLabs adapter 暂保留为可选实现，默认配置和流程均不使用。
 
-唤醒是保守称呼与问句/命令规则，接受 `Sparkie` 和 `Sparky`。部分句式可能漏检。回复中再次唤醒会记录 `response_busy` 并忽略；取消词会停止当前回复。模拟可标注 bot 来源，真实混合音轨回声过滤仍待实现。
+唤醒是保守称呼与问句/命令规则，接受 `Sparkie` 和 `Sparky`。部分句式可能漏检。回复中再次唤醒会记录 `response_busy` 并忽略；取消词会停止当前回复。模拟可标注 bot 来源；本地扬声器模式有静音窗口，Zoom 混合音轨回声过滤仍待实现。
 
 尚无 Zoom native adapter、稳定重连、滚动摘要、后台任务队列、搜索和会后纪要。云端单服务通过不等于整场会议可用。人工配置见 [清单](manual-setup.md)。

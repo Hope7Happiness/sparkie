@@ -149,12 +149,26 @@ def main():
     check.add_argument("--output", type=Path, default=Path("output/deepgram"))
     brain = sub.add_parser("brain-check", help="Check the configured live reasoning backend with synthetic meeting text")
     brain.add_argument("--backend", choices=["codex", "openai"])
+    sub.add_parser("devices", help="List available microphone and speaker devices; no recording")
+    local = sub.add_parser("local", help="Live microphone → Deepgram STT → fixed TTS → speaker (uses API quota)")
+    local.add_argument("--input-device", default=os.getenv("SPARKIE_INPUT_DEVICE"))
+    local.add_argument("--output-device", default=os.getenv("SPARKIE_OUTPUT_DEVICE"))
+    local.add_argument("--language", help="Override STT language, e.g. en or zh-CN")
+    local.add_argument("--seconds", type=int, default=60, help="Session duration, 1–3600 seconds")
+    local.add_argument("--echo-mode", choices=["speaker", "headphones"], default="speaker")
+    local.add_argument("--output", type=Path, default=Path("output/local"))
     args = parser.parse_args()
     if args.command == "doctor":
         raise SystemExit(doctor())
+    if args.command == "devices":
+        from .local_session import list_devices
+        raise SystemExit(list_devices())
     if args.command == "simulate" and args.interval < 0:
         parser.error("--interval must be non-negative")
-    command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check}[args.command]
+    from .local_session import local_session
+    command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check, "local": local_session}[args.command]
+    if args.command == "local" and not 1 <= args.seconds <= 3600:
+        parser.error("--seconds must be between 1 and 3600")
     try:
         raise SystemExit(asyncio.run(command(args)))
     except (ProviderError, ValueError, TimeoutError) as exc:

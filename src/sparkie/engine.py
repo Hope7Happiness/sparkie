@@ -8,7 +8,7 @@ from .wake import ADDRESS, CANCEL, addressed_request
 
 
 class Primitive:
-    def __init__(self, meeting, ears, mouth, *, reply="我在。", brain=None, mode="simulate"):
+    def __init__(self, meeting, ears, mouth, *, reply="我在。", brain=None, mode="simulate", event_sink=None):
         self.meeting, self.ears, self.mouth = meeting, ears, mouth
         self.reply, self.brain, self.mode = reply, brain, mode
         self.context = deque(maxlen=50)
@@ -16,15 +16,27 @@ class Primitive:
         self.seen = set()
         self.response_task = None
         self.started = time.monotonic()
+        self.event_sink = event_sink
 
     def log(self, kind, **fields):
-        self.events.append({"type": kind, "elapsed_ms": round((time.monotonic() - self.started) * 1000), **fields})
+        event = {"type": kind, "elapsed_ms": round((time.monotonic() - self.started) * 1000), **fields}
+        self.events.append(event)
+        if self.event_sink:
+            self.event_sink(event)
 
-    async def respond(self, snapshot, cached, detected):
+    async def respond(self, snapshot, cached, detected, utterance_end_at=None):
         try:
             self.log("reply", text=self.reply, cached=True,
                      detection_to_output_call_ms=round((time.monotonic() - detected) * 1000))
             await self.meeting.play_audio(cached, 32000)
+            played_at = getattr(self.meeting, "last_playback_started_at", None)
+            if played_at is not None and not getattr(self.meeting, "timing_reliable", True):
+                self.log("playback_timing_unavailable", reason="audio_overflow_or_underflow")
+            elif played_at is not None:
+                metrics = {"detection_to_dac_estimate_ms": round((played_at - detected) * 1000)}
+                if utterance_end_at is not None:
+                    metrics["utterance_end_to_dac_estimate_ms"] = round((played_at - utterance_end_at) * 1000)
+                self.log("playback_timing", **metrics)
             if self.brain:
                 answer = await self.brain.answer(snapshot)
                 audio = await self.mouth.synthesize(answer)
@@ -68,7 +80,9 @@ class Primitive:
             self.log("ignored", reason="response_busy", event_id=event.event_id)
             return
         self.log("wake", event_id=event.event_id)
-        self.response_task = asyncio.create_task(self.respond(list(self.context), cached, time.monotonic()))
+        origin = getattr(self.meeting, "audio_origin", None)
+        utterance_end_at = origin + event.timestamp_ms / 1000 if origin is not None else None
+        self.response_task = asyncio.create_task(self.respond(list(self.context), cached, time.monotonic(), utterance_end_at))
 
     async def run(self):
         self.log("session_started", mode=self.mode)
@@ -86,8 +100,16 @@ class Primitive:
             await self.cancel_response()
             await self.meeting.leave()
             self.log("meeting_left")
+        return self.report()
+
+    def report(self):
+        limitations = ["Real Zoom native adapter and full meeting acceptance are pending SDK setup."]
+        if self.mode == "local-audio":
+            limitations.extend(["Speaker mode replaces input with silence during playback and echo tail; voice interruption is unavailable in that window.",
+                                "DAC latency is an audio-device timestamp estimate, not an independently measured acoustic latency."])
+        else:
+            limitations.extend(["Meeting and transcripts are simulated; TTS is live only in hybrid-tts mode.",
+                                "Timing is process orchestration timing, not real wake-to-audible latency."])
         return {"mode": self.mode, "events": self.events,
                 "response_failures": sum(e["type"] == "response_failed" for e in self.events),
-                "limitations": ["Meeting and transcripts are simulated; TTS is live only in hybrid-tts mode.",
-                                "Timing is process orchestration timing, not real wake-to-audible latency.",
-                                "Real Zoom native adapter and full meeting acceptance are pending SDK setup."]}
+                "limitations": limitations}
