@@ -5,6 +5,7 @@
 #import <ZoomSDK/ZoomSDK.h>
 #import <ZoomSDK/ZoomSDKRawDataAudioSourceController.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -63,6 +64,7 @@ static BOOL bridge_transfer(int fd, void *data, size_t size, BOOL writing) {
     char *cursor = data;
     while (size) {
         ssize_t n = writing ? send(fd, cursor, size, 0) : recv(fd, cursor, size, 0);
+        if (n < 0 && errno == EINTR) continue;
         if (n <= 0) return NO;
         cursor += n;
         size -= n;
@@ -163,6 +165,8 @@ static void *bridge_serve(void *unused) {
     for (;;) {
         int fd = accept(server, NULL, NULL);
         if (fd < 0) continue;
+        // A closed Python peer must fail I/O, not kill the SDK process with SIGPIPE.
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
         struct timeval timeout = {5, 0};
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
@@ -361,9 +365,14 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
             ZoomSDKRawDataAudioSourceController *source = nil;
             ZoomSDKError helper = [[[ZoomSDK sharedSDK] getRawDataController] getRawDataAudioSourceHelper:&source];
             if (helper == ZoomSDKError_Success && source) {
-                printf("AUDIO_SOURCE_SET result=%d\n", [source setExternalAudioSource:self]);
+                ZoomSDKError installed = [source setExternalAudioSource:self];
+                printf("AUDIO_SOURCE_SET result=%d\n", installed);
+                if (installed != ZoomSDKError_Success) {
+                    self.exitCode = 1; [self shutdown]; return;
+                }
             } else {
                 printf("AUDIO_SOURCE_HELPER result=%d\n", helper);
+                self.exitCode = 1; [self shutdown]; return;
             }
         }
         printf("JOIN_VOIP result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_JoinVoip userID:0 onScreen:0]);
@@ -472,9 +481,10 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
     if (self.stopping) return;
     self.stopping = YES;
     if (self.voice) {
-        ZoomSDKRawDataAudioSourceController *source = nil;
-        if ([[[ZoomSDK sharedSDK] getRawDataController] getRawDataAudioSourceHelper:&source] == ZoomSDKError_Success)
-            [source setExternalAudioSource:nil];
+        // Stop the sender before tearing down SDK objects. Keep the virtual source
+        // installed until after leaving, so teardown cannot switch to a physical mic.
+        bridge_set_sending(NO);
+        bridge_set_sender(nil);
     }
     [self.audio unSubscribe]; self.audio.delegate = nil;
     ZoomSDKMeetingService *meeting = [[ZoomSDK sharedSDK] getMeetingService];

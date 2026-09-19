@@ -97,9 +97,11 @@ class Primitive:
     async def cancel_response(self):
         if self.response_task and not self.response_task.done():
             self.response_task.cancel()
-            await self.meeting.stop_speaking()
-            await asyncio.gather(self.response_task, return_exceptions=True)
-            self.response_task = None
+            try:
+                await self.meeting.stop_speaking()
+            finally:
+                await asyncio.gather(self.response_task, return_exceptions=True)
+                self.response_task = None
 
     async def accept(self, event, cached):
         key = (event.meeting_id, event.event_id)
@@ -152,9 +154,11 @@ class Primitive:
             if self.response_task:
                 await self.response_task
         finally:
-            await self.cancel_response()
-            await self.meeting.leave()
-            self.log("meeting_left")
+            try:
+                await self.cancel_response()
+            finally:
+                await self.meeting.leave()
+                self.log("meeting_left")
         return self.report()
 
     def report(self):
@@ -165,7 +169,7 @@ class Primitive:
         elif self.mode == "zoom-audio":
             limitations = ["Input is gated during playback plus 350 ms; voice interruption is unavailable in that window.",
                            "Playback completion means frames accepted by Zoom SDK; remote audible latency is not measured.",
-                           "Same-account Linux ARM64 test path; long meetings and reconnection are not yet validated."]
+                           "Same-account development path; macOS remote audibility, long meetings and reconnection still require acceptance."]
         else:
             limitations.extend(["Meeting and transcripts are simulated; TTS is live only in hybrid-tts mode.",
                                 "Timing is process orchestration timing, not real wake-to-audible latency."])
