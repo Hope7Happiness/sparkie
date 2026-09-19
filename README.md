@@ -27,4 +27,4 @@ uv run --frozen python -m unittest discover -s tests -v
 
 最高优先级：先证明 Sparkie 可以加入真实会议，在被叫到时迅速播放“我在”。
 
-本机网页测试台：`bash scripts/web.sh`，打开 http://127.0.0.1:5178；选择设备后开始说话，查看转录和每次响应延迟。详见 [primitive](docs/primitive.md#网页语音测试台)。
+本机网页测试台：`bash scripts/web.sh`，打开 http://127.0.0.1:5178；默认真实问答（Terra Medium）；叫出 Sparkie 后紧接问题，可查看转录、答案和分别计时的确认/回答延迟。详见 [primitive](docs/primitive.md#网页语音测试台)。

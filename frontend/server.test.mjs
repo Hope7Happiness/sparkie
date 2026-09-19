@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { SessionController, validateOptions } from './server.mjs';
-const options = { language: 'en', echoMode: 'speaker', seconds: 60, inputDevice: '', outputDevice: 1 };
+const options = { language: 'en', echoMode: 'speaker', responseMode: 'qa', seconds: 60, inputDevice: '', outputDevice: 1 };
 function harness() {
   let now = 1000;
   const child = new EventEmitter();
@@ -14,7 +14,7 @@ function harness() {
   return { controller, child, advance: ms => { now += ms; }, args: () => argumentsUsed };
 }
 test('reject unsafe device values and unbounded duration before spawning', () => {
-  for (const override of [{ seconds: 0 }, { seconds: 301 }, { inputDevice: '--help' }, { language: 'fake' }, { outputDevice: null }]) {
+  for (const override of [{ seconds: 0 }, { seconds: 301 }, { inputDevice: '--help' }, { language: 'fake' }, { outputDevice: null }, { responseMode: 'shell' }]) {
     assert.throws(() => validateOptions({ ...options, ...override }));
   }
 });
@@ -22,6 +22,7 @@ test('one microphone owner, live events and clean stop preserve results', () => 
   const { controller, child, args } = harness();
   controller.start(options);
   assert.equal(args()[2].stdio[0], 'ignore');
+  assert.equal(args()[1][args()[1].indexOf('--response-mode') + 1], 'qa');
   assert.throws(() => controller.start(options), /正在运行/);
   child.stdout.write('plain notice\n{"type":"listening_ready"}\n{"type":"audio_level","peak":0.4,"gated":true,"timing_reliable":false}\n{"type":"wake","event_id":"1"}\n');
   assert.equal(controller.state.status, 'listening');

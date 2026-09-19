@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .engine import Primitive
+from .backends import configured_brain
 from .local_audio import LocalAudioMeeting
 from .providers import DeepgramEars, DeepgramMouth, ProviderError
 
@@ -30,6 +31,8 @@ async def local_session(args):
     key = os.getenv("DEEPGRAM_API_KEY")
     if not key:
         raise ValueError("Set DEEPGRAM_API_KEY in .env first")
+    response_mode = getattr(args, "response_mode", "wake")
+    brain = configured_brain() if response_mode == "qa" else None
     language = args.language or os.getenv("DEEPGRAM_LANGUAGE") or "en"
     session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:6]
     output = args.output / session_id
@@ -47,16 +50,28 @@ async def local_session(args):
         ears = DeepgramEars(key, session_id, model=os.getenv("DEEPGRAM_MODEL") or "nova-3", language=language)
         mouth = DeepgramMouth(key, os.getenv("DEEPGRAM_TTS_MODEL") or "aura-2-thalia-en")
         engine = Primitive(meeting, ears, mouth, reply=os.getenv("SPARKIE_REPLY") or "I'm here.",
-                           mode="local-audio", event_sink=event_sink)
+                           brain=brain, mode="local-audio", event_sink=event_sink)
+        if brain:
+            engine.log("reasoning_config", backend=os.getenv("SPARKIE_BACKEND") or "codex",
+                       model=brain.model, reasoning_effort=getattr(brain, "reasoning_effort", None))
         meeting.on_event = engine.log
         ears.on_ready = lambda: engine.log("listening_ready", language=language,
                                           hint="Say Sparkie, then pause. Ctrl+C stops the session.")
         loop = asyncio.get_running_loop()
         handlers = {}
+        stop_requested = False
+        session_task = asyncio.current_task()
+        def stop_session():
+            nonlocal stop_requested
+            if not stop_requested:
+                stop_requested = True
+                meeting.request_stop()
+                session_task.cancel()
+
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
                 handlers[sig] = signal.getsignal(sig)
-                loop.add_signal_handler(sig, meeting.request_stop)
+                loop.add_signal_handler(sig, stop_session)
             except (NotImplementedError, RuntimeError):
                 handlers.pop(sig, None)
         reason = "completed"
@@ -66,8 +81,10 @@ async def local_session(args):
             async with asyncio.timeout(args.seconds + 45):
                 await engine.run()
         except asyncio.CancelledError:
-            reason = "interrupted"
-            raise
+            reason = "stopped" if stop_requested else "interrupted"
+            if not stop_requested:
+                raise
+            engine.log("session_stopped")
         except Exception as exc:
             reason = "failed"
             engine.log("session_failed", error_type=type(exc).__name__)
@@ -81,7 +98,9 @@ async def local_session(args):
                 signal.signal(sig, previous)
             report = engine.report()
             report.update({"session_id": session_id, "exit_reason": reason, "zoom_tested": False,
-                           "stt_language": language, "audio": meeting.diagnostics()})
+                           "stt_language": language, "response_mode": response_mode,
+                           "brain_backend": (os.getenv("SPARKIE_BACKEND") or "codex") if brain else None,
+                           "audio": meeting.diagnostics()})
             (output / "run.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
             print(f"Session ended: {output / 'run.json'}", flush=True)
     return 1 if report["response_failures"] else 0

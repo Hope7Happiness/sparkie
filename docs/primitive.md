@@ -9,15 +9,39 @@ bash scripts/web.sh
 # 打开 http://127.0.0.1:5178
 ```
 
-需要 Node.js 20.19+ 或 22.12+、npm 和 uv；启动脚本安装锁定依赖。页面控制**运行服务的这台电脑**的麦克风/扬声器，不使用浏览器或手机的麦克风。选择输入输出设备、语言和 60/120/300 秒时长，点击“开始测试”，等“正在聆听”后说 Sparkie 并停顿。系统麦克风权限属于启动 Python 的程序。
+需要 Node.js 20.19+ 或 22.12+、npm 和 uv；启动脚本安装锁定依赖。页面控制**运行服务的这台电脑**的麦克风/扬声器，不使用浏览器或手机的麦克风。选择输入输出设备、语言和 60/120/300 秒时长。默认“真实问答”模式；点击“开始测试”，等“正在聆听”后说 **Sparkie，紧接着说完整问题**，整句说完再停顿。只说名字时仅确认，不生成答案。“只测唤醒”模式保留原来的固定回复测试。系统麦克风权限属于启动 Python 的程序。
 
-页面显示实时输入电平、最终转录、每次唤醒的总延迟与识别/播放等待拆分、有效样本平均/最快/最慢值；可导出本轮 JSON。所有延迟来自同一台设备的时间戳，不把网页轮询耗时计入；发生丢帧或欠载后整轮计时标为无效。开始新一轮前可导出旧记录；原始会话日志仍在 `output/local/`。
+页面显示实时输入电平、最终转录、确认回应和完整答案。问答模式的主数字是“说完问题 → 开始朗读答案”；确认回应、答案文字出现和完整答案播完分别计时。平均/最快/最慢只统计当前模式的有效声音样本；可导出本轮 JSON。所有延迟来自同一台设备的时间戳，不把网页轮询耗时计入；发生丢帧或欠载后整轮计时标为无效。开始新一轮前可导出旧记录；原始会话日志仍在 `output/local/`。
 
 “停止测试”结束采集；关闭全部测试页面后，无心跳 15 秒触发停止，必要时再等最多 5 秒强制结束。刷新页面会接回当前会话。同一服务只运行一轮测试；开多个页面会共享控制。服务只监听本机 5178。仅开发服务器提供音频 API；`npm --prefix frontend run build` 用于检查静态构建，产物不提供音频服务。
 
 开发录制工具 Frontend Helper 可通过 Alt+Shift+H 打开，用于记录页面操作并生成 `fh_…` 问题编号。录制为手动启动，记录页面内容（可能含转录），保存在忽略目录 `frontend/.frontend-helper/traces/`；生产构建不包含工具。未发布 npm 的技能包使用本仓库内固定版本源码，来源见 `frontend/tooling/frontend-helper/README.md`。
 
 2026-09-19 网页验收：桌面 1360px 与窄屏 390px 无横向溢出，无页面 JS 错误。通过页面开始真实采集，扬声器播放合成唤醒句后记录 1 次回复，设备估算总延迟 2648ms（识别等待 2491ms、播放等待 157ms），停止按钮正常结束采集；这仍是合成语音测试。35 项 Python 测试、4 项控制器测试、离线演示、前端锁定安装和构建通过。Frontend Helper 已验证真实操作录制、保存与版本信息；生产产物无 recorder 代码。
+
+## 真实问答与本轮记忆
+
+网页默认启用，也可运行：
+
+```bash
+bash scripts/local.sh --language en --seconds 120 --response-mode qa
+```
+
+沿用 `SPARKIE_BACKEND=codex` 的现有 CLI 登录，默认明确指定 **`gpt-5.6-terra`、`medium`**，可在项目 `.env` 的 `CODEX_MODEL`、`CODEX_REASONING_EFFORT` 修改。启动后页面显示实际配置。不会修改全局 Codex 配置；不传入项目 API keys，推理在临时只读目录运行，不启用搜索或执行工具。可选 OpenAI API 后端仍由 `.env` 配置，不自动切换模型或后端。
+
+识别到完整的称呼加问题后，立即播放缓存的 “I'm here.”，同时开始推理；答案文字生成后立刻显示，再通过 Deepgram 英文 TTS 朗读。生成答案期间继续收集讨论；扬声器播放期间仍有回声静音窗口。一个答案完成前再次提问会显示“正忙”，请稍后重新叫醒，不会自动排队。页面停止/关页超时会取消正在进行的推理及音频。
+
+上下文保留本轮最近 50 条人类转录与 Sparkie 答案，发送给推理服务时最多 16000 字符；每次请求使用提问当时的快照，后续补充供下一次提问使用。新一轮清空记忆。普通聊天只记录不回应。一般知识可以回答；会议决策只根据实际讨论，不把模型自己建议的内容当作已决定，也不声称完成搜索或外部任务。
+
+测试顺序：
+1. 先说 “We chose Zoom for calls and Deepgram for speech.”，等转录出现。
+2. 问 “Sparkie, which services did we choose?”，检查是否同时提到两项。
+3. 等答案播完后问 “Sparkie, what does the second service do?”，检查能否理解上一轮回答。
+4. 问 “Sparkie, what is a WebSocket?”，检查一般知识回答。
+
+中文识别选择中文，回答文字和语音暂用英文。只听到确认不算问答成功，应看到 `answer` 并完成 `answer_completed`。推理、合成和播放错误各自显示；合成失败会保留已生成的文本。全量答案先生成再合成，当前不做 token 或 TTS 分段流式输出。
+
+2026-09-19 问答验收：使用 Terra Medium，通过扬声器播放合成测试语音并真实采集。会话 `20260919T172847Z-9c913f` 正确回忆 Zoom/Google 的选择，并在追问“第二个服务”时回答 Google 用于搜索，两次答案均朗读完成；会话 `20260919T173140Z-cb174c` 的 WebSocket 一般知识答案也朗读完成。生成文字约 7–13 秒，不把确认速度当成模型回答速度。测试存在音频丢帧，页面正确将本轮声音计时标为无效，因此不作该轮端到端延迟结论。停止、桌面/窄屏页面和实际模型显示已检查；41 项 Python 测试、9 项前端测试及生产构建通过。
 
 ## 本地真人音频闭环
 
@@ -27,7 +51,7 @@ uv run --frozen sparkie devices
 bash scripts/local.sh --language en --seconds 60
 ```
 
-等待 `listening_ready` 后说 **Sparkie** 或 **Sparkie, are you there?**，停顿后应听到 **I'm here.**。默认不调用 Codex/OpenAI，不需要 Zoom。Ctrl+C 停止；会话最长为 `--seconds` 指定的时间。真实麦克风音频发送给 Deepgram；只保存 transcript 与事件，不保存原始麦克风录音。
+等待 `listening_ready` 后说 **Sparkie** 或 **Sparkie, are you there?**，停顿后应听到 **I'm here.**。CLI 默认 `--response-mode wake` 不调用 Codex/OpenAI，不需要 Zoom。Ctrl+C 停止；会话最长为 `--seconds` 指定的时间。真实麦克风音频发送给 Deepgram；只保存 transcript 与事件，不保存原始麦克风录音。
 
 可用 `--input-device 0 --output-device 1` 选择设备，编号以本机 `devices` 结果为准。macOS 首次运行可能需要在“系统设置 → 隐私与安全性 → 麦克风”允许启动程序访问。Linux 需要系统 PortAudio 库。
 
@@ -81,9 +105,9 @@ uv run --frozen sparkie brain-check --backend codex
 uv run --frozen sparkie brain-check --backend openai
 ```
 
-Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终输出文件传递数据，不向 worker 传递项目 API keys。Codex 仍通过已登录账号调用云端模型，不能当作离线推理。适合后台任务的调用边界；当前仅实现上下文回答，不包含任务队列或搜索。
+Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终输出文件传递数据，不向 worker 传递项目 API keys。Codex 仍通过已登录账号调用云端模型，不能当作离线推理。适合后台任务的调用边界；已接入本地语音问答，不包含任务队列或搜索。
 
-`Primitive(..., brain=configured_brain())` 可接入推理；固定回复 CLI 默认不启用 brain。两种真实 brain 均用英文回答，匹配当前 Deepgram 英文声音。
+`Primitive(..., brain=configured_brain())` 可接入推理；固定回复 CLI 默认不启用 brain；网页默认真实问答。两种真实 brain 均用英文回答，匹配当前 Deepgram 英文声音。
 
 ## 接口与状态
 
@@ -98,7 +122,7 @@ Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终
 | Deepgram TTS | `providers.py` 的 `DeepgramMouth` | 真实 Aura REST PCM 检查通过 |
 | Codex 后端 | `backends.py` 的 `CodexBrain` | 真实非交互调用通过 |
 | OpenAI API 后端 | `providers.py` 的 `OpenAIBrain` | key 认证通过，推理为模拟协议测试 |
-| 唤醒与回复 | `engine.py`、`wake.py` | 非阻塞回复，最近 50 条人类 transcript 上下文 |
+| 唤醒与回复 | `engine.py`、`wake.py` | 非阻塞回复，最近 50 条人类转录与答案上下文 |
 
 ## 已知限制
 

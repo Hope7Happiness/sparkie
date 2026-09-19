@@ -28,6 +28,8 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured['args'][-1], '-')
         self.assertIn('read-only', captured['args'])
         self.assertIn('features.shell_tool=false', captured['args'])
+        self.assertEqual(captured['args'][captured['args'].index('--model') + 1], 'gpt-5.6-terra')
+        self.assertIn('model_reasoning_effort="medium"', captured['args'])
         self.assertIn('We chose Zoom.', captured['prompt'])
         for key in ['DEEPGRAM_API_KEY','OPENAI_API_KEY','CODEX_API_KEY']:
             self.assertNotIn(key, captured['kwargs']['env'])

@@ -12,8 +12,9 @@ const runFile = promisify(execFile);
 export function validateOptions(value) {
   if (!value || !['en', 'zh-CN'].includes(value.language) ||
       !['speaker', 'headphones'].includes(value.echoMode) ||
+      !['wake', 'qa'].includes(value.responseMode) ||
       !Number.isInteger(value.seconds) || value.seconds < 10 || value.seconds > 300) {
-    throw new Error('请选择语言、播放方式和 10–300 秒的时长。');
+    throw new Error('请选择问答模式、语言、播放方式和 10–300 秒的时长。');
   }
   for (const key of ['inputDevice', 'outputDevice']) {
     if (value[key] !== '' && (!Number.isInteger(value[key]) || value[key] < 0 || value[key] > 1024)) {
@@ -39,7 +40,8 @@ export class SessionController {
     validateOptions(options);
     if (this.child) throw new Error('测试正在运行，请先停止当前测试。');
     const args = ['-m', 'sparkie.primitive', 'local', '--language', options.language,
-      '--seconds', String(options.seconds), '--echo-mode', options.echoMode];
+      '--seconds', String(options.seconds), '--echo-mode', options.echoMode,
+      '--response-mode', options.responseMode];
     for (const [key, flag] of [['inputDevice', '--input-device'], ['outputDevice', '--output-device']]) {
       if (options[key] !== '') args.push(flag, String(options[key]));
     }
@@ -76,7 +78,7 @@ export class SessionController {
       this.state.level = 0;
       this.state.gated = false;
       this.state.status = code === 0 || this.state.status === 'stopping' ? 'ended' : 'failed';
-      if (this.state.status === 'failed') this.state.error ||= '测试失败：请检查 .env 中的 Deepgram 配置、网络、音频设备和系统麦克风权限。详细错误类型见事件记录。';
+      if (this.state.status === 'failed') this.state.error ||= '测试失败：请检查 Deepgram 配置、网络、音频设备和麦克风权限；问答模式还需有效的 Codex 登录及模型配置。详细错误类型见事件记录。';
       this.state.exitCode = code;
     });
     this.deadlineTimer = setTimeout(() => this.stop('timeout'), (options.seconds + 45) * 1000);

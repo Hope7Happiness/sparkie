@@ -1,4 +1,5 @@
 import './style.css';
+import { deriveTrials } from './trials.js';
 const $ = id => document.getElementById(id);
 let state = { status: 'idle', events: [] };
 let online = false, busy = false, viewSignature = '';
@@ -17,22 +18,10 @@ async function api(route, data) {
   if (!response.ok) throw new Error(result.error || '本地服务暂时不可用');
   return result;
 }
-function trials() {
-  const list = [];
-  for (const event of state.events) {
-    if (event.type === 'wake') list.push({ text: state.events.find(e => e.type === 'transcript' && e.event_id === event.event_id)?.text || 'Sparkie', at: event.elapsed_ms });
-    const trial = list.at(-1);
-    if (!trial) continue;
-    if (event.type === 'playback_timing') Object.assign(trial, { total: event.utterance_end_to_dac_estimate_ms, playback: event.detection_to_dac_estimate_ms });
-    if (event.type === 'playback_timing_unavailable') trial.invalid = true;
-    if (event.type === 'response_failed' || event.type === 'response_cancelled') trial.failed = true;
-  }
-  for (const trial of list) {
-    if (['ended', 'failed'].includes(state.status) && !Number.isFinite(trial.total)) trial.failed = true;
-    trial.recognition = trial.total - trial.playback;
-    trial.valid = state.timingReliable && !trial.invalid && !trial.failed && Number.isFinite(trial.total) && trial.total >= 0 && trial.recognition >= 0;
-  }
-  return list;
+function trials() { return deriveTrials(state); }
+function trialStatus(trial) {
+  if (!trial.answerRequested) return trial.stage === 'completed' ? '仅唤醒' : trial.stage === 'cancelled' ? '已取消' : trial.stage === 'failed' ? '确认失败' : '正在确认';
+  return { acknowledgement: '正在确认', thinking: '思考中', synthesis: '准备语音', speaking: '朗读中', completed: '已回答', failed: '回答失败', cancelled: '已取消' }[trial.stage] || '等待回答';
 }
 function addText(parent, tag, text, className) {
   const node = document.createElement(tag);
@@ -43,20 +32,24 @@ function addText(parent, tag, text, className) {
 }
 function render() {
   const running = active();
+  const records = trials();
+  const latest = records.at(-1);
+  const qa = (state.id ? state.options?.responseMode : $('mode').value) === 'qa';
+  const working = latest?.answerRequested && !['completed', 'failed', 'cancelled'].includes(latest.stage);
   $('connection').textContent = online ? '本地服务已连接' : '本地服务连接中断';
   $('start').hidden = running;
   $('stop').hidden = !running;
   $('start').disabled = busy || !online;
   $('stop').disabled = busy || state.status === 'stopping' || !online;
-  for (const id of ['input', 'output', 'language', 'echo', 'seconds']) $(id).disabled = running || busy;
+  for (const id of ['mode', 'input', 'output', 'language', 'echo', 'seconds']) $(id).disabled = running || busy;
   const labels = { idle: '准备就绪', starting: '连接中', listening: '正在聆听', stopping: '正在停止', ended: '测试结束', failed: '测试失败' };
-  $('status').textContent = online ? labels[state.status] || state.status : '服务离线';
+  $('status').textContent = online ? state.status === 'listening' && working ? trialStatus(latest) : labels[state.status] || state.status : '服务离线';
   $('status').classList.toggle('active', running);
   $('stage').classList.toggle('live', state.status === 'listening' && online);
   const descriptions = {
-    idle: ['准备好就开口', '点击开始，等待连接后说 “Sparkie”'],
+    idle: ['准备好就开口', qa ? '说 “Sparkie” 后紧接问题，整句说完再停顿' : '点击开始，等待连接后说 “Sparkie”'],
     starting: ['正在连接声音', '准备回复语音并连接 Deepgram，请稍候'],
-    listening: state.gated ? ['Sparkie 正在回应', '回复结束后，再试着叫醒一次'] : ['我在听，说 “Sparkie”', '说完后停顿，等待 “I’m here.”'],
+    listening: state.gated ? ['Sparkie 正在回应', '扬声器播放期间暂停识别，等回复结束后再说'] : working ? ['Sparkie ' + trialStatus(latest), '你可以继续说话补充上下文；下一题请等当前回答结束'] : ['我在听，说 “Sparkie”', qa ? '紧接着说出问题，或问问刚才聊了什么' : '说完后停顿，等待 “I’m here.”'],
     stopping: ['正在结束测试', '停止采集并保存本轮记录'],
     ended: ['这一轮，完成了', '查看下方记录，或再开始一轮测试'],
     failed: ['连接遇到了一点问题', '检查设备、网络与系统麦克风权限后重试'],
@@ -69,16 +62,24 @@ function render() {
   $('elapsed').textContent = time(end);
   if (state.error) error(state.error);
   $('download').disabled = !state.id;
-  const signature = `${state.id}:${state.events.length}:${state.timingReliable}:${state.status}`;
+  const signature = `${state.id}:${state.events.length}:${state.timingReliable}:${state.status}:${qa}`;
   if (signature === viewSignature) return;
   viewSignature = signature;
-  const records = trials();
-  const latest = records.at(-1);
   const valid = records.filter(t => t.valid);
+  $('latency-title').textContent = qa ? '最近一次答案' : '最近一次确认';
+  $('playback-label').textContent = qa ? '识别唤醒 → 实际回答' : '识别唤醒 → 确认回应';
+  $('answer-metrics').hidden = !qa;
+  $('answer-note').hidden = !qa;
+  const config = state.events.find(e => e.type === 'reasoning_config');
+  $('reasoning-model').textContent = config ? `${config.model}${config.reasoning_effort ? ' · ' + config.reasoning_effort : ''}` : '本轮模型连接后显示';
+  $('stats-label').textContent = qa ? '答案样本' : '确认样本';
+  $('ack-time').textContent = latest?.ackValid ? ms(latest.ackTotal) : '—';
+  $('text-time').textContent = ms(latest?.textTotal);
+  $('complete-time').textContent = ms(latest?.answerCompleted);
   $('total').textContent = latest?.valid ? Math.round(latest.total).toLocaleString() : '—';
-  $('recognition').textContent = latest?.valid ? ms(latest.recognition) : '—';
+  $('recognition').textContent = latest?.ackValid ? ms(latest.recognition) : '—';
   $('playback').textContent = latest?.valid ? ms(latest.playback) : '—';
-  $('metric-caption').textContent = !state.timingReliable && records.length ? '音频出现丢帧或欠载 · 本轮计时无效' : latest?.failed ? '回复失败或取消 · 无有效延迟' : latest && !latest.valid ? '等待回复完成后生成计时' : '说完最后一个词 → 开始播放回复';
+  $('metric-caption').textContent = !state.timingReliable && records.length ? '音频出现丢帧或欠载 · 本轮计时无效' : latest && !latest.valid ? trialStatus(latest) + (qa && !latest.answerRequested ? ' · 请在 Sparkie 后紧接问题' : '') : qa ? '说完问题 → 开始朗读答案' : '说完最后一个词 → 开始确认回应';
   $('recognition-bar').style.width = latest?.valid && latest.total ? `${latest.recognition / latest.total * 100}%` : '0';
   $('playback-bar').style.width = latest?.valid && latest.total ? `${latest.playback / latest.total * 100}%` : '0';
   $('count').textContent = `${records.length} 次唤醒`;
@@ -91,7 +92,10 @@ function render() {
     table.replaceChildren();
     records.toReversed().forEach((trial, i) => {
       const row = document.createElement('tr');
-      [String(records.length - i).padStart(2, '0'), trial.text, trial.valid ? ms(trial.recognition) : '—', trial.valid ? ms(trial.playback) : '—', trial.valid ? ms(trial.total) : trial.failed ? '未完成' : !state.timingReliable || trial.invalid ? '计时无效' : '等待回复'].forEach(text => addText(row, 'td', text));
+      [String(records.length - i).padStart(2, '0'), trial.text,
+        trial.ackValid ? ms(trial.ackTotal) : trial.invalid || !state.timingReliable ? '计时无效' : '—',
+        trial.answerValid ? ms(trial.answerTotal) : trial.invalid || !state.timingReliable ? '计时无效' : '—',
+        trialStatus(trial)].forEach(text => addText(row, 'td', text));
       table.append(row);
     });
   } else {
@@ -99,29 +103,33 @@ function render() {
     const row = document.createElement('tr');
     const cell = addText(row, 'td', '开始测试后，每一次唤醒都会记录在这里。', 'table-empty'); cell.colSpan = 5; table.append(row);
   }
-  const messages = state.events.filter(e => ['transcript', 'reply'].includes(e.type));
+  const messages = state.events.filter(e => ['transcript', 'reply', 'answer', 'response_failed', 'response_cancelled'].includes(e.type) || (e.type === 'ignored' && e.reason === 'response_busy'));
   const transcript = $('transcripts');
   if (messages.length) {
     const atBottom = transcript.scrollTop + transcript.clientHeight >= transcript.scrollHeight - 35;
     transcript.replaceChildren();
     for (const event of messages) {
-      const bubble = addText(transcript, 'div', '', `bubble ${event.type === 'reply' ? 'bot' : ''}`);
-      const speaker = addText(bubble, 'div', event.type === 'reply' ? 'SPARKIE · 回复请求' : '你 · 最终转录', 'speaker');
+      const isHuman = event.type === 'transcript';
+      const notice = ['response_failed', 'response_cancelled', 'ignored'].includes(event.type);
+      const bubble = addText(transcript, 'div', '', `bubble ${isHuman ? '' : 'bot'} ${event.type === 'answer' ? 'answer' : ''} ${notice ? 'notice' : ''}`);
+      const label = { transcript: '你 · 最终转录', reply: 'SPARKIE · 确认回应', answer: 'SPARKIE · 回答', response_failed: 'SPARKIE · 未完成', response_cancelled: 'SPARKIE · 已取消', ignored: 'SPARKIE · 正忙' }[event.type];
+      const speaker = addText(bubble, 'div', label, 'speaker');
       addText(speaker, 'span', time(event.elapsed_ms));
-      addText(bubble, 'p', event.text);
+      const failure = event.phase === 'reasoning' ? '答案生成失败，请检查推理服务后重新提问。' : event.phase === 'answer_synthesis' ? '答案文字已保留，语音生成失败。请检查 Deepgram 配置或网络。' : '音频播放失败，请检查输出设备后重试。';
+      addText(bubble, 'p', event.type === 'response_failed' ? failure : event.type === 'response_cancelled' ? '本次回答已取消。' : event.type === 'ignored' ? '当前回答尚未结束，请稍后重新叫醒并提问。' : event.text);
     }
     if (atBottom) transcript.scrollTop = transcript.scrollHeight;
   } else {
     transcript.replaceChildren();
     const empty = addText(transcript, 'div', '', 'empty');
-    addText(empty, 'span', '“ ”'); addText(empty, 'p', '你的声音会出现在这里'); addText(empty, 'small', '试试 “Sparkie, are you there?”，然后停顿。');
+    addText(empty, 'span', '“ ”'); addText(empty, 'p', '你的声音会出现在这里'); addText(empty, 'small', '试试 “Sparkie, what is a WebSocket?”，然后停顿。');
   }
   $('events').textContent = state.id ? `会话 ${state.id}\n${state.events.map(e => JSON.stringify(e)).join('\n')}` : '尚无会话';
 }
 $('start').addEventListener('click', async () => {
   busy = true; error(''); render();
   try {
-    state = await api('start', { language: $('language').value, echoMode: $('echo').value, seconds: Number($('seconds').value), inputDevice: $('input').value === '' ? '' : Number($('input').value), outputDevice: $('output').value === '' ? '' : Number($('output').value) });
+    state = await api('start', { responseMode: $('mode').value, language: $('language').value, echoMode: $('echo').value, seconds: Number($('seconds').value), inputDevice: $('input').value === '' ? '' : Number($('input').value), outputDevice: $('output').value === '' ? '' : Number($('output').value) });
   } catch (e) { error(e.message); }
   finally { busy = false; render(); }
 });
@@ -147,4 +155,5 @@ async function devices() {
     }
   } catch (e) { error(e.message); }
 }
+$('mode').addEventListener('change', render);
 devices(); poll();

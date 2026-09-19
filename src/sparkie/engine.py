@@ -24,31 +24,72 @@ class Primitive:
         if self.event_sink:
             self.event_sink(event)
 
-    async def respond(self, snapshot, cached, detected, utterance_end_at=None):
+    def playback_timing(self, phase, response_id, detected, utterance_end_at):
+        played_at = getattr(self.meeting, "last_playback_started_at", None)
+        if played_at is None:
+            return
+        if not getattr(self.meeting, "timing_reliable", True):
+            self.log("playback_timing_unavailable", phase=phase, response_id=response_id,
+                     reason="audio_overflow_or_underflow")
+            return
+        metrics = {"detection_to_dac_estimate_ms": round((played_at - detected) * 1000)}
+        if utterance_end_at is not None:
+            metrics["utterance_end_to_dac_estimate_ms"] = round((played_at - utterance_end_at) * 1000)
+        self.log("playback_timing", phase=phase, response_id=response_id, **metrics)
+
+    async def generate_answer(self, snapshot, response_id, detected):
+        started = time.monotonic()
+        self.log("thinking", response_id=response_id, context_entries=len(snapshot))
+        answer = await self.brain.answer(snapshot)
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("Reasoning backend returned an empty answer")
+        answer = answer.strip()
+        # Publish text before synthesis so a voice failure doesn't hide a valid answer.
+        self.log("answer", response_id=response_id, text=answer,
+                 inference_ms=round((time.monotonic() - started) * 1000),
+                 detection_to_answer_text_ms=round((time.monotonic() - detected) * 1000))
+        self.context.append("[Sparkie answer, not a participant decision] " + answer)
+        return answer
+
+    async def respond(self, snapshot, cached, detected, utterance_end_at=None, response_id=None, answer_requested=True):
+        inference = None
+        phase = "acknowledgement"
         try:
-            self.log("reply", text=self.reply, cached=True,
+            if self.brain and answer_requested:
+                # Start reasoning while the cached acknowledgement plays.
+                inference = asyncio.create_task(self.generate_answer(snapshot, response_id, detected))
+            self.log("reply", response_id=response_id, text=self.reply, cached=True,
                      detection_to_output_call_ms=round((time.monotonic() - detected) * 1000))
             await self.meeting.play_audio(cached, 32000)
-            played_at = getattr(self.meeting, "last_playback_started_at", None)
-            if played_at is not None and not getattr(self.meeting, "timing_reliable", True):
-                self.log("playback_timing_unavailable", reason="audio_overflow_or_underflow")
-            elif played_at is not None:
-                metrics = {"detection_to_dac_estimate_ms": round((played_at - detected) * 1000)}
-                if utterance_end_at is not None:
-                    metrics["utterance_end_to_dac_estimate_ms"] = round((played_at - utterance_end_at) * 1000)
-                self.log("playback_timing", **metrics)
-            if self.brain:
-                answer = await self.brain.answer(snapshot)
+            self.playback_timing("acknowledgement", response_id, detected, utterance_end_at)
+            if inference:
+                phase = "reasoning"
+                answer = await inference
+                phase = "answer_synthesis"
+                self.log("answer_synthesis", response_id=response_id)
+                synthesis_started = time.monotonic()
                 audio = await self.mouth.synthesize(answer)
-                self.log("answer", text=answer)
+                self.log("answer_audio_ready", response_id=response_id,
+                         synthesis_ms=round((time.monotonic() - synthesis_started) * 1000))
+                phase = "answer_playback"
+                self.log("answer_playing", response_id=response_id)
                 await self.meeting.play_audio(audio, 32000)
-            self.log("response_completed")
+                self.playback_timing("answer", response_id, detected, utterance_end_at)
+                self.log("answer_completed", response_id=response_id,
+                         utterance_end_to_answer_completed_ms=round((time.monotonic() - utterance_end_at) * 1000) if utterance_end_at is not None else None,
+                         detection_to_answer_completed_ms=round((time.monotonic() - detected) * 1000))
+            self.log("response_completed", response_id=response_id)
         except asyncio.CancelledError:
-            self.log("response_cancelled")
+            self.log("response_cancelled", response_id=response_id, phase=phase)
             raise
         except Exception as exc:
             # Do not copy HTTP response bodies/credentials into logs.
-            self.log("response_failed", error_type=type(exc).__name__)
+            self.log("response_failed", response_id=response_id, phase=phase, error_type=type(exc).__name__)
+        finally:
+            if inference:
+                if not inference.done():
+                    inference.cancel()
+                await asyncio.gather(inference, return_exceptions=True)
 
     async def cancel_response(self):
         if self.response_task and not self.response_task.done():
@@ -74,18 +115,21 @@ class Primitive:
         if CANCEL.search(rest):
             await self.cancel_response()
             return
-        if addressed_request(event.text) is None:
+        request = addressed_request(event.text)
+        if request is None:
             return
         if self.response_task and not self.response_task.done():
             self.log("ignored", reason="response_busy", event_id=event.event_id)
             return
-        self.log("wake", event_id=event.event_id)
+        self.log("wake", event_id=event.event_id, response_id=event.event_id,
+                 answer_requested=bool(self.brain and request))
         origin = getattr(self.meeting, "audio_origin", None)
         utterance_end_at = origin + event.timestamp_ms / 1000 if origin is not None else None
-        self.response_task = asyncio.create_task(self.respond(list(self.context), cached, time.monotonic(), utterance_end_at))
+        self.response_task = asyncio.create_task(self.respond(list(self.context), cached, time.monotonic(),
+                                                                utterance_end_at, event.event_id, bool(request)))
 
     async def run(self):
-        self.log("session_started", mode=self.mode)
+        self.log("session_started", mode=self.mode, response_mode="qa" if self.brain else "wake")
         # Resolve TTS credentials/voice failures before entering the meeting.
         cached = await self.mouth.synthesize(self.reply)
         self.log("reply_prepared", bytes=len(cached))
@@ -110,6 +154,6 @@ class Primitive:
         else:
             limitations.extend(["Meeting and transcripts are simulated; TTS is live only in hybrid-tts mode.",
                                 "Timing is process orchestration timing, not real wake-to-audible latency."])
-        return {"mode": self.mode, "events": self.events,
+        return {"mode": self.mode, "response_mode": "qa" if self.brain else "wake", "events": self.events,
                 "response_failures": sum(e["type"] == "response_failed" for e in self.events),
                 "limitations": limitations}

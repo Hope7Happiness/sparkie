@@ -156,6 +156,8 @@ def main():
     local.add_argument("--language", help="Override STT language, e.g. en or zh-CN")
     local.add_argument("--seconds", type=int, default=60, help="Session duration, 1–3600 seconds")
     local.add_argument("--echo-mode", choices=["speaker", "headphones"], default="speaker")
+    local.add_argument("--response-mode", choices=["wake", "qa"], default="wake",
+                       help="qa enables real contextual answers using the configured reasoning backend")
     local.add_argument("--output", type=Path, default=Path("output/local"))
     args = parser.parse_args()
     if args.command == "doctor":
