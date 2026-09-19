@@ -16,6 +16,42 @@ def packet(kind, data=b''):
 
 
 class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_receive_gate_is_frozen_before_queueing(self):
+        self.meeting.input_gate = lambda: True
+        self.meeting.reader.feed_data(packet(b'A', b'\x01\x20' * 320))
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        await asyncio.wait_for(self.meeting.audio_ready.wait(), 1)
+        self.meeting.input_gate = lambda: False
+        frame = self.meeting.queue.get_nowait()
+        self.assertTrue(frame.gated)
+        self.assertEqual(frame.pcm, bytes(640))
+        self.meeting.reader.feed_data(packet(b'A', b'\x01\x20' * 320))
+        frame = await asyncio.wait_for(self.meeting.queue.get(), 1)
+        self.assertFalse(frame.gated)
+        self.assertEqual(frame.pcm, b'\x01\x20' * 320)
+
+    async def test_submission_events_are_throttled_without_losing_completion(self):
+        self.meeting.playback_event_interval = 5
+        future = asyncio.get_running_loop().create_future()
+        self.meeting.playbacks[1] = future
+        self.meeting.reader.feed_data(packet(b'S', struct.pack('!I', 1)) * 50 +
+                                      packet(b'D', struct.pack('!I', 1)))
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        await asyncio.wait_for(future, 1)
+        self.assertEqual(sum(k == 'zoom_playback_submitted' for k, _ in self.events), 1)
+
+    async def test_duration_expiry_differs_from_stop_and_failure(self):
+        self.meeting.max_seconds = 0
+        self.assertEqual([f async for f in self.meeting.audio()], [])
+        self.assertTrue(self.meeting.duration_expired)
+        self.meeting.duration_expired = False
+        self.meeting.request_stop()
+        self.assertEqual([f async for f in self.meeting.audio()], [])
+        self.assertFalse(self.meeting.duration_expired)
+        self.meeting.failure = RuntimeError('test failure')
+        with self.assertRaises(RuntimeError):
+            _ = [f async for f in self.meeting.audio()]
+        self.assertFalse(self.meeting.duration_expired)
     async def test_native_error_resolves_playback_and_preserves_safe_details(self):
         from sparkie.providers import failure_details
         from sparkie.zoom_errors import ZoomBridgeError

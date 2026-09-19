@@ -115,7 +115,54 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_queue_overflow_is_explicit(self):
         with self.assertRaises(ProviderError):
-            self.audio.append_output('too-large', bytes(48000 * 16))
+            self.audio.append_output('too-large', bytes(48000 * 121))
+
+    async def test_fast_generation_longer_than_15_seconds_drains_in_full(self):
+        self.meeting.block = True
+        for _ in range(30):
+            self.audio.append_output('long', bytes(48000))
+        self.audio.finish_output('long')
+        await asyncio.wait_for(self.meeting.started.wait(), 1)
+        self.assertGreater(self.audio.buffered, 64000 * 15)
+        self.meeting.release.set()
+        await self.wait_drained('long')
+        self.assertEqual(self.audio.outputs['long'].played_ms(), 30000)
+        self.assertEqual(sum(len(pcm) for pcm, _ in self.meeting.packets), 64000 * 30)
+        self.assertEqual(self.audio.buffered, 0)
+
+    async def test_120_seconds_fits_and_multiple_items_share_one_bound(self):
+        self.audio.append_output('full', bytes(48000 * 120))
+        self.audio.finish_output('full')
+        self.assertEqual(self.audio.buffered, self.audio.MAX_BUFFER_BYTES)
+        with self.assertRaisesRegex(ProviderError, 'queue full'):
+            self.audio.append_output('another', bytes(48000))
+        self.assertLessEqual(self.audio.buffered, self.audio.MAX_BUFFER_BYTES)
+        await self.audio.stop_speaking()
+        self.assertEqual(self.audio.buffered, 0)
+        self.assertFalse(self.audio.waiting)
+        self.assertTrue(all(not o.pending and o.resampler is None for o in self.audio.outputs.values()))
+
+    async def test_captured_gate_survives_queue_delay_and_resampling(self):
+        async def captured():
+            # Gate has already expired when these queued frames are consumed.
+            for i in range(100):
+                yield AudioFrame(i, b'\x00\x20' * 320, 32000, i < 50)
+        self.meeting.audio = captured
+        self.audio._gate_until = 0
+        frames = [f async for f in self.audio.audio()]
+        self.assertEqual(sum(len(f.pcm) for f in frames), 48000)
+        gated = [f for f in frames if f.gated]
+        self.assertTrue(gated)
+        self.assertTrue(all(not any(f.pcm) for f in gated))
+        self.assertTrue(any(any(f.pcm) for f in frames if not f.gated))
+
+    async def test_gate_covers_generation_gaps_and_tail(self):
+        self.audio.append_output('gap', bytes(2))
+        self.assertTrue(self.audio.input_gated())
+        await self.audio.stop_speaking()
+        self.assertTrue(self.audio.input_gated())
+        with patch('sparkie.realtime_zoom_audio.time.monotonic', return_value=self.audio._gate_until + .01):
+            self.assertFalse(self.audio.input_gated())
 
     async def test_generation_burst_cancels_reply_without_killing_session(self):
         import base64
@@ -125,9 +172,9 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                               lambda kind, **kw: events.append((kind, kw)))
         agent.ws = SimpleNamespace(send=AsyncMock())
         await agent.handle({'type': 'response.created', 'response': {'id': 'burst'}})
-        # Faster-than-playback generation exceeds the bounded 15-second queue.
+        # Explicit hard response duration limit remains recoverable.
         await agent.handle({'type': 'response.output_audio.delta', 'response_id': 'burst',
-                            'item_id': 'long', 'delta': base64.b64encode(bytes(48000 * 16)).decode()})
+                            'item_id': 'long', 'delta': base64.b64encode(bytes(48000 * 121)).decode()})
         self.assertEqual(self.audio.buffered, 0)
         self.assertTrue(self.audio.outputs['long'].cancelled.is_set())
         messages = [json.loads(c.args[0]) for c in agent.ws.send.await_args_list]
@@ -218,6 +265,14 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CLISelectionTests(unittest.TestCase):
+    def test_realtime_accepts_one_hour(self):
+        from sparkie.realtime_session import main
+        with patch('sparkie.realtime_session.load_dotenv'), \
+             patch('sys.argv', ['realtime', '--transport', 'zoom', '--seconds', '3600']), \
+             patch('sparkie.realtime_session.run', new=AsyncMock(return_value=0)) as run:
+            self.assertEqual(main(), 0)
+            self.assertEqual(run.await_args.args[0].seconds, 3600)
+
     def test_zoom_defaults_to_realtime_not_legacy_tts(self):
         from sparkie.primitive import main
         with patch('sparkie.primitive.load_dotenv'), \
@@ -236,8 +291,13 @@ class SessionIntegrationTests(unittest.IsolatedAsyncioTestCase):
         from sparkie import realtime_session
         from sparkie.task_center import TaskCenter
         from sparkie.contracts import TranscriptEvent
-        received, captured_centers = [], []
+        received, captured_centers, transcribed = [], [], []
         meeting = Meeting()
+        async def captured():
+            for i in range(100):
+                yield AudioFrame(i, b'\x00\x20' * 320, 32000, i < 50)
+            meeting.duration_expired = True
+        meeting.audio = captured
         class Agent:
             def __init__(self, key, audio, center, emit, **kwargs):
                 self.ready = asyncio.Event()
@@ -255,6 +315,7 @@ class SessionIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 self.on_ready()
                 async for frame in frames:
                     self.assert_rate = frame.sample_rate
+                    transcribed.append(frame)
                 yield TranscriptEvent('test', 'e1', 0, 'Please research this question.')
         with tempfile.TemporaryDirectory() as directory:
             read_fd, write_fd = os.pipe()
@@ -272,12 +333,24 @@ class SessionIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     os.umask(old_umask)
             self.assertEqual(sum(len(f.pcm) for f in received), 48000)
+            self.assertEqual(received, transcribed)
+            self.assertTrue(any(f.gated for f in received))
+            self.assertTrue(all(not any(f.pcm) for f in received if f.gated))
+            self.assertTrue(any(any(f.pcm) for f in received if not f.gated))
             self.assertTrue(all(f.sample_rate == 24000 for f in received))
             self.assertIsInstance(captured_centers[0], TaskCenter)
             path = next(Path(directory).iterdir())
             self.assertIn('Please research', (path / 'transcript.jsonl').read_text())
             report = json.loads((path / 'run.json').read_text())
             self.assertEqual(report['transport'], 'zoom')
+            self.assertEqual(report['exit_reason'], 'duration_elapsed')
+            self.assertEqual(report['configured_duration_seconds'], 10)
+            events = [json.loads(line) for line in (path / 'events.jsonl').read_text().splitlines()]
+            self.assertTrue(any(e['type'] == 'session_duration_elapsed' for e in events))
+            self.assertTrue(any(e['type'] == 'listening_ready' and 'duration_deadline_elapsed_ms' in e for e in events))
+            records = [json.loads(line) for line in (path / 'transcript.jsonl').read_text().splitlines()]
+            self.assertTrue(any(r.get('type') == 'coverage_gap' for r in records))
+            self.assertTrue(any(r.get('type') == 'coverage_resumed' for r in records))
             self.assertEqual(report['audio']['transport'], 'zoom-realtime')
             self.assertFalse(report['remote_audibility_verified'])
             self.assertTrue(meeting.stopped)

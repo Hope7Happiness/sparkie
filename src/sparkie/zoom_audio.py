@@ -42,6 +42,10 @@ class ZoomAudioMeeting:
         self.last_playback_started_at = None  # SDK acceptance is not a DAC timestamp.
         self._owns_container = False
         self._write_lock = asyncio.Lock()
+        self.input_gate = lambda: False
+        self.duration_expired = False
+        self.playback_event_interval = 0.0
+        self._last_playback_event = float('-inf')
 
     async def docker(self, *args):
         process = await asyncio.create_subprocess_exec('docker', *args, stdout=asyncio.subprocess.PIPE,
@@ -144,7 +148,10 @@ class ZoomAudioMeeting:
                     if self.queue.qsize() >= 250 and not self._backlogged:
                         self._backlogged = True
                         self.on_event("audio_warning", reason="zoom_input_backlog", queued_frames=self.queue.qsize())
-                    self.queue.put_nowait(AudioFrame(self.frames_received, data))
+                    # Decide before queuing: queued echo must stay silent after the gate closes.
+                    gated = self.input_gate()
+                    self.queue.put_nowait(AudioFrame(self.frames_received, bytes(len(data)) if gated else data,
+                                                     gated=gated))
                     self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
                     if self.frames_received % 32 == 0:
                         # StreamReader may return buffered packets without suspending.
@@ -168,8 +175,11 @@ class ZoomAudioMeeting:
                     entry = self.playbacks.get(ident)
                     if entry:
                         if kind == b'S':
-                            self.on_event('zoom_playback_submitted', playback_id=ident,
-                                          note='SDK accepted first frame; remote audible latency is not measured.')
+                            now = time.monotonic()
+                            if now - self._last_playback_event >= self.playback_event_interval:
+                                self._last_playback_event = now
+                                self.on_event('zoom_playback_submitted', playback_id=ident,
+                                              note='SDK accepted first frame; remote audible latency is not measured.')
                         elif not entry.done():
                             entry.set_result(None)
                 elif kind == b'E':
@@ -205,6 +215,8 @@ class ZoomAudioMeeting:
             yield frame
         if self.failure:
             raise self.failure
+        if not self.stopped.is_set():
+            self.duration_expired = True
 
     async def send_packet(self, kind, data=b''):
         if self.failure:

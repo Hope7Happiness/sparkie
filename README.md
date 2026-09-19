@@ -40,7 +40,7 @@ Zoom 接收探针支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 
 Zoom 完整语音 agent（默认 GPT Realtime 前台 + Codex 后台）：
 
 ```bash
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 300
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 ```
 
 配置与验收见 [Realtime Zoom](docs/realtime.md#zoom-中验收完整-agent)。新组合已接入代码，尚未真人验收；`--response-mode wake/qa` 是旧诊断/问答路径。

@@ -46,7 +46,8 @@ class ZoomPlayback:
 
 class RealtimeZoomAudio:
     PACKET_BYTES = 6400  # 100ms; native SDK paces its five 20ms frames.
-    MAX_BUFFER_BYTES = 64000 * 15
+    MAX_RESPONSE_SECONDS = 120
+    MAX_BUFFER_BYTES = 64000 * MAX_RESPONSE_SECONDS  # Aggregate across all pending items.
 
     def __init__(self, meeting, *, on_event):
         self.meeting, self.on_event = meeting, on_event
@@ -67,6 +68,39 @@ class RealtimeZoomAudio:
         self.input_resampler = PCMResampler(32000, 24000)
         self.buffered = 0
         self.meeting.on_event = on_event
+        self.meeting.input_gate = self.input_gated
+        self.meeting.playback_event_interval = 5.0
+        self.input_samples = 0
+        self.gate_spans = deque()
+        self.gated_samples = 0
+
+    @property
+    def duration_expired(self):
+        return getattr(self.meeting, 'duration_expired', False)
+
+    def input_gated(self):
+        # Cover generation gaps and stalled SDK calls, not just estimated packet duration.
+        return (self.play_task is not None or
+                any(not o.cancelled.is_set() and not o.drained for o in self.outputs.values()) or
+                time.monotonic() < self._gate_until)
+
+    def input_frame(self, sequence, pcm):
+        start = self.captured_samples
+        end = start + len(pcm) // 2
+        gated = False
+        while self.gate_spans and self.gate_spans[0][1] <= start:
+            self.gate_spans.popleft()
+        for left, right in self.gate_spans:
+            if left >= end:
+                break
+            if right > start:
+                gated = True
+                break
+        self.captured_samples = end
+        if gated:
+            self.gated_samples += len(pcm) // 2
+        # Conservatively silence an entire chunk overlapping a captured gate interval.
+        return AudioFrame(sequence, bytes(len(pcm)) if gated else pcm, 24000, gated)
 
     async def join(self):
         await self.meeting.join()
@@ -81,18 +115,25 @@ class RealtimeZoomAudio:
                 raise self.failure
             if frame.sample_rate != 32000:
                 raise ProviderError('Zoom bridge requires PCM16 mono 32000Hz')
-            pcm = self.input_resampler.feed(frame.pcm)
+            gated = frame.gated if frame.gated is not None else self.input_gated()
+            start = self.input_samples * 3 // 4
+            self.input_samples += len(frame.pcm) // 2
+            if gated:
+                end = (self.input_samples * 3 + 3) // 4
+                if self.gate_spans and self.gate_spans[-1][1] >= start:
+                    self.gate_spans[-1] = (self.gate_spans[-1][0], end)
+                else:
+                    self.gate_spans.append((start, end))
+            pcm = self.input_resampler.feed(bytes(len(frame.pcm)) if gated else frame.pcm)
             if pcm:
-                self.captured_samples += len(pcm) // 2
-                yield AudioFrame(sequence, pcm, 24000)
+                yield self.input_frame(sequence, pcm)
                 sequence += 1
         if self.failure:
             raise self.failure
         if not self.stopped:
             pcm = self.input_resampler.feed(b'', final=True)
             if pcm:
-                self.captured_samples += len(pcm) // 2
-                yield AudioFrame(sequence, pcm, 24000)
+                yield self.input_frame(sequence, pcm)
 
     def append_output(self, item_id, pcm):
         if self.stopped:
@@ -111,7 +152,7 @@ class RealtimeZoomAudio:
         if output.finished:
             raise ProviderError('Audio arrived after output completion')
         output.generated += len(pcm)
-        if output.generated > 48000 * 120:
+        if output.generated > 48000 * self.MAX_RESPONSE_SECONDS:
             raise PlaybackLimitError('Realtime response exceeds playback limit')
         self.enqueue(output, output.resampler.feed(pcm))
 
@@ -217,6 +258,10 @@ class RealtimeZoomAudio:
 
     def diagnostics(self):
         return {**self.meeting.diagnostics(), 'transport': 'zoom-realtime',
+                'playback_buffer_limit_bytes': self.MAX_BUFFER_BYTES,
+                'response_limit_seconds': self.MAX_RESPONSE_SECONDS,
+                'gated_samples': self.gated_samples,
+                'gate_basis': 'bridge_receive_before_queue; native packet gate also active',
                 'realtime_sample_rate': 24000, 'playback_packet_ms': 100,
                 'progress_basis': 'completed SDK packets; conservative on interruption',
                 'remote_audibility_verified': False, 'timing_reliable': False}

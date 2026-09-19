@@ -90,8 +90,17 @@ Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；�
 
 `bash scripts/zoom.sh` 默认 `--response-mode realtime`，复用同一 `RealtimeAgent`、`TaskCenter` 和 `CodexTaskWorker`。输入并行送 GPT Realtime 与 Deepgram；回复直接使用 Realtime 输出音频，不经过 Deepgram TTS。`wake` / `qa` 仅在显式指定时进入旧 primitive。也可直接用 `python -m sparkie.realtime_session --transport zoom`。
 
-`RealtimeZoomAudio.append_output` 只进行有状态重采样和有界入队（最多 15 秒待播 PCM）；独立异步播放任务按 100ms 包复用 Zoom 原生桥的 20ms 发送节奏。保留 item_id、取消状态与生成/SDK 提交进度；取消清除尚未发送的内容，迟到的相同 item 音频不会恢复播放；后台结果通知等待待播语音处理完毕。SDK 错误会结束输入并报告失败。
+`RealtimeZoomAudio.append_output` 只进行有状态重采样和有界入队（所有 item 合计最多 120 秒待播 PCM，7,680,000 bytes；另有最多一个 100ms 在途包）；独立异步播放任务按 100ms 包复用 Zoom 原生桥的 20ms 发送节奏。保留 item_id、取消状态与生成/SDK 提交进度；取消清除尚未发送的内容，迟到的相同 item 音频不会恢复播放；后台结果通知等待待播语音处理完毕。SDK 错误会结束输入并报告失败。
 
 Zoom 播放队列或单条回复时长达到上限时，`PlaybackLimitError` 由 Realtime adapter 捕获：记录 `realtime_playback_limited`，取消当前回复并按已确认的 SDK 播放进度截断上下文；清空待播音频，继续接收后续会话，不扩大队列。该回复可能只播放一部分。`session_failed` 和 `run.json.failure` 保存 `error_type`、`provider`、本地白名单 `reason`、可用的代码位置 `source` 和白名单 `provider_code`；未知原因标为 `unclassified`，不保存异常正文、provider message、响应 body 或凭据。
 
 输入仍受原生 Zoom 播放期间及尾音 350ms 的回声静音窗口限制，并向 transcript ledger 记录 `zoom_echo_gate` 覆盖缺口。这个传输没有浏览器 AEC，尚不支持在回复期间靠语音打断；stdin `{"action":"interrupt"}` 控制可以取消。会话退出会停止原生进程/容器和后台任务。所有 Zoom 播放指标均明确为 SDK 提交进度，不报告声学延迟。真实 Realtime + Codex 会议验收仍待完成。
+
+
+### Zoom Realtime duration and capture gating
+
+Zoom Realtime accepts 1–3600 seconds. Listening readiness records configured_duration_seconds and duration_deadline_elapsed_ms; the limit starts after joining. Normal expiry emits session_duration_elapsed and saves exit_reason=duration_elapsed with exit code 0. Signals remain stopped; failures remain failed. Duration expiry ends playback too; use --seconds 3600 for conversation runs.
+
+AudioFrame has an optional gated field (default None). Zoom freezes the gate decision when an A frame enters Python, before the bounded input queue, and replaces gated PCM with equal-length zeros. This is bridge-receive timing, not a remote capture timestamp: the native protocol has no capture clock. Native callback gating still covers SDK playback and its tail before native/network backlog. The Python gate additionally spans pending output, generation gaps, SDK stalls, and 350ms after playback/cancellation. A queued gated frame cannot become audible merely because consumption occurs later. Resampling maps gated intervals by sample counts; output chunks overlapping an interval are conservatively zeroed in full, and the same frames/coverage markers reach both providers. Chunk-level suppression can slightly extend the gap; sample count and cadence are preserved. No speaker-mode voice barge-in or full-duplex AEC is claimed.
+
+The aggregate 120-second playback queue remains bounded across multiple items, and each item retains the hard 120-second generation limit. Overlapping items whose combined pending audio exceeds that aggregate limit still fail explicitly and invoke cancellation; interruption reclaims all pending PCM and resamplers. Realtime Zoom limits routine zoom_playback_submitted telemetry to once every five seconds, retaining per-item first submission and all errors/completion acknowledgements.

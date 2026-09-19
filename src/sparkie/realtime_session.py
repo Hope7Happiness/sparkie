@@ -102,7 +102,8 @@ async def run(args):
         nonlocal dg_active
         gated = False
         async for frame in audio.audio():
-            current_gate = audio.echo_mode == 'speaker' and time.monotonic() < audio._gate_until
+            current_gate = (frame.gated if frame.gated is not None else
+                            audio.echo_mode == 'speaker' and time.monotonic() < audio._gate_until)
             if current_gate != gated:
                 record = {'type': 'coverage_gap' if current_gate else 'coverage_resumed',
                           'timestamp_ms': round(audio.captured_samples / 24), 'reason': getattr(audio, 'coverage_reason', 'speaker_echo_gate')}
@@ -186,7 +187,10 @@ async def run(args):
             rt.result()
             raise ProviderError('provider_closed_during_audio_join')
         joining.result()
-        emit('listening_ready', language=args.language, transport=transport_name)
+        emit('listening_ready', language=args.language, transport=transport_name,
+             configured_duration_seconds=args.seconds,
+             duration_basis='from_listening_ready',
+             duration_deadline_elapsed_ms=round((time.monotonic() - started + args.seconds) * 1000))
         capturer = asyncio.create_task(capture())
         sender = asyncio.create_task(send_audio())
         control = asyncio.create_task(controls())
@@ -203,6 +207,10 @@ async def run(args):
         # Finish already captured input and flush the final Deepgram utterance.
         await asyncio.wait_for(capturer, 1)
         await asyncio.wait_for(sender, 2)
+        if reason != 'stopped' and getattr(audio, 'duration_expired', False):
+            reason = 'duration_elapsed'
+            emit('session_duration_elapsed', configured_duration_seconds=args.seconds,
+                 message='Configured session duration reached; ending the session cleanly.')
         try:
             await asyncio.wait_for(asyncio.gather(dg, return_exceptions=True), 2)
         except TimeoutError:
@@ -226,6 +234,7 @@ async def run(args):
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(sig)
         report = {'session_id': session_id, 'exit_reason': reason, 'transport': transport_name,
+                  'configured_duration_seconds': args.seconds,
                   'remote_audibility_verified': False,
                   'model': agent.model, 'audio': audio.diagnostics(), 'transcript_records': len(ledger.records)}
         if failure is not None:
@@ -253,8 +262,8 @@ def main():
     parser.add_argument('--output-device')
     parser.add_argument('--output', type=Path, default=Path('output/realtime'))
     args = parser.parse_args()
-    if not 10 <= args.seconds <= 300:
-        parser.error('seconds must be 10–300')
+    if not 1 <= args.seconds <= 3600:
+        parser.error('seconds must be 1–3600')
     return asyncio.run(run(args))
 
 

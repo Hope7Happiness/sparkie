@@ -49,7 +49,7 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 
 ```bash
 uv sync --frozen
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 300
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 ```
 
 需要 `OPENAI_API_KEY`（Realtime）、`DEEPGRAM_API_KEY`（并行转写）、既有 Codex CLI 登录和 Zoom 配置。默认 Realtime 模型沿用 `OPENAI_REALTIME_MODEL`，后台沿用 `CODEX_MODEL`。不会用固定 “I'm here.” 代替语音 agent，也不会调用 Deepgram TTS。`--response-mode wake` 仅用于诊断。
@@ -71,3 +71,5 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 300
 现在 stdout 通过 `EventOutput` 有界异步队列输出，支持部分写入、EAGAIN 等待和断管处理。CLI 终端长期堵塞时只省略终端副本，完整事件仍先写 events.jsonl；run.json 的 event_output 记录省略数量和输出错误。网页 stdout 承载音频协议，不能省略，溢出会明确失败。音频接收异常会先唤醒播放等待者并停止采集，再输出诊断，避免第二次超时掩盖原始错误。
 
 已做真实伪终端/管道的离线回归；仍需真人重跑原场景确认，不将离线复现等同于整场会议稳定性验收。本修复不改变模型、音频采样率或 Zoom SDK 配置，无需重建原生程序。
+
+Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。
