@@ -1,0 +1,5 @@
+{"meeting_id":"demo-001","event_id":"1","timestamp_ms":0,"speaker":"成员 A","text":"我们讨论 Sparkie 的演示视频，先展示入会。"}
+{"meeting_id":"demo-001","event_id":"2","timestamp_ms":3000,"speaker":"成员 B","text":"然后展示后台调研，最后展示会议纪要。"}
+{"meeting_id":"demo-001","event_id":"3","timestamp_ms":6000,"speaker":"成员 C","text":"Sparkie，总结一下目前提出的方案。"}
+{"meeting_id":"demo-001","event_id":"4","timestamp_ms":9000,"speaker":"Sparkie","source":"bot","text":"Sparkie，我在。"}
+{"meeting_id":"demo-001","event_id":"5","timestamp_ms":12000,"speaker":"成员 A","text":"Sparkie，不用了。"}

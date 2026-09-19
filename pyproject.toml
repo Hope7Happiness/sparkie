@@ -1,0 +1,16 @@
+[project]
+name = "sparkie"
+version = "0.1.0"
+description = "Zoom / Deepgram speech / OpenAI primitive meeting participant"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.28,<0.29", "websockets>=15,<16", "python-dotenv>=1,<2"]
+
+[project.scripts]
+sparkie = "sparkie.primitive:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sparkie"]
