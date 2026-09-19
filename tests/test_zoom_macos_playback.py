@@ -24,6 +24,7 @@ enum { ZoomSDKError_Success = 0, ZoomSDKAudioChannel_Mono = 0 };
 - (unsigned)getSampleRate;
 - (unsigned)getChannelNum;
 - (unsigned)getBufferLen;
+- (long long)getTimeStamp;
 @end
 ''')
         harness = r'''

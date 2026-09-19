@@ -9,6 +9,8 @@ class AudioFrame:
     pcm: bytes  # Signed 16-bit little-endian, mono, headerless.
     sample_rate: int = 32000
     gated: bool | None = None  # Capture-time silence decision, when supplied by transport.
+    speaker_id: str | None = None
+    timestamp_ms: int | None = None  # Frame start on the meeting capture clock.
 
 
 class AudioMeeting(Protocol):

@@ -30,6 +30,13 @@ async def zoom_session(args):
     brain = configured_brain() if args.response_mode == 'qa' else None
     ears = DeepgramEars(key, session_id, language=args.language,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3')
+    if isinstance(meeting, ZoomMacAudioMeeting):
+        from .participant_stt import ParticipantEars
+        ears = ParticipantEars(
+            lambda: DeepgramEars(key, session_id, language=args.language,
+                                model=os.getenv('DEEPGRAM_MODEL') or 'nova-3'),
+            speaker_name=meeting.speaker_name, is_self=meeting.is_self,
+            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'))
     mouth = DeepgramMouth(key, os.getenv('DEEPGRAM_TTS_MODEL') or 'aura-2-thalia-en')
     with (output / 'events.jsonl').open('x') as log:
         def sink(event):
@@ -41,6 +48,8 @@ async def zoom_session(args):
                            question_reply=os.getenv('SPARKIE_QUESTION_REPLY') or 'Let me think for a moment.')
         meeting.on_event = engine.log
         ears.on_ready = lambda: engine.log('listening_ready', language=args.language, platform='zoom')
+        if isinstance(meeting, ZoomMacAudioMeeting):
+            ears.on_event = engine.log
         if brain:
             engine.log('reasoning_config', model=brain.model, reasoning_effort=getattr(brain, 'reasoning_effort', None))
         task = asyncio.current_task()

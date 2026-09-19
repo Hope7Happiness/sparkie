@@ -114,7 +114,8 @@ class Primitive:
         self.log("transcript", **asdict(event))
         if event.source == "bot":
             return
-        self.context.append(event.text)
+        self.context.append(f"[{event.speaker} ({event.speaker_id}), {event.timestamp_ms} ms] {event.text}"
+                            if event.speaker_id else event.text)
         address = ADDRESS.match(event.text)
         rest = event.text[address.end():].strip(" ,，:：") if address else event.text.strip()
         if CANCEL.search(rest):
@@ -173,6 +174,12 @@ class Primitive:
         else:
             limitations.extend(["Meeting and transcripts are simulated; TTS is live only in hybrid-tts mode.",
                                 "Timing is process orchestration timing, not real wake-to-audible latency."])
-        return {"mode": self.mode, "response_mode": "qa" if self.brain else "wake", "events": self.events,
+        if self.mode == "zoom-audio" and hasattr(self.meeting, 'speaker_name'):
+            limitations[0] = ("SDK self track excluded; acoustic echo from other participants remains possible. "
+                              "Speaker identity represents a Zoom endpoint, not people sharing one microphone.")
+            limitations.append("Participant timestamps use the SDK media clock with a callback-time fallback; live events arrive in provider completion order.")
+        return {"transcript": sorted((e for e in self.events if e['type'] == 'transcript'),
+                                    key=lambda e: (e['timestamp_ms'], e['event_id'])),
+                "mode": self.mode, "response_mode": "qa" if self.brain else "wake", "events": self.events,
                 "response_failures": sum(e["type"] == "response_failed" for e in self.events),
                 "limitations": limitations}

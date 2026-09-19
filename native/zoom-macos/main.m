@@ -6,6 +6,7 @@
 #import <ZoomSDK/ZoomSDKRawDataAudioSourceController.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <libkern/OSByteOrder.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -22,6 +23,11 @@ static _Atomic unsigned bridge_generation = 0;
 static _Atomic long long bridge_gate_until = 0;
 static char bridge_token[65];
 static int bridge_port;
+static _Atomic unsigned bridge_self_id = 0;
+static long long bridge_audio_origin;
+static long long bridge_sdk_origin = -1, bridge_sdk_offset;
+static pthread_mutex_t clock_mutex = PTHREAD_MUTEX_INITIALIZER;
+static _Atomic long long bridge_last_heartbeat = 0;
 static ZoomSDKAudioRawDataSender *bridge_sender;  // sender_mutex
 static NSMutableArray<NSData *> *bridge_outgoing; // out_mutex
 static NSData *bridge_pending;                    // play_mutex; first 4 bytes are the playback id
@@ -284,12 +290,45 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
     bridge_emit('A', pcm.bytes, size);
 }
 
+// Prefer the SDK media clock so delayed/batched callbacks do not compress time.
+// The SDK returns zero when a timestamp is unavailable; only then estimate from callback time.
+static long long bridge_timestamp(ZoomSDKAudioRawData *data) {
+    long long raw = [data getTimeStamp];
+    long long estimated = MAX(0LL, bridge_millis() - bridge_audio_origin - [data getBufferLen] / 64);
+    if (raw <= 0) return estimated;
+    pthread_mutex_lock(&clock_mutex);
+    if (bridge_sdk_origin < 0) { bridge_sdk_origin = raw; bridge_sdk_offset = estimated; }
+    long long result = MAX(0LL, bridge_sdk_offset + raw - bridge_sdk_origin);
+    pthread_mutex_unlock(&clock_mutex);
+    return result;
+}
+// Per-user packet: user ID (u32 BE), meeting-relative frame start (u64 BE), PCM.
+static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
+    if (bridge_client < 0 || !bridge_self_id || userID == bridge_self_id) return;
+    const char *buffer = [data getBuffer];
+    unsigned int rate = [data getSampleRate], channels = [data getChannelNum], size = [data getBufferLen];
+    if (!buffer || !size || channels != 1 || rate != 32000 || size % 2 || size > 63988) {
+        bridge_error("invalid_input_format");
+        return;
+    }
+    NSMutableData *packet = [[NSMutableData alloc] initWithLength:12 + size];
+    char *bytes = packet.mutableBytes;
+    uint32_t user = htonl(userID);
+    uint64_t timestamp = OSSwapHostToBigInt64(bridge_timestamp(data));
+    memcpy(bytes, &user, 4);
+    memcpy(bytes + 4, &timestamp, 8);
+    memcpy(bytes + 12, buffer, size);
+    // Other participants remain audible during bot playback. Never send mixed PCM.
+    bridge_emit('U', bytes, (unsigned)packet.length);
+}
+
 @interface SparkieReceiver : NSObject <NSApplicationDelegate, ZoomSDKAuthDelegate,
     ZoomSDKMeetingServiceDelegate, ZoomSDKMeetingRecordDelegate, ZoomSDKAudioRawDataDelegate,
     ZoomSDKVirtualAudioMicDelegate>
 @property NSDictionary *config;
 @property ZoomSDKAudioRawDataHelper *audio;
 @property BOOL voice;
+@property BOOL participantAudio;
 @property BOOL recording;
 @property BOOL requested;
 @property BOOL stopping;
@@ -297,6 +336,9 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
 @property unsigned long long frames;
 @property unsigned long long bytes;
 @property int peak;
+@property NSTimer *participantTimer;
+@property NSData *lastParticipants;
+- (void)publishParticipants;
 - (void)shutdown;
 @end
 
@@ -316,6 +358,7 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
             }
         }
         self.voice = [self.config[@"voice"] boolValue];
+        self.participantAudio = [self.config[@"participant_audio"] boolValue];
         if (self.voice) {
             id port = self.config[@"bridge_port"];
             NSString *token = self.config[@"bridge_token"];
@@ -406,11 +449,36 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
         if (self.voice) {
             printf("UNMUTE_REQUEST result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_UnMuteAudio userID:0 onScreen:0]);
         }
+        bridge_self_id = [[actions getMyself] getUserID];
+        if (self.voice && self.participantAudio && !self.participantTimer) {
+            self.participantTimer = [NSTimer scheduledTimerWithTimeInterval:1 target:self
+                selector:@selector(publishParticipants) userInfo:nil repeats:YES];
+        }
+        [self publishParticipants];
         [self tryAudio];
     } else if (state == ZoomSDKMeetingStatus_Failed) {
         self.exitCode = 1; [self shutdown];
     } else if (state == ZoomSDKMeetingStatus_Ended) {
         [self shutdown];
+    }
+}
+- (void)publishParticipants {
+    if (!self.voice || !self.participantAudio || bridge_client < 0) return;
+    ZoomSDKMeetingActionController *actions = [[[ZoomSDK sharedSDK] getMeetingService] getMeetingActionController];
+    bridge_self_id = [[actions getMyself] getUserID];
+    NSMutableArray *users = [NSMutableArray new];
+    for (NSNumber *ident in [actions getParticipantsList]) {
+        ZoomSDKUserInfo *user = [actions getUserByUserID:ident.unsignedIntValue];
+        if (!user) continue;
+        NSString *name = [user getUserName] ?: @"";
+        if (name.length > 256) name = [name substringToIndex:256];
+        [users addObject:@{@"user_id": ident, @"name": name, @"is_self": @([user isMySelf])}];
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:users options:NSJSONWritingSortedKeys error:nil];
+    if (data.length > 64000) { bridge_error("invalid_input_format"); return; }
+    if (data && ![data isEqualToData:self.lastParticipants]) {
+        bridge_emit('J', data.bytes, (unsigned)data.length);
+        self.lastParticipants = data;
     }
 }
 - (void)tryAudio {
@@ -432,6 +500,7 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
     if (result == ZoomSDKError_Success && helper) {
         self.audio = helper;
         helper.delegate = self;
+        bridge_audio_origin = bridge_millis();
         result = [helper subscribe];
         printf("AUDIO_SUBSCRIBE result=%d\n", result);
     } else {
@@ -486,7 +555,14 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
     const char *buffer = [data getBuffer];
     unsigned int size = [data getBufferLen];
     if (!buffer || !size) return;
-    if (self.voice) bridge_audio(data);
+    if (self.voice && !self.participantAudio) bridge_audio(data);
+    // Establish the common media clock even before a participant speaks.
+    if (self.voice && self.participantAudio) (void)bridge_timestamp(data);
+    // Mixed callback is only a health heartbeat; it never enters transcription.
+    if (self.voice && self.participantAudio && bridge_millis() - bridge_last_heartbeat >= 1000) {
+        bridge_last_heartbeat = bridge_millis();
+        bridge_emit('R', NULL, 0);
+    }
     @synchronized (self) {
         self.frames++; self.bytes += size;
         for (unsigned int i = 0; i + 1 < size; i += 2) {
@@ -500,14 +576,18 @@ static void bridge_audio(ZoomSDKAudioRawData *data) {
         }
     }
 }
+// Required deprecated method remains empty to avoid double ingestion; target SDK 7.1.5 uses userID.
 - (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data nodeID:(unsigned int)nodeID {}
-- (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {}
+- (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {
+    if (self.voice && self.participantAudio) bridge_user_audio(data, userID);
+}
 - (void)onShareAudioRawDataReceived:(ZoomSDKAudioRawData *)data {}
 - (void)onShareAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {}
 - (void)onOneWayInterpreterAudioRawDataReceived:(ZoomSDKAudioRawData *)data strLanguageName:(NSString *)languageName {}
 - (void)shutdown {
     if (self.stopping) return;
     self.stopping = YES;
+    [self.participantTimer invalidate]; self.participantTimer = nil;
     if (self.voice) {
         // Stop the sender before tearing down SDK objects. Keep the virtual source
         // installed until after leaving, so teardown cannot switch to a physical mic.

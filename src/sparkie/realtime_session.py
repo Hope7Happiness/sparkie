@@ -54,7 +54,7 @@ async def run(args):
         runtime = Path('.runtime/zoom-realtime') / session_id
         if selected_platform() == 'macos':
             meeting = ZoomMacAudioMeeting(runtime, paths(Path(__file__).resolve().parents[2])[2],
-                                          max_seconds=args.seconds)
+                                          max_seconds=args.seconds, per_participant=False)
         else:
             meeting = ZoomAudioMeeting(runtime, max_seconds=args.seconds)
         audio = RealtimeZoomAudio(meeting, on_event=emit)

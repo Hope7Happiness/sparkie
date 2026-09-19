@@ -58,6 +58,22 @@ macOS `E` 现在为版本 1 JSON：`reason` 只允许 `sdk_send_failed` / `playb
 
 `zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。
 
+### macOS 分用户音频（SDK 7.1.5）
+
+macOS wake/qa 语音接收器改用 `onOneWayAudioRawDataReceived:userID:`；旧 nodeID 回调保留空实现以免重复处理。混音回调只发健康心跳，不转发混合 PCM。协议扩展：
+
+- `U`：userID（4 字节 BE）+ 帧起始 timestamp_ms（8 字节 BE）+ PCM16 mono 32 kHz，总 payload 不超过 64000 字节。
+- `J`：JSON 参会端列表，含 user_id、name、is_self；主线程每秒检查变化，音频回调不查询参会端信息、不执行网络 I/O。
+- `R`：空 payload，混音接收健康心跳；静默会议也能就绪。
+
+`AudioFrame` 新增可选 speaker_id、timestamp_ms，默认 None，保留既有调用兼容。时间原点为本轮 SDK 音频订阅附近；优先归一化 SDK getTimeStamp，返回零时用单调回调时间减帧长估计，不是精确声学时间。分用户模式拒绝旧二进制的 A 混音帧并要求重建；Linux 与 Realtime 的 A 协议保留。原生配置 participant_audio=true 启用分用户模式；Realtime 明确设置 false，沿用混音及原有播放门控。
+
+`ParticipantEars` 按用户分流到独立 DeepgramEars，每条连接有独立断句器。无非零 PCM 的参会者不建连接；每人 1.5 秒无非零帧后补 500 ms 静音并关闭连接，之后发言建立新段，事件 ID 带用户和段编号。背景噪声可能使连接保持活跃，这不是语义 VAD。段内音频空隙补静音，长停顿以新的会议时间偏移处理。默认最多 32 条并行连接（含正在结束的连接），SPARKIE_ZOOM_MAX_STT_STREAMS 可调整为 1–64；每条输入最多 500 帧，超限或任一转写错误明确结束本轮，不静默串音或漏掉用户。
+
+`TranscriptEvent` 新增可选 speaker_id（默认 None）；macOS 为 zoom:<userID>，speaker 为显示名，名字不可得时回退为 ID。重名用户不会合并，退会前取得的名字仍可用于最终转写。实时事件按提供者完成顺序到达；run.json 的 transcript 按 timestamp_ms 排序，问答上下文保留身份和时间。一个 Zoom 端内多人共用麦克风仍不能分开。
+
+macOS 分用户模式只过滤 SDK 自身音轨，不采用上述 Linux 的全局播放静音门控；其他人的发言在播放期间仍可转写，远端扬声器回声仍可能被识别。分流测试和真实 Deepgram 合成音频测试不等于真实 Zoom 多人验收。
+
 ## Realtime 前台与后台分析（本地验收）
 
 新的唯一网页入口 `/` 使用浏览器 AudioWorklet + `sparkie.realtime_session --transport browser`；`qa` / `wake` 仍可从旧 CLI 启动。
