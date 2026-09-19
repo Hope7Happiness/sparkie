@@ -132,3 +132,31 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         (self.meeting.runtime / 'bridge-token').write_text('test secret')
         await self.meeting.leave()
         self.assertFalse((self.meeting.runtime / 'bridge-token').exists())
+
+    async def test_stt_connection_startup_has_extra_bounded_buffer(self):
+        self.meeting.reader.feed_data(packet(b'A', b'\0\0') * 300 + packet(b'M'))
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        await asyncio.wait_for(self.meeting.mic_ready.wait(), 3)
+        self.assertIsNone(self.meeting.failure)
+        self.assertEqual(self.meeting.queue.qsize(), 300)
+        self.assertEqual(self.meeting.queue.maxsize, 1000)
+
+    async def test_sustained_backlog_warns_then_fails_at_bound(self):
+        self.meeting.reader.feed_data(packet(b'A', b'\0\0') * 1001)
+        await self.meeting.receive()
+        self.assertIsInstance(self.meeting.failure, asyncio.QueueFull)
+        warnings = [kw for kind, kw in self.events if kind == 'audio_warning']
+        self.assertEqual(warnings, [{'reason': 'zoom_input_backlog', 'queued_frames': 250}])
+
+    async def test_startup_backlog_drains_without_losing_audio(self):
+        from sparkie.audio import AudioFrame
+        self.meeting.max_seconds = 60
+        for i in range(300):
+            self.meeting.queue.put_nowait(AudioFrame(i, b'\0\0'))
+        self.meeting._backlogged = True
+        stream = self.meeting.audio()
+        frames = [await anext(stream) for _ in range(300)]
+        self.assertEqual([frame.sequence for frame in frames], list(range(300)))
+        self.assertFalse(self.meeting._backlogged)
+        self.assertIn(('zoom_input_recovered', {}), self.events)
+        await stream.aclose()

@@ -16,7 +16,8 @@ class ZoomAudioMeeting:
         self.max_seconds, self.join_timeout = max_seconds, join_timeout
         self.name = 'sparkie-zoom-voice-' + secrets.token_hex(4)
         self.reader = self.writer = self.reader_task = None
-        self.queue = asyncio.Queue(maxsize=250)
+        self.queue = asyncio.Queue(maxsize=1000)  # Bounded 10s cushion for startup/network stalls.
+        self._backlogged = False
         self.mic_ready = asyncio.Event()
         self.audio_ready = asyncio.Event()
         self.stopped = asyncio.Event()
@@ -108,6 +109,9 @@ class ZoomAudioMeeting:
                     self.frames_received += 1
                     self.bytes_received += len(data)
                     self.audio_ready.set()
+                    if self.queue.qsize() >= 250 and not self._backlogged:
+                        self._backlogged = True
+                        self.on_event("audio_warning", reason="zoom_input_backlog", queued_frames=self.queue.qsize())
                     self.queue.put_nowait(AudioFrame(self.frames_received, data))
                     if self.frames_received % 50 == 0:
                         self.on_event('zoom_audio', frames=self.frames_received,
@@ -149,9 +153,13 @@ class ZoomAudioMeeting:
         started = time.monotonic()
         while not self.stopped.is_set() and time.monotonic() - started < self.max_seconds:
             try:
-                frame = await asyncio.wait_for(self.queue.get(), .2)
-            except TimeoutError:
+                frame = self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(.01)
                 continue
+            if self._backlogged and self.queue.qsize() < 50:
+                self._backlogged = False
+                self.on_event("zoom_input_recovered")
             yield frame
         if self.failure:
             raise self.failure
