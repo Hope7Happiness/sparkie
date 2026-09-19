@@ -4,7 +4,7 @@
 
 技术栈：**Deepgram = ears + mouth · Codex CLI / OpenAI API = brain · Zoom = body**。
 
-提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**Zoom 原生 adapter 待实现，尚未完成真实入会。**
+提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**Zoom 独立探针已完成真实入会与非静音音频接收；共享 Python adapter 尚未接入。**
 
 本地语音闭环已提供：`bash scripts/local.sh --language en --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
 
@@ -17,6 +17,7 @@ uv run --frozen python -m unittest discover -s tests -v
 需要 Python 3.11+ 和 uv。首次安装依赖后，模拟模式不需要网络、SDK、Docker 或账号。生成的 `output/primitive/run.json` 与静音 WAV 均明确标为模拟产物。
 
 - [协作方式：一人编码，两人测试反馈](docs/team-first-steps.md)
+- [Zoom 机器人快速配置：已验证的入会与音频接收](docs/zoom-sanity.md)
 - [人工配置清单](docs/manual-setup.md)
 - [primitive 运行方式、接口和限制](docs/primitive.md)
 - [技术验证记录](docs/platform-validation.md)

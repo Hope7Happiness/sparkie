@@ -1,0 +1,195 @@
+--- a/demo/meeting_sdk_demo.cpp
++++ b/demo/meeting_sdk_demo.cpp
+@@ -172,6 +172,7 @@
+ 		}
+ 		else {
+ 			std::cout << "Cannot start raw recording: no permissions yet, need host, co-host, or recording privilege" << std::endl;
++            std::cout << "REQUEST_RECORDING_PRIVILEGE result=" << m_pRecordController->RequestLocalRecordingPrivilege() << std::endl;
+ 		}
+ 	}
+ }
+@@ -281,6 +282,8 @@
+ 		printf("Participants count: %d\n", participants->GetCount());
+ 	}
+ 
++	std::cout << "JOIN_VOIP result=" << m_pMeetingService->GetMeetingAudioController()->JoinVoip() << std::endl;
++
+ 	//first attempt to start raw recording  / sending, upon successfully joined and achieved "in-meeting" state.
+ 	CheckAndStartRawRecording(GetVideoRawData, GetAudioRawData);
+ 	CheckAndStartRawSending(SendVideoRawData, SendAudioRawData);
+@@ -361,23 +364,23 @@
+ 		// Process each line to extract key-value pairs
+ 		processLine(line, config);
+ 		
+-		std::cerr << "Reading.." << line <<std::endl;
++		std::cerr << "Loaded configuration field." << std::endl;
+ 	}
+ 
+ 	// Example: Accessing values by key
+ 	if (config.find("meeting_number") != config.end()) {
+ 		
+ 		meeting_number=config["meeting_number"];
+-		std::cout << "Meeting Number: " << config["meeting_number"] << std::endl;
++		std::cout << "Meeting configuration loaded." << std::endl;
+ 	}
+ 	if (config.find("token") != config.end()) {
+ 		 token=config["token"];
+-		 	std::cout << "Token: " << token<< std::endl;
++		 	std::cout << "Meeting SDK token loaded." << std::endl;
+ 	}
+ 	if (config.find("meeting_password") != config.end()) {
+ 		
+ 		meeting_password=config["meeting_password"];
+-		std::cout << "meeting_password: " << meeting_password << std::endl;
++		std::cout << "Meeting password loaded." << std::endl;
+ 	}
+ 	if (config.find("recording_token") != config.end()) {
+ 	
+@@ -573,16 +576,16 @@
+ 	// withoutloginParam.meetingNumber = 1231231234;
+ 	withoutloginParam.meetingNumber = std::stoull(meeting_number);
+ 	withoutloginParam.vanityID = NULL;
+-	withoutloginParam.userName = "LinuxChun";
++	withoutloginParam.userName = "Sparkie";
+ 	// withoutloginParam.psw = "1";
+ 	withoutloginParam.psw = meeting_password.c_str();
+ 	withoutloginParam.customer_key = NULL;
+ 	withoutloginParam.webinarToken = NULL;
+-	withoutloginParam.isVideoOff = false;
++	withoutloginParam.isVideoOff = true;
+ 	withoutloginParam.isAudioOff = false;
+ 
+-	std::cerr << "JWT token is " << token << std::endl;
+-	std::cerr << "Recording token is " << recording_token << std::endl;
++	std::cerr << "Meeting SDK JWT supplied." << std::endl;
++	std::cerr << "Recording permission token status checked." << std::endl;
+ 
+ 	//automatically set app_privilege token if it is present in config.txt, or retrieved from web service
+ 	withoutloginParam.app_privilege_token = NULL;
+@@ -597,7 +600,7 @@
+ 		std::cerr << "Leaving recording token as NULL" << std::endl;
+ 	}
+ 	
+-	std::cerr << "onBehalfOf Token is " << onBehalfOf_Token << std::endl;
++	std::cerr << "OBF token status checked." << std::endl;
+ 	//automatically set onBehalfOf token if it is present in config.txt, or retrieved from web service
+ 	withoutloginParam.onBehalfToken = NULL;
+ 	if (!onBehalfOf_Token.size() == 0)
+@@ -620,12 +623,13 @@
+ 		{
+ 			//ensure auto join audio
+ 			pAudioContext->EnableAutoJoinAudio(true);
++            pAudioContext->EnableAlwaysMuteMicWhenJoinVoip(true);
+ 		}
+ 	}
+ 	if (SendVideoRawData) {
+ 
+ 		//ensure video is turned on
+-		withoutloginParam.isVideoOff = false;
++		withoutloginParam.isVideoOff = true;
+ 		//set join video to true
+ 		ZOOM_SDK_NAMESPACE::IVideoSettingContext* pVideoContext = m_pSettingService->GetVideoSettings();
+ 		if (pVideoContext)
+@@ -640,6 +644,7 @@
+ 		{
+ 			//ensure auto join audio
+ 			pAudioContext->EnableAutoJoinAudio(true);
++            pAudioContext->EnableAlwaysMuteMicWhenJoinVoip(true);
+ 			pAudioContext->EnableAlwaysMuteMicWhenJoinVoip(true);
+ 			pAudioContext->SetSuppressBackgroundNoiseLevel(Suppress_BGNoise_Level_None);
+ 
+@@ -733,9 +738,9 @@
+ 
+ 	if (!token.size() == 0){
+ 		param.jwt_token = token.c_str();
+-		std::cerr << "AuthSDK:token extracted from config file " <<param.jwt_token  << std::endl;
+-	}
+-	m_pAuthService->SDKAuth(param);
++		std::cerr << "AuthSDK: token loaded from configuration." << std::endl;
++	}
++	std::cout << "SDKAuth immediate result=" << m_pAuthService->SDKAuth(param) << std::endl;
+ 	////attempt to authenticate
+ 	//ZOOM_SDK_NAMESPACE::SDKError sdkErrorResult = m_pAuthService->SDKAuth(param);
+ 
+@@ -832,6 +837,8 @@
+ 
+ gboolean timeout_callback(gpointer data)
+ {
++    static int ticks = 0;
++    if (++ticks % 5 == 0) std::cout << "EVENT_LOOP ticks=" << ticks << " auth=" << m_pAuthService->GetAuthResult() << std::endl;
+ 	return TRUE;
+ }
+ 
+--- a/demo/ZoomSDKAudioRawData.cpp
++++ b/demo/ZoomSDKAudioRawData.cpp
+@@ -1,44 +1,35 @@
+-//GetAudioRawData
+ #include "rawdata/rawdata_audio_helper_interface.h"
+ #include "ZoomSDKAudioRawData.h"
+-#include "zoom_sdk_def.h" 
++#include "zoom_sdk_def.h"
++#include <atomic>
++#include <cstdint>
+ #include <iostream>
+-#include <fstream>
++#include <cstring>
++#include <cmath>
+ 
+-void ZoomSDKAudioRawData::onOneWayAudioRawDataReceived(AudioRawData* audioRawData, uint32_t node_id)
+-{
+-	//std::cout << "Received onOneWayAudioRawDataReceived" << std::endl;
+-	//add your code here
++namespace {
++std::atomic<uint64_t> frame_count{0};
++std::atomic<uint64_t> byte_count{0};
+ }
+ 
++void ZoomSDKAudioRawData::onOneWayAudioRawDataReceived(AudioRawData*, uint32_t) {}
+ void ZoomSDKAudioRawData::onMixedAudioRawDataReceived(AudioRawData* audioRawData)
+ {
+-	std::cout << "Received onMixedAudioRawDataReceived" << std::endl;
+-	//add your code here
+-
+-
+-	static std::ofstream pcmFile;
+-	pcmFile.open("audio.pcm", std::ios::out | std::ios::binary | std::ios::app);
+-
+-	if (!pcmFile.is_open()) {
+-		std::cout << "Failed to open wave file" << std::endl;
+-		return;
+-	}
+-	
+-		// Write the audio data to the file
+-		pcmFile.write((char*)audioRawData->GetBuffer(), audioRawData->GetBufferLen());
+-		//std::cout << "buffer length: " << audioRawData->GetBufferLen() << std::endl;
+-		std::cout << "buffer : " << audioRawData->GetBuffer() << std::endl;
+-
+-		// Close the wave file
+-		pcmFile.close();
+-		pcmFile.flush();
++    const auto frames = ++frame_count;
++    const auto bytes = byte_count.fetch_add(audioRawData->GetBufferLen()) + audioRawData->GetBufferLen();
++    static uint64_t audible = 0;
++    static int peak = 0;
++    const char* data = audioRawData->GetBuffer();
++    for (unsigned int i=0; i+1<audioRawData->GetBufferLen(); i+=2) {
++        int16_t sample; std::memcpy(&sample, data+i, 2);
++        peak = std::max(peak, std::abs(static_cast<int>(sample)));
++    }
++    if (peak > 300) ++audible;
++    if (frames == 1 || frames % 100 == 0) {
++        std::cout << "ZOOM_AUDIO_LEVEL peak=" << peak << " active_frames=" << audible << std::endl;
++        peak = 0;
++        std::cout << "ZOOM_AUDIO_FRAME_RECEIVED frames=" << frames << " bytes=" << bytes << std::endl;
++    }
+ }
+-	
+-void ZoomSDKAudioRawData::onShareAudioRawDataReceived(AudioRawData* data_, uint32_t user_id)
+-{
+-}
+-
+-void ZoomSDKAudioRawData::onOneWayInterpreterAudioRawDataReceived(AudioRawData* data_, const zchar_t* pLanguageName)
+-{
+-}
++void ZoomSDKAudioRawData::onShareAudioRawDataReceived(AudioRawData*, uint32_t) {}
++void ZoomSDKAudioRawData::onOneWayInterpreterAudioRawDataReceived(AudioRawData*, const zchar_t*) {}
