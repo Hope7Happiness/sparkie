@@ -15,12 +15,15 @@ class WakeTests(unittest.TestCase):
     def test_standalone_and_direct_address_without_punctuation(self):
         for text in ["Sparkie", "Hey Sparkie are you there?", "Sparkie你在吗？", "Sparky, summarize this.",
                      "Hi Sparky", "Hi. It's Sparkie.", "Hello, Sparkie!", "Hi, Sparky, what is a WebSocket?",
-                     "Sparkie. Sparkie. Sparkie.", "Sparkie. Is a web socket?"]:
+                     "Sparkie. Sparkie. Sparkie.", "Sparkie. Is a web socket?", "Hi, Sparkie. Try to",
+                     "Sparkie, give me an example", "Sparkie，把刚才的结论列出来",
+                     "Sparkie is our product", "Hi, Sparky is our product",
+                     "Sparkie. Sparkie is our product"]:
             self.assertIsNotNone(addressed_request(text), text)
 
     def test_mentions_names_and_cancellation_are_not_requests(self):
-        for text in ["我们讨论 Sparkie", "Sparkie is our product", "Sparkieville", "Sparkie，不用了", "Sparkie, never mind", "Hi, it is Sparkie who built the product.",
-                     "Hi, Sparky is our product", "It is Sparkie.", "Sparkie. Sparkie is our product"]:
+        for text in ["我们讨论 Sparkie", "Sparkieville", "Sparkie，不用了", "Sparkie, never mind", "Hi, it is Sparkie who built the product.",
+                     "It is Sparkie."]:
             self.assertIsNone(addressed_request(text), text)
 
 
