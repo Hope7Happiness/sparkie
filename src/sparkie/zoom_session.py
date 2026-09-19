@@ -30,7 +30,8 @@ async def zoom_session(args):
             log.write(line+'\n'); log.flush()
             print(line, flush=True)
         engine = Primitive(meeting, ears, mouth, reply=os.getenv('SPARKIE_REPLY') or "I'm here.",
-                           brain=brain, mode='zoom-audio', event_sink=sink)
+                           brain=brain, mode='zoom-audio', event_sink=sink,
+                           question_reply=os.getenv('SPARKIE_QUESTION_REPLY') or 'Let me think for a moment.')
         meeting.on_event = engine.log
         ears.on_ready = lambda: engine.log('listening_ready', language=args.language, platform='zoom')
         if brain:

@@ -42,6 +42,24 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(meeting.inputs_while_playing, 0)
             self.assertFalse(meeting.joined)
 
+    async def test_question_ack_is_cached_and_selected_without_extra_inference(self):
+        from unittest.mock import AsyncMock
+        with tempfile.TemporaryDirectory() as path:
+            events = [self.event(1, "Sparkie"), self.event(2, "Sparkie, try to explain sockets."),
+                      self.event(3, "Sparkie, give me an example.")]
+            meeting = SimulatedMeeting(events, Path(path), interval=.01, playback=0)
+            brain = AsyncMock(answer=AsyncMock(return_value="A short answer."))
+            mouth = AsyncMock(synthesize=AsyncMock(side_effect=lambda text: text.encode()))
+            engine = Primitive(meeting, ScriptedDeepgram(events), mouth, reply="I'm here.", brain=brain)
+            result = await engine.run()
+            replies = [e['text'] for e in result['events'] if e['type'] == 'reply']
+            self.assertEqual(replies, ["I'm here.", "Let me think for a moment.", "Let me think for a moment."])
+            self.assertEqual(brain.answer.await_count, 2)
+            calls = [call.args[0] for call in mouth.synthesize.await_args_list]
+            self.assertEqual(calls.count("Let me think for a moment."), 1)
+            self.assertEqual(calls.count("I'm here."), 1)
+            self.assertEqual(engine.question_audio, b"Let me think for a moment.")
+
     async def test_cancel_stops_reply(self):
         with tempfile.TemporaryDirectory() as path:
             events = [self.event(1, "Sparkie"), self.event(2, "Sparkie，不用了")]
