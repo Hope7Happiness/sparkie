@@ -48,6 +48,8 @@ export class SessionController {
     this.state = { id: randomUUID(), status: 'starting', startedAt: this.clock(), options,
       events: [], level: 0, gated: false, timingReliable: true };
     this.lastSeen = this.clock();
+    this.lastAudioAt = null;
+    this.captureActive = false;
     const child = this.spawnChild(python, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
     this.child = child;
     const lines = createInterface({ input: child.stdout });
@@ -56,6 +58,10 @@ export class SessionController {
         const event = JSON.parse(line);
         if (typeof event.type !== 'string') return;
         if (event.type === 'audio_level') {
+          this.lastAudioAt = this.clock();
+          if (this.state.warning === '麦克风输入已停滞，正在检查音频连接。') {
+            this.state.warning = event.timing_reliable ? undefined : '音频已恢复，但本轮延迟计时无效。';
+          }
           this.state.level = event.peak;
           this.state.gated = event.gated;
           this.state.timingReliable &&= event.timing_reliable;
@@ -63,23 +69,36 @@ export class SessionController {
         }
         this.state.events.push(event);
         if (this.state.events.length > 2000) this.state.events.shift();
-        if (event.type === 'listening_ready' && this.state.status === 'starting') this.state.status = 'listening';
+        if (event.type === 'listening_ready' && this.state.status === 'starting') {
+          this.state.status = 'listening';
+          this.captureActive = true;
+          this.lastAudioAt = this.clock();
+        }
+        if (event.type === 'audio_input_ended') this.captureActive = false;
+        if (event.type === 'audio_warning') this.state.warning = '麦克风音频出现丢帧，本轮延迟计时无效；若转录不再更新，请停止后重新开始。';
+        if (event.type === 'audio_failed' || event.type === 'audio_cleanup_failed') {
+          this.state.error = '音频采集已中断，当前会话无法继续聆听。请重新开始；如果反复发生，请切换音频设备。';
+          this.stop('audio-failed');
+        }
         if (event.type === 'audio_warning' || event.type === 'playback_timing_unavailable') this.state.timingReliable = false;
       } catch { /* Plain CLI notices aren't part of the browser event contract. */ }
     });
     // Don't forward stderr/provider messages or environment values to the client.
     child.stderr.resume();
     child.on('error', () => { this.state.error = '音频服务启动失败。请先运行 uv sync --frozen。'; });
-    child.on('close', code => {
+    child.on('close', (code, signal) => {
       clearTimeout(this.killTimer);
       clearTimeout(this.deadlineTimer);
       lines.close();
       this.child = null;
       this.state.level = 0;
       this.state.gated = false;
-      this.state.status = code === 0 || this.state.status === 'stopping' ? 'ended' : 'failed';
+      this.captureActive = false;
+      if (signal === 'SIGKILL') this.state.error ||= '音频进程卡住，已强制停止。请重新开始测试；本轮未正常结束。';
+      this.state.status = code === 0 && !this.state.error ? 'ended' : 'failed';
       if (this.state.status === 'failed') this.state.error ||= '测试失败：请检查 Deepgram 配置、网络、音频设备和麦克风权限；问答模式还需有效的 Codex 登录及模型配置。详细错误类型见事件记录。';
       this.state.exitCode = code;
+      this.state.exitSignal = signal || null;
     });
     this.deadlineTimer = setTimeout(() => this.stop('timeout'), (options.seconds + 45) * 1000);
     this.deadlineTimer.unref?.();
@@ -98,6 +117,17 @@ export class SessionController {
   }
   expire() {
     if (this.child && this.clock() - this.lastSeen > 15000) this.stop('page-disconnected');
+    if (this.child && this.state.status === 'listening' && this.captureActive && this.lastAudioAt !== null) {
+      const gap = this.clock() - this.lastAudioAt;
+      if (gap > 3000) {
+        this.state.level = 0;
+        this.state.warning = '麦克风输入已停滞，正在检查音频连接。';
+      }
+      if (gap > 6000) {
+        this.state.error = '连续 6 秒没有收到麦克风音频，已停止本轮。请重新开始或切换音频设备。';
+        this.stop('audio-stalled');
+      }
+    }
   }
 }
 

@@ -109,3 +109,38 @@ class LocalAudioTests(unittest.IsolatedAsyncioTestCase):
             await meeting.join()
         self.assertTrue(stream.closed)
         self.assertIsNone(meeting._stream)
+
+    async def test_stalled_active_device_fails_instead_of_listening_forever(self):
+        meeting = self.meeting()
+        meeting._last_capture_at = time.monotonic() - 4
+        events = []
+        meeting.on_event = lambda kind, **fields: events.append((kind, fields))
+        with self.assertRaisesRegex(ProviderError, 'stopped delivering'):
+            await anext(meeting.audio())
+        self.assertIn(('audio_failed', {'reason': 'capture_stalled', 'timing_reliable': False}), events)
+        self.assertEqual(events[-1][0], 'audio_input_ended')
+
+    async def test_repeated_overflow_emits_fatal_event_before_unwinding(self):
+        meeting = self.meeting()
+        events = []
+        meeting.on_event = lambda kind, **fields: events.append((kind, fields))
+        status = SimpleNamespace(input_overflow=True, output_underflow=False)
+        for _ in range(5):
+            meeting._callback(b'\0' * 1280, bytearray(1280), 640, timing(), status)
+        with self.assertRaises(ProviderError):
+            await anext(meeting.audio())
+        self.assertEqual(events[0][0], 'audio_failed')
+        self.assertEqual(events[0][1]['reason'], 'capture_overrun')
+
+    async def test_metering_does_not_run_inside_realtime_callback(self):
+        meeting = self.meeting()
+        events = []
+        meeting.on_event = lambda kind, **fields: events.append((kind, fields))
+        meeting._callback(b'\xff\x1f' * 640, bytearray(1280), 640, timing(), STATUS)
+        self.assertEqual(meeting.input_peak, 0)
+        stream = meeting.audio()
+        frame = await anext(stream)
+        self.assertEqual(frame.pcm[:2], b'\xff\x1f')
+        self.assertGreater(meeting.input_peak, 0)
+        self.assertTrue(any(kind == 'audio_level' for kind, _ in events))
+        await stream.aclose()

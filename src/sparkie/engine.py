@@ -117,6 +117,7 @@ class Primitive:
             return
         request = addressed_request(event.text)
         if request is None:
+            self.log("ignored", reason="not_addressed_request", event_id=event.event_id)
             return
         if self.response_task and not self.response_task.done():
             self.log("ignored", reason="response_busy", event_id=event.event_id)

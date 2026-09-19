@@ -13,11 +13,14 @@ from sparkie.wake import addressed_request
 
 class WakeTests(unittest.TestCase):
     def test_standalone_and_direct_address_without_punctuation(self):
-        for text in ["Sparkie", "Hey Sparkie are you there?", "Sparkie你在吗？", "Sparky, summarize this."]:
+        for text in ["Sparkie", "Hey Sparkie are you there?", "Sparkie你在吗？", "Sparky, summarize this.",
+                     "Hi Sparky", "Hi. It's Sparkie.", "Hello, Sparkie!", "Hi, Sparky, what is a WebSocket?",
+                     "Sparkie. Sparkie. Sparkie.", "Sparkie. Is a web socket?"]:
             self.assertIsNotNone(addressed_request(text), text)
 
     def test_mentions_names_and_cancellation_are_not_requests(self):
-        for text in ["我们讨论 Sparkie", "Sparkie is our product", "Sparkieville", "Sparkie，不用了", "Sparkie, never mind"]:
+        for text in ["我们讨论 Sparkie", "Sparkie is our product", "Sparkieville", "Sparkie，不用了", "Sparkie, never mind", "Hi, it is Sparkie who built the product.",
+                     "Hi, Sparky is our product", "It is Sparkie.", "Sparkie. Sparkie is our product"]:
             self.assertIsNone(addressed_request(text), text)
 
 
@@ -169,3 +172,23 @@ class QuestionAnswerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([e['phase'] for e in timing], ['acknowledgement', 'answer'])
         self.assertTrue(all(e['response_id'] == '1' for e in timing))
         self.assertIn('answer_completed', [e['type'] for e in engine.events])
+
+    async def test_reported_greeting_then_later_question_still_responds(self):
+        from unittest.mock import AsyncMock
+        class Meeting:
+            def __init__(self):
+                self.plays = 0
+            async def play_audio(self, pcm, rate):
+                self.plays += 1
+        meeting = Meeting()
+        brain = AsyncMock(answer=AsyncMock(return_value='A WebSocket stays connected.'))
+        engine = Primitive(meeting, None, AsyncMock(synthesize=AsyncMock(return_value=b'answer')), brain=brain)
+        await engine.accept(TranscriptEvent('m', '1', 0, "Hi. It's Sparkie."), b'ack')
+        await engine.response_task
+        brain.answer.assert_not_called()
+        self.assertEqual(meeting.plays, 1)
+        await engine.accept(TranscriptEvent('m', '2', 20000, 'Sparkie. Is a web socket?'), b'ack')
+        await engine.response_task
+        brain.answer.assert_awaited_once()
+        self.assertEqual(meeting.plays, 3)
+        self.assertEqual(sum(e['type'] == 'response_completed' for e in engine.events), 2)

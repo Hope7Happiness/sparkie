@@ -52,3 +52,47 @@ test('failed child reports actionable error without exposing stderr', () => {
   assert.equal(controller.state.status, 'failed');
   assert.ok(!JSON.stringify(controller.state).includes('secret-test-key'));
 });
+test('forced-killed stop is failed, not a successful ended session', () => {
+  const { controller, child } = harness();
+  controller.start(options); controller.stop(); child.emit('close', null, 'SIGKILL');
+  assert.equal(controller.state.status, 'failed');
+  assert.equal(controller.state.exitSignal, 'SIGKILL');
+  assert.match(controller.state.error, /强制停止/);
+});
+test('stalled input triggers visible failure despite an active browser heartbeat', () => {
+  const { controller, child, advance } = harness();
+  controller.start(options);
+  child.stdout.write('{"type":"listening_ready"}\n');
+  advance(3100); controller.snapshot(); controller.expire();
+  assert.match(controller.state.warning, /停滞/);
+  advance(3001); controller.snapshot(); controller.expire();
+  assert.equal(controller.state.stopReason, 'audio-stalled');
+  assert.deepEqual(child.signals, ['SIGTERM']);
+  child.emit('close', 0);
+  assert.equal(controller.state.status, 'failed');
+});
+test('normal input completion during final response is not mistaken for a stall', () => {
+  const { controller, child, advance } = harness();
+  controller.start(options);
+  child.stdout.write('{"type":"listening_ready"}\n{"type":"audio_input_ended"}\n');
+  advance(7000); controller.snapshot(); controller.expire();
+  assert.equal(child.signals.length,0);
+  child.emit('close',0);
+  assert.equal(controller.state.status,'ended');
+});
+test('audio failure is retained even if graceful stop exits zero', () => {
+  const { controller, child } = harness();
+  controller.start(options);
+  child.stdout.write('{"type":"audio_failed","reason":"capture_overrun"}\n');
+  assert.equal(controller.state.stopReason,'audio-failed');
+  child.emit('close',0);
+  assert.equal(controller.state.status,'failed');
+});
+test('a short input stall warning clears when samples resume', () => {
+  const { controller, child, advance } = harness();
+  controller.start(options); child.stdout.write('{"type":"listening_ready"}\n');
+  advance(3100); controller.expire(); assert.match(controller.state.warning,/停滞/);
+  child.stdout.write('{"type":"audio_level","peak":0.1,"gated":false,"timing_reliable":true}\n');
+  assert.equal(controller.state.warning,undefined);
+  child.emit('close',0);
+});

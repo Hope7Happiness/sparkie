@@ -52,7 +52,7 @@ function render() {
     listening: state.gated ? ['Sparkie 正在回应', '扬声器播放期间暂停识别，等回复结束后再说'] : working ? ['Sparkie ' + trialStatus(latest), '你可以继续说话补充上下文；下一题请等当前回答结束'] : ['我在听，说 “Sparkie”', qa ? '紧接着说出问题，或问问刚才聊了什么' : '说完后停顿，等待 “I’m here.”'],
     stopping: ['正在结束测试', '停止采集并保存本轮记录'],
     ended: ['这一轮，完成了', '查看下方记录，或再开始一轮测试'],
-    failed: ['连接遇到了一点问题', '检查设备、网络与系统麦克风权限后重试'],
+    failed: ['这一轮已中断', '查看下方原因，重新开始后再叫醒 Sparkie'],
   };
   [$('prompt').textContent, $('hint').textContent] = online ? descriptions[state.status] || descriptions.idle : ['本地服务已断开', '请重启 bash scripts/web.sh；无页面心跳 15 秒后停止采集'];
   $('mic-note').textContent = !online ? '无法获取麦克风状态' : state.status === 'listening' ? state.gated ? '回声保护 · 识别暂停' : '实时输入电平' : '麦克风未在聆听';
@@ -60,6 +60,8 @@ function render() {
   bars.forEach((bar, i) => { bar.style.height = `${3 + level * 32 * (.3 + .7 * Math.abs(Math.sin(i * 1.9 + (state.level || 0) * 20))) * Math.sin((i + 1) / 50 * Math.PI)}px`; });
   const end = running ? Date.now() - (state.startedAt || Date.now()) : state.events.at(-1)?.elapsed_ms || 0;
   $('elapsed').textContent = time(end);
+  $('warning').textContent = state.warning || '';
+  $('warning').hidden = !state.warning || !!state.error;
   if (state.error) error(state.error);
   $('download').disabled = !state.id;
   const signature = `${state.id}:${state.events.length}:${state.timingReliable}:${state.status}:${qa}`;
@@ -113,7 +115,8 @@ function render() {
       const notice = ['response_failed', 'response_cancelled', 'ignored'].includes(event.type);
       const bubble = addText(transcript, 'div', '', `bubble ${isHuman ? '' : 'bot'} ${event.type === 'answer' ? 'answer' : ''} ${notice ? 'notice' : ''}`);
       const label = { transcript: '你 · 最终转录', reply: 'SPARKIE · 确认回应', answer: 'SPARKIE · 回答', response_failed: 'SPARKIE · 未完成', response_cancelled: 'SPARKIE · 已取消', ignored: 'SPARKIE · 正忙' }[event.type];
-      const speaker = addText(bubble, 'div', label, 'speaker');
+      const notAwakened = isHuman && state.events.some(e => e.type === 'ignored' && e.reason === 'not_addressed_request' && e.event_id === event.event_id);
+      const speaker = addText(bubble, 'div', notAwakened ? '你 · 已记入上下文，未触发唤醒' : label, 'speaker');
       addText(speaker, 'span', time(event.elapsed_ms));
       const failure = event.phase === 'reasoning' ? '答案生成失败，请检查推理服务后重新提问。' : event.phase === 'answer_synthesis' ? '答案文字已保留，语音生成失败。请检查 Deepgram 配置或网络。' : '音频播放失败，请检查输出设备后重试。';
       addText(bubble, 'p', event.type === 'response_failed' ? failure : event.type === 'response_cancelled' ? '本次回答已取消。' : event.type === 'ignored' ? '当前回答尚未结束，请稍后重新叫醒并提问。' : event.text);

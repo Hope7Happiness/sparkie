@@ -50,9 +50,20 @@ class LocalAudioMeeting:
         self.input_peak = 0
         self.current_peak = 0
         self._last_level_at = 0.0
+        self._last_capture_at = None
+        self._reported_overflows = 0
+        self._reported_underflows = 0
+        self.callback_count = 0
+        self.last_block_frames = 0
+        self.max_callback_gap_ms = 0
 
     def _callback(self, indata, outdata, frames, timing, status):
         now = time.monotonic()
+        if self._last_capture_at is not None:
+            self.max_callback_gap_ms = max(self.max_callback_gap_ms, round((now - self._last_capture_at) * 1000))
+        self._last_capture_at = now
+        self.callback_count += 1
+        self.last_block_frames = frames
         outdata[:] = b"\0" * len(outdata)
         adc = now + timing.inputBufferAdcTime - timing.currentTime
         dac = now + timing.outputBufferDacTime - timing.currentTime
@@ -61,8 +72,6 @@ class LocalAudioMeeting:
         if status.input_overflow:
             self.input_overflows += 1
             self._overflow_streak += 1
-            if self.on_event:
-                self._loop.call_soon_threadsafe(lambda: self.on_event("audio_warning", reason="input_overflow", timing_reliable=False))
             if self._overflow_streak >= 5:
                 self._error = "Repeated microphone overflow: samples were lost; restart the session"
         else:
@@ -92,10 +101,6 @@ class LocalAudioMeeting:
         if self._stop.is_set():
             return
         pcm = bytes(indata)
-        # Peak is diagnostic only; a quiet mic is not proof of denied permission.
-        samples = memoryview(pcm).cast("h")
-        self.current_peak = max((abs(samples[i]) for i in range(0, len(samples), 16)), default=0)
-        self.input_peak = max(self.input_peak, self.current_peak)
         self.captured_samples += frames
         if self.echo_mode == "speaker" and (self._playback is not None or adc < self._gate_until):
             pcm = b"\0" * len(pcm)
@@ -118,8 +123,9 @@ class LocalAudioMeeting:
             self.driver.check_output_settings(device=self.output_device, channels=1, dtype="int16", samplerate=self.rate)
             self._stream = self.driver.RawStream(
                 samplerate=self.rate, blocksize=0, device=(self.input_device, self.output_device),
-                channels=(1, 1), dtype="int16", latency=.1, callback=self._callback,
+                channels=(1, 1), dtype="int16", latency=.2, callback=self._callback,
             )
+            self._last_capture_at = time.monotonic()
             self._stream.start()
         except Exception as exc:
             if self._stream:
@@ -137,22 +143,38 @@ class LocalAudioMeeting:
         try:
             while not self._stop.is_set() and time.monotonic() < deadline:
                 if self._error:
+                    if self.on_event:
+                        self.on_event("audio_failed", reason="capture_overrun", timing_reliable=False)
                     raise ProviderError(self._error)
                 try:
-                    frame = await asyncio.to_thread(self._queue.get, True, .2)
+                    frame = self._queue.get_nowait()
                 except queue.Empty:
-                    if not self._stream.active:
-                        raise ProviderError("Audio device stopped; reconnect the device and restart")
+                    if not self._stream.active or (self._last_capture_at is not None and time.monotonic() - self._last_capture_at > 3):
+                        if self.on_event:
+                            self.on_event("audio_failed", reason="capture_stalled", timing_reliable=False)
+                        raise ProviderError("Audio device stopped delivering samples; restart the session")
+                    await asyncio.sleep(.01)
                     continue
+                # Metering and warnings stay off the realtime PortAudio callback.
+                samples = memoryview(frame.pcm).cast("h")
+                self.current_peak = max((abs(samples[i]) for i in range(0, len(samples), 16)), default=0)
+                self.input_peak = max(self.input_peak, self.current_peak)
                 now = time.monotonic()
+                if self.on_event and (self.input_overflows != self._reported_overflows or self.output_underflows != self._reported_underflows):
+                    self.on_event("audio_warning", reason="input_overflow_or_output_underflow", timing_reliable=False,
+                                  input_overflows=self.input_overflows, output_underflows=self.output_underflows)
+                    self._reported_overflows, self._reported_underflows = self.input_overflows, self.output_underflows
                 if self.on_event and now - self._last_level_at >= .1:
                     self._last_level_at = now
                     self.on_event("audio_level", peak=round(self.current_peak / 32768, 4),
                                   gated=self.echo_mode == "speaker" and now < self._gate_until,
-                                  timing_reliable=self.timing_reliable)
+                                  timing_reliable=self.timing_reliable,
+                                  captured_seconds=round(self.captured_samples / self.rate, 3))
                 yield frame
         finally:
             self.request_stop()
+            if self.on_event:
+                self.on_event("audio_input_ended")
 
     async def play_audio(self, pcm, sample_rate):
         if sample_rate != self.rate or not pcm or len(pcm) % 2:
@@ -183,15 +205,24 @@ class LocalAudioMeeting:
         self.request_stop()
         await self.stop_speaking()
         if self._stream:
-            self._stream.abort()
-            self._stream.close()
-            self._stream = None
+            stream, self._stream = self._stream, None
+            # A stuck driver must not block the event loop or cancellation cleanup.
+            try:
+                async with asyncio.timeout(2):
+                    await asyncio.to_thread(stream.abort)
+                    await asyncio.to_thread(stream.close)
+            except TimeoutError:
+                if self.on_event:
+                    self.on_event("audio_cleanup_failed", reason="driver_timeout")
+                raise ProviderError("Audio driver did not close within two seconds") from None
 
     def diagnostics(self):
         return {"captured_seconds": round(self.captured_samples / self.rate, 3),
                 "echo_gated_seconds": round(self.gated_samples / self.rate, 3),
                 "input_overflows": self.input_overflows, "output_underflows": self.output_underflows,
-                "input_peak": self.input_peak, "echo_mode": self.echo_mode, "timing_reliable": self.timing_reliable}
+                "input_peak": self.input_peak, "echo_mode": self.echo_mode, "timing_reliable": self.timing_reliable,
+                "callback_count": self.callback_count, "last_block_frames": self.last_block_frames,
+                "max_callback_gap_ms": self.max_callback_gap_ms}
 
     @property
     def timing_reliable(self):
