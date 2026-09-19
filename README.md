@@ -2,9 +2,9 @@
 
 以独立参与者身份加入线上会议的实时 AI agent：安静监听，被唤醒后参与讨论、执行后台任务，并在会后整理纪要。
 
-技术栈：**Deepgram = ears + mouth · Codex CLI / OpenAI API = brain · Zoom = body**。
+技术栈：**GPT Realtime = 前台语音 · Deepgram = 并行转写 · Codex CLI = 后台任务 · Zoom = 会议接入**。旧 wake/qa 模式仍使用 Deepgram STT/TTS。
 
-提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**Zoom 共享音频 adapter 已接入，真实会议内问答及另一端收到完整语音已通过一次实测。**
+提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**旧 Zoom 问答链路已有一次真实会议收听实测；新 Realtime + Codex 链路已接入代码，真人验收待完成。**
 
 本地语音闭环已提供：`bash scripts/local.sh --language en --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
 
@@ -35,3 +35,12 @@ Zoom 接收探针支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 
 ## Zoom 会议内问答
 
 真实 Zoom 音频 → Deepgram → Terra Medium → Zoom 语音回复已接通。构建后运行 `bash scripts/zoom.sh --language en --seconds 600`，详见 [Zoom 语音启动和实测记录](docs/zoom-voice.md)。本地网页仍使用本地麦克风模式。
+
+
+Zoom 完整语音 agent（默认 GPT Realtime 前台 + Codex 后台）：
+
+```bash
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 300
+```
+
+配置与验收见 [Realtime Zoom](docs/realtime.md#zoom-中验收完整-agent)。新组合已接入代码，尚未真人验收；`--response-mode wake/qa` 是旧诊断/问答路径。

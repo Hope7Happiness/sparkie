@@ -60,6 +60,21 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RealtimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failure_diagnostics_omit_provider_bodies_and_unknown_codes(self):
+        from sparkie.providers import ProviderError, failure_details
+        for code, expected in [('server_error', 'server_error'),
+                               ('sk-private-secret', 'unknown_provider_error')]:
+            with self.assertRaises(ProviderError) as caught:
+                await self.agent.handle({'type': 'response.done', 'response': {
+                    'id': 'r', 'status': 'failed', 'status_details': {
+                        'error': {'code': code, 'message': 'private response body'}}}})
+            details = failure_details(caught.exception)
+            self.assertEqual(details['provider'], 'openai')
+            self.assertEqual(details['reason'], 'realtime_response_failed')
+            self.assertEqual(details['provider_code'], expected)
+            self.assertNotIn('private', json.dumps(details))
+        self.assertNotIn('secret', json.dumps(failure_details(RuntimeError('secret'))))
+
     async def asyncSetUp(self):
         self.events = []
         self.audio = RealtimeLocalAudio(echo_mode='headphones')

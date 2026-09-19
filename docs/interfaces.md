@@ -63,7 +63,7 @@ Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网
 `RealtimeAudioTransport`（`audio.py`）使用 PCM16LE、mono、24 kHz：`join` / `audio` / `append_output(item_id, pcm)` / `finish_output(item_id)` / `stop_speaking` / `leave`。
 `append_output` 必须立即入有界播放队列；`finish_output` 只标记生成完成，不表示音频已播放。
 `outputs` 保存每个 item 的字节数、取消标志和 `played_ms()`；打断会清空待播内容并向 Realtime 发送截断时间，防止未听到的内容留在模型上下文。
-本地实现使用 PortAudio DAC 时间估算实际播放进度。Zoom 当前 32 kHz 整段播放协议不满足该接口，需另行实现流式播放、24↔32 kHz 重采样及可靠的播放进度；不能直接声称兼容。
+本地实现使用 PortAudio DAC 时间估算实际播放进度。Zoom 由 `RealtimeZoomAudio` 适配：SoXR 有状态重采样 32↔24 kHz，输出累计到 100ms 就通过既有原生协议提交，最后一块在生成结束时 flush，不等待整句。`played_ms()` 只累计已完成 SDK 提交的包；打断时不计尚未确认的包，是保守进度，不是远端 DAC 或可听证明。
 
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
 worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。用户取消或结束会话会终止对应进程。
@@ -82,3 +82,14 @@ worker 异步排队执行，提交立即返回；无每会话任务数量上限�
 WebSocket `/audio?session=<id>` 仅接受当前本地 Origin、当前会话和一个连接，PCM 不进入状态轮询或磁盘日志。browser→Python：audio_settings、连续 sequence 的 audio_input、带 generation 的 audio_progress。Python→browser：audio_ready、audio_output、audio_clear。只有 provider ready 后才发输入；24 kHz PCM16 mono、20 ms 包；队列/管道溢出明确失败。清空播放递增 generation，旧音频/播放进度不能复活。AudioWorklet 每 20 ms 报告渲染进度供截断使用，不宣称是准确 DAC 时间。密钥仍仅保存在 Python。浏览器断开关闭会话并释放麦克风。
 
 Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页、文件、代码和外部工具请求应直接委派，而不是建议用户自己完成或声称没有工具。
+
+
+### Zoom Realtime 会话
+
+`bash scripts/zoom.sh` 默认 `--response-mode realtime`，复用同一 `RealtimeAgent`、`TaskCenter` 和 `CodexTaskWorker`。输入并行送 GPT Realtime 与 Deepgram；回复直接使用 Realtime 输出音频，不经过 Deepgram TTS。`wake` / `qa` 仅在显式指定时进入旧 primitive。也可直接用 `python -m sparkie.realtime_session --transport zoom`。
+
+`RealtimeZoomAudio.append_output` 只进行有状态重采样和有界入队（最多 15 秒待播 PCM）；独立异步播放任务按 100ms 包复用 Zoom 原生桥的 20ms 发送节奏。保留 item_id、取消状态与生成/SDK 提交进度；取消清除尚未发送的内容，迟到的相同 item 音频不会恢复播放；后台结果通知等待待播语音处理完毕。SDK 错误会结束输入并报告失败。
+
+Zoom 播放队列或单条回复时长达到上限时，`PlaybackLimitError` 由 Realtime adapter 捕获：记录 `realtime_playback_limited`，取消当前回复并按已确认的 SDK 播放进度截断上下文；清空待播音频，继续接收后续会话，不扩大队列。该回复可能只播放一部分。`session_failed` 和 `run.json.failure` 保存 `error_type`、`provider`、本地白名单 `reason`、可用的代码位置 `source` 和白名单 `provider_code`；未知原因标为 `unclassified`，不保存异常正文、provider message、响应 body 或凭据。
+
+输入仍受原生 Zoom 播放期间及尾音 350ms 的回声静音窗口限制，并向 transcript ledger 记录 `zoom_echo_gate` 覆盖缺口。这个传输没有浏览器 AEC，尚不支持在回复期间靠语音打断；stdin `{"action":"interrupt"}` 控制可以取消。会话退出会停止原生进程/容器和后台任务。所有 Zoom 播放指标均明确为 SDK 提交进度，不报告声学延迟。真实 Realtime + Codex 会议验收仍待完成。

@@ -12,10 +12,11 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from .local_session import device_id
-from .providers import DeepgramEars, ProviderError
+from .providers import DeepgramEars, ProviderError, failure_details
 from .realtime import RealtimeAgent
 from .realtime_audio import RealtimeLocalAudio
 from .browser_audio import BrowserAudio
+from .event_output import EventOutput
 from .task_center import TranscriptLedger, TaskCenter, CodexTaskWorker
 
 
@@ -31,6 +32,7 @@ async def run(args):
     log = (directory / 'events.jsonl').open('a')
     started = time.monotonic()
     agent = None
+    transport_name = getattr(args, 'transport', 'local')
     def emit(kind, **fields):
         if kind == 'realtime_audio_started' and agent and agent.last_speech_end is not None and audio.audio_origin is not None:
             fields['latency_ms'] = round((fields['dac_time'] - audio.audio_origin) * 1000 - agent.last_speech_end)
@@ -42,11 +44,25 @@ async def run(args):
         if kind not in ('audio_level', 'audio_output', 'audio_clear'):
             log.write(line + '\n')
             log.flush()
-        print(line, flush=True)
-    browser_transport = getattr(args, 'transport', 'local') == 'browser'
-    audio = (BrowserAudio(max_seconds=args.seconds, on_event=emit) if browser_transport else
-             RealtimeLocalAudio(device_id(args.input_device), device_id(args.output_device),
-                               echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit))
+        console.publish(line)
+    browser_transport = transport_name == 'browser'
+    if transport_name == 'zoom':
+        from .realtime_zoom_audio import RealtimeZoomAudio
+        from .zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
+        from .zoom_config import selected_platform
+        from .zoom_macos import paths
+        runtime = Path('.runtime/zoom-realtime') / session_id
+        if selected_platform() == 'macos':
+            meeting = ZoomMacAudioMeeting(runtime, paths(Path(__file__).resolve().parents[2])[2],
+                                          max_seconds=args.seconds)
+        else:
+            meeting = ZoomAudioMeeting(runtime, max_seconds=args.seconds)
+        audio = RealtimeZoomAudio(meeting, on_event=emit)
+    elif browser_transport:
+        audio = BrowserAudio(max_seconds=args.seconds, on_event=emit)
+    else:
+        audio = RealtimeLocalAudio(device_id(args.input_device), device_id(args.output_device),
+                                  echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit)
     center = TaskCenter(ledger, CodexTaskWorker(model=os.getenv('CODEX_MODEL') or 'gpt-5.6-terra'), emit)
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1')
@@ -77,7 +93,7 @@ async def run(args):
             record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
                       'timestamp_ms': round(audio.captured_samples / 24)}
             ledger.append(record)
-            emit('transcript_degraded', error_type=type(exc).__name__, record=record)
+            emit('transcript_degraded', **{**failure_details(exc), 'provider': 'deepgram'}, record=record)
             dg_ready.set()
     async def send_audio():
         async for frame in frames(queues[0]):
@@ -89,7 +105,7 @@ async def run(args):
             current_gate = audio.echo_mode == 'speaker' and time.monotonic() < audio._gate_until
             if current_gate != gated:
                 record = {'type': 'coverage_gap' if current_gate else 'coverage_resumed',
-                          'timestamp_ms': round(audio.captured_samples / 24), 'reason': 'speaker_echo_gate'}
+                          'timestamp_ms': round(audio.captured_samples / 24), 'reason': getattr(audio, 'coverage_reason', 'speaker_echo_gate')}
                 ledger.append(record)
                 emit('transcript_coverage', **{'record': record})
                 gated = current_gate
@@ -133,8 +149,11 @@ async def run(args):
             transport.close()
     running = []
     reason = 'completed'
+    failure = None
+    # Browser output is a media protocol; CLI output is only a view of events.jsonl.
+    console = EventOutput(sys.stdout, required=browser_transport)
     try:
-        emit('session_created', session_id=session_id, output=str(directory), model=agent.model)
+        emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('transcription_config', provider='deepgram', model=ears.model,
              language=ears.language, sample_rate=ears.rate)
         rt = asyncio.create_task(agent.run())
@@ -157,8 +176,17 @@ async def run(args):
             raise ProviderError('provider_startup_timeout')
         if dg_active:
             emit('transcript_ready', provider='deepgram')
-        await audio.join()
-        emit('listening_ready', language=args.language)
+        joining = asyncio.create_task(audio.join())
+        running.append(joining)
+        done, _ = await asyncio.wait([joining, rt, stopper], return_when=asyncio.FIRST_COMPLETED)
+        if stopper in done:
+            reason = 'stopped'
+            return 0
+        if rt in done:
+            rt.result()
+            raise ProviderError('provider_closed_during_audio_join')
+        joining.result()
+        emit('listening_ready', language=args.language, transport=transport_name)
         capturer = asyncio.create_task(capture())
         sender = asyncio.create_task(send_audio())
         control = asyncio.create_task(controls())
@@ -182,8 +210,9 @@ async def run(args):
             emit('transcript_degraded', error_type='FinalFlushTimeout')
     except Exception as exc:
         reason = 'failed'
+        failure = failure_details(exc)
         ledger.append({'type': 'coverage_gap', 'reason': 'session_failed'})
-        emit('session_failed', error_type=type(exc).__name__)
+        emit('session_failed', **failure)
     finally:
         for task in running:
             task.cancel()
@@ -196,18 +225,27 @@ async def run(args):
             emit('audio_cleanup_failed', error_type=type(exc).__name__)
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(sig)
-        report = {'session_id': session_id, 'exit_reason': reason, 'zoom_tested': False,
+        report = {'session_id': session_id, 'exit_reason': reason, 'transport': transport_name,
+                  'remote_audibility_verified': False,
                   'model': agent.model, 'audio': audio.diagnostics(), 'transcript_records': len(ledger.records)}
-        (directory / 'run.json').write_text(json.dumps(report, indent=2))
-        emit('session_stopped', **report)
-        log.close()
+        if failure is not None:
+            report['failure'] = failure
+        try:
+            emit('session_stopped', **report)
+        finally:
+            await console.close()
+            report['event_output'] = console.diagnostics()
+            if console.required and (console.failure or console.dropped):
+                reason = report['exit_reason'] = 'failed'
+            (directory / 'run.json').write_text(json.dumps(report, indent=2))
+            log.close()
     return int(reason == 'failed')
 
 
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--transport', choices=['local', 'browser'], default='local')
+    parser.add_argument('--transport', choices=['local', 'browser', 'zoom'], default='local')
     parser.add_argument('--language', choices=['en', 'zh-CN'], default='en')
     parser.add_argument('--seconds', type=int, default=120)
     parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')

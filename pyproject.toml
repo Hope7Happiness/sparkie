@@ -8,6 +8,8 @@ dependencies = [
     "websockets>=15,<16",
     "python-dotenv>=1,<2",
     "sounddevice>=0.5,<0.6",
+    "soxr>=1.0,<2",
+    "numpy>=1.26,<3",
 ]
 
 [project.scripts]

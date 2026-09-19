@@ -179,11 +179,13 @@ class ZoomAudioMeeting:
             raise
         except Exception as exc:
             self.failure = exc
-            self.on_event('audio_failed', reason=type(exc).__name__)
+            # Resolve control waiters before diagnostics: a broken event sink must
+            # never hide the primary failure behind a second playback timeout.
             for future in self.playbacks.values():
                 if not future.done():
                     future.set_exception(exc)
             self.stopped.set()
+            self.on_event('audio_failed', reason=type(exc).__name__)
 
     async def audio(self):
         started = time.monotonic()

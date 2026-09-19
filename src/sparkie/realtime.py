@@ -6,8 +6,17 @@ import time
 from urllib.parse import urlencode
 
 from websockets.asyncio.client import connect
-from .providers import ProviderError
+from .providers import ProviderError, PlaybackLimitError, failure_details
 from .audio import RealtimeAudioTransport
+
+
+def safe_error_code(code):
+    # An arbitrary provider string can contain credentials even without spaces.
+    return code if code in (
+        'server_error', 'rate_limit_exceeded', 'insufficient_quota',
+        'invalid_api_key', 'invalid_request_error', 'model_not_found',
+        'context_length_exceeded', 'session_expired',
+    ) else 'unknown_provider_error'
 
 
 TOOLS = [
@@ -128,8 +137,8 @@ class RealtimeAgent:
                 self.response_pending = False
                 self.emit('response_overlap')
                 return
-            self.emit('provider_error', provider='openai', code=code)
-            raise ProviderError('realtime_error')
+            self.emit('provider_error', provider='openai', code=safe_error_code(code))
+            raise ProviderError('realtime_error', provider_code=safe_error_code(code))
         elif kind == 'input_audio_buffer.speech_started':
             self.user_speaking = True
             await self.interrupt(cancel=False)  # Server VAD already cancels generation.
@@ -146,9 +155,17 @@ class RealtimeAgent:
         elif kind == 'response.output_audio.delta':
             if event.get('response_id') not in self.cancelled:
                 self.speaking_item = event['item_id']
-                self.audio.append_output(event['item_id'], base64.b64decode(event['delta'], validate=True))
+                try:
+                    self.audio.append_output(event['item_id'], base64.b64decode(event['delta'], validate=True))
+                except PlaybackLimitError as exc:
+                    self.emit('realtime_playback_limited', **failure_details(exc))
+                    await self.interrupt()
         elif kind == 'response.output_audio.done':
-            self.audio.finish_output(event['item_id'])
+            try:
+                self.audio.finish_output(event['item_id'])
+            except PlaybackLimitError as exc:
+                self.emit('realtime_playback_limited', **failure_details(exc))
+                await self.interrupt()
         elif kind == 'response.output_audio_transcript.done':
             if event.get('response_id') not in self.cancelled:
                 self.emit('assistant_transcript', item_id=event['item_id'], text=event['transcript'])
@@ -185,7 +202,11 @@ class RealtimeAgent:
                 self.response_id = None
             self.emit('realtime_response_done', response_id=response_id, status=response.get('status'))
             if response.get('status') == 'failed':
-                raise ProviderError('realtime_response_failed')
+                details = response.get('status_details') or {}
+                error = details.get('error') or {}
+                self.emit('provider_error', provider='openai', reason='realtime_response_failed',
+                          code=safe_error_code(error.get('code')))
+                raise ProviderError('realtime_response_failed', provider_code=safe_error_code(error.get('code')))
             continuation = self.text.pop(response_id, False)
             if continuation and response_id not in self.cancelled:
                 await self.request_response()

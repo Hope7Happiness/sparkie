@@ -74,9 +74,9 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 - Linux 已有实测记录见 [原有流程](zoom-sanity.md)，本次没有重新完成 Linux 真实会议验收。
 - 当前 Zoom 文档对 Meeting SDK bot/AI 场景有限制，本地技术测试不代表生产或跨账号用途获准；见 [官方 SDK 说明](https://developers.zoom.us/docs/meeting-sdk/linux/) 与 [入会授权](https://developers.zoom.us/docs/meeting-sdk/auth/)。
 
-## 语音闭环启动与本轮交接
+## 旧固定回复诊断入口（非完整 agent 验收）
 
-独立接收探针和语音闭环是不同启动模式。此 Mac 上测试固定回复请用：
+完整 agent 使用 `ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 300`，验收见 [Realtime](realtime.md#zoom-中验收完整-agent)。以下固定回复命令仅保留用于故障隔离：
 
 ```bash
 # 拉取原生代码后先重新构建（本轮已在当前工作区构建）。
