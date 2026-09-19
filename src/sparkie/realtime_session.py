@@ -15,6 +15,7 @@ from .local_session import device_id
 from .providers import DeepgramEars, ProviderError
 from .realtime import RealtimeAgent
 from .realtime_audio import RealtimeLocalAudio
+from .browser_audio import BrowserAudio
 from .task_center import TranscriptLedger, TaskCenter, CodexTaskWorker
 
 
@@ -38,12 +39,14 @@ async def run(args):
         if kind in ('assistant_transcript', 'realtime_interrupted'):
             ledger.append({**event, 'source': 'bot', 'note': 'Generated reply text; interruption events mark unplayed content.'})
         line = json.dumps(event, ensure_ascii=False)
-        if kind != 'audio_level':
+        if kind not in ('audio_level', 'audio_output', 'audio_clear'):
             log.write(line + '\n')
             log.flush()
         print(line, flush=True)
-    audio = RealtimeLocalAudio(device_id(args.input_device), device_id(args.output_device),
-                              echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit)
+    browser_transport = getattr(args, 'transport', 'local') == 'browser'
+    audio = (BrowserAudio(max_seconds=args.seconds, on_event=emit) if browser_transport else
+             RealtimeLocalAudio(device_id(args.input_device), device_id(args.output_device),
+                               echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit))
     center = TaskCenter(ledger, CodexTaskWorker(model=os.getenv('CODEX_MODEL') or 'gpt-5.6-terra'), emit)
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1')
@@ -112,7 +115,9 @@ async def run(args):
             while line := await reader.readline():
                 try:
                     command = json.loads(line)
-                    if command.get('action') == 'interrupt':
+                    if browser_transport and command.get('action') in ('audio_input', 'audio_progress', 'audio_settings'):
+                        audio.accept(command)
+                    elif command.get('action') == 'interrupt':
                         await agent.interrupt()
                     elif command.get('action') == 'cancel_task':
                         center.cancel(command.get('task_id'))
@@ -120,6 +125,10 @@ async def run(args):
                         await agent.report_task(command.get('task_id'))
                 except (ValueError, TypeError):
                     emit('control_rejected', reason='invalid_command')
+                except Exception as exc:
+                    emit('audio_failed', reason=type(exc).__name__)
+                    stop.set()
+                    raise
         finally:
             transport.close()
     running = []
@@ -197,6 +206,7 @@ async def run(args):
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
+    parser.add_argument('--transport', choices=['local', 'browser'], default='local')
     parser.add_argument('--language', choices=['en', 'zh-CN'], default='en')
     parser.add_argument('--seconds', type=int, default=120)
     parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')

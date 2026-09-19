@@ -1,4 +1,6 @@
 import './realtime.css';
+import { BrowserVoice } from './browser-voice.js';
+let voice = null, starting = false;
 const $ = selector => document.querySelector(selector);
 let sessionId = null, rendered = 0, busy = false;
 const jobs = new Map();
@@ -54,7 +56,7 @@ async function poll() {
     busy = ['starting', 'listening', 'stopping'].includes(state.status);
     $('#state').textContent = { idle: '准备就绪', starting: '正在连接', listening: '正在聆听', stopping: '正在结束', ended: '已结束', failed: '连接失败' }[state.status] || state.status;
     $('#start').hidden = busy; $('#stop').hidden = !busy; $('#interrupt').hidden = !busy;
-    $('#start').disabled = busy; $('#stop').disabled = !busy || state.status === 'stopping'; $('#interrupt').disabled = state.status !== 'listening';
+    $('#start').disabled = busy || starting; $('#stop').disabled = !busy || state.status === 'stopping'; $('#interrupt').disabled = state.status !== 'listening';
     $('#setup').querySelectorAll('select').forEach(el => el.disabled = busy);
     $('#level').style.width = `${Math.min(100, (state.level || 0) * 400)}%`;
     if (state.error) $('#error').textContent = state.error;
@@ -64,26 +66,38 @@ async function poll() {
       if (event.sequence > rendered) { processEvent(event); rendered = event.sequence; }
     }
     if (wasBusy !== busy && jobs.size) renderJobs();
+    if (!busy && !starting && voice && state.id === voice.sessionId) { voice.close(); voice = null; }
   } catch (exc) { error(exc); }
   setTimeout(poll, 350);
 }
 async function devices() {
-  const result = await api('devices');
-  for (const [name, type] of [['inputDevice', 'input'], ['outputDevice', 'output']]) {
-    const select = $(`[name="${name}"]`); const previous = select.value;
-    select.replaceChildren(new Option('系统默认', ''));
-    for (const device of result.devices.filter(d => d[type])) select.add(new Option(device.name, device.id));
-    select.value = [...select.options].some(o => o.value === previous) ? previous : '';
+  const result = await navigator.mediaDevices.enumerateDevices();
+  const select = $('[name="inputDevice"]'); const previous = select.value;
+  select.replaceChildren(new Option('系统默认', ''));
+  for (const device of result.filter(d => d.kind === 'audioinput' && d.deviceId !== 'default')) {
+    if (device.deviceId) select.add(new Option(device.label || '麦克风', device.deviceId));
   }
+  select.value = [...select.options].some(o => o.value === previous) ? previous : '';
 }
 $('#setup').onsubmit = async event => {
-  event.preventDefault(); $('#error').textContent = '';
+  event.preventDefault(); if (starting || busy) return;
+  starting = true; $('#error').textContent = ''; $('#start').disabled = true;
   const data = Object.fromEntries(new FormData(event.target));
-  data.seconds = Number(data.seconds); data.responseMode = 'realtime';
-  for (const name of ['inputDevice', 'outputDevice']) if (data[name] !== '') data[name] = Number(data[name]);
-  try { await api('start', data); } catch (exc) { error(exc); }
+  const inputDevice = data.inputDevice;
+  Object.assign(data, { seconds: Number(data.seconds), responseMode: 'realtime', transport: 'browser',
+    echoMode: 'headphones', inputDevice: '', outputDevice: '' });
+  voice = new BrowserVoice(exc => { error(exc); api('stop', {}).catch(error); });
+  try {
+    await voice.prepare(inputDevice);
+    const state = await api('start', data);
+    await voice.connect(state.id);
+    busy = true;
+    await devices();
+  } catch (exc) {
+    voice?.close(); voice = null; error(exc); await api('stop', {}).catch(() => {});
+  } finally { starting = false; $('#start').disabled = busy; }
 };
-$('#stop').onclick = () => api('stop', {}).catch(error);
+$('#stop').onclick = () => { voice?.close(); voice = null; api('stop', {}).catch(error); };
 $('#interrupt').onclick = () => api('control', { action: 'interrupt' }).catch(error);
 $('#devices').onclick = () => devices().catch(error);
 $('#export').onclick = async () => {

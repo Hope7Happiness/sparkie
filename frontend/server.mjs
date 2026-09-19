@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { WebSocketServer, WebSocket } from 'ws';
 import { readFile } from 'node:fs/promises';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -17,6 +18,8 @@ export function validateOptions(value) {
       !Number.isInteger(value.seconds) || value.seconds < 10 || value.seconds > 300) {
     throw new Error('请选择问答模式、语言、播放方式和 10–300 秒的时长。');
   }
+  if (value.transport !== undefined && !['browser', 'local'].includes(value.transport)) throw new Error('Invalid transport');
+  if (value.transport === 'browser' && value.responseMode !== 'realtime') throw new Error('Invalid transport');
   for (const key of ['inputDevice', 'outputDevice']) {
     if (value[key] !== '' && (!Number.isInteger(value[key]) || value[key] < 0 || value[key] > 1024)) {
       throw new Error('设备编号无效，请刷新设备列表。');
@@ -43,6 +46,7 @@ export class SessionController {
     const args = ['-m', ...(options.responseMode === 'realtime' ? ['sparkie.realtime_session'] : ['sparkie.primitive', 'local']), '--language', options.language,
       '--seconds', String(options.seconds), '--echo-mode', options.echoMode,
       ];
+    if (options.transport === 'browser') args.push('--transport', 'browser');
     if (options.responseMode !== 'realtime') args.push('--response-mode', options.responseMode);
     for (const [key, flag] of [['inputDevice', '--input-device'], ['outputDevice', '--output-device']]) {
       if (options[key] !== '') args.push(flag, String(options[key]));
@@ -62,6 +66,13 @@ export class SessionController {
       try {
         const event = JSON.parse(line);
         if (typeof event.type !== 'string') return;
+        if (event.type === 'audio_output' || event.type === 'audio_clear') {
+          if (this.audioSocket?.readyState === WebSocket.OPEN) {
+            if (this.audioSocket.bufferedAmount > 512000) this.stop('audio-output-backpressure');
+            else this.audioSocket.send(JSON.stringify(event));
+          }
+          return;
+        }
         if (event.type === 'audio_level') {
           this.lastAudioAt = this.clock();
           if (this.state.warning === '麦克风输入已停滞，正在检查音频连接。') {
@@ -80,6 +91,7 @@ export class SessionController {
         if (this.state.events.length > 2000) this.state.events.shift();
         if (event.type === 'listening_ready' && this.state.status === 'starting') {
           this.state.status = 'listening';
+          if (this.audioSocket?.readyState === WebSocket.OPEN) this.audioSocket.send(JSON.stringify({ type: 'audio_ready' }));
           this.captureActive = true;
           this.lastAudioAt = this.clock();
         }
@@ -100,6 +112,7 @@ export class SessionController {
       clearTimeout(this.deadlineTimer);
       lines.close();
       this.child = null;
+      this.audioSocket?.close(1000); this.audioSocket = null;
       this.state.level = 0;
       this.state.gated = false;
       this.captureActive = false;
@@ -112,6 +125,12 @@ export class SessionController {
     this.deadlineTimer = setTimeout(() => this.stop('timeout'), (options.seconds + 45) * 1000);
     this.deadlineTimer.unref?.();
     return this.state;
+  }
+  audioCommand(command) {
+    if (!this.child || this.state.options?.transport !== 'browser') throw new Error('No browser audio session');
+    if (!['audio_input', 'audio_progress', 'audio_settings'].includes(command.action)) throw new Error('Invalid audio command');
+    if (this.child.stdin.writableLength > 256000) { this.stop('audio-input-backpressure'); return; }
+    this.child.stdin.write(JSON.stringify(command) + '\n');
   }
   control(command) {
     if (!this.child || this.state.options?.responseMode !== 'realtime' ||
@@ -152,6 +171,29 @@ export function localApi(port = 5178) {
   return {
     name: 'sparkie-local-api', apply: 'serve',
     configureServer(server) {
+      const audioServer = new WebSocketServer({ noServer: true, maxPayload: 16384 });
+      server.httpServer?.on('upgrade', (req, socket, head) => {
+        const url = new URL(req.url, 'http://localhost');
+        if (url.pathname !== '/audio') return;
+        if (![ `http://127.0.0.1:${port}`, `http://localhost:${port}` ].includes(req.headers.origin) ||
+            !controller.child || controller.state.options?.transport !== 'browser' ||
+            url.searchParams.get('session') !== controller.state.id || controller.audioSocket) {
+          socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return;
+        }
+        audioServer.handleUpgrade(req, socket, head, ws => {
+          controller.audioSocket = ws;
+          if (controller.state.status === 'listening') ws.send(JSON.stringify({ type: 'audio_ready' }));
+          ws.on('message', raw => {
+            try { controller.audioCommand(JSON.parse(raw.toString())); }
+            catch { controller.stop('invalid-audio'); ws.close(); }
+          });
+          ws.on('error', () => controller.stop('audio-disconnected'));
+          ws.on('close', () => {
+            if (controller.audioSocket === ws) { controller.audioSocket = null; controller.stop('audio-disconnected'); }
+          });
+        });
+      });
+
       const heartbeat = setInterval(() => controller.expire(), 1000);
       heartbeat.unref();
       server.httpServer?.once('close', () => { clearInterval(heartbeat); controller.stop('server-closed'); });

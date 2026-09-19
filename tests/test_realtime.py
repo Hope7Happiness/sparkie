@@ -41,13 +41,15 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(persisted[0]['snapshot']), 75)
             await center.close()
 
-    async def test_cancellation_before_worker_starts_and_capacity(self):
+    async def test_cancellation_before_worker_starts(self):
         class Worker:
             async def run(self, *args): await asyncio.Event().wait()
         with tempfile.TemporaryDirectory() as directory:
             center = TaskCenter(TranscriptLedger(directory), Worker(), lambda *a, **k: None)
             ids = [center.submit(str(i))['task_id'] for i in range(3)]
-            self.assertEqual(center.submit('overflow')['error'], 'task_limit')
+            fourth = center.submit('fourth task')
+            self.assertEqual(fourth['status'], 'queued')
+            ids.append(fourth['task_id'])
             await center.close()
             self.assertTrue(all(center.status(i)['status'] == 'cancelled' for i in ids))
 
@@ -162,3 +164,13 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
         self.audio._callback(speech, bytearray(len(speech)), 240, timing, status)
         self.assertEqual(self.audio._queue.get_nowait().pcm, speech)
         self.assertEqual(self.audio.gated_samples, 0)
+
+    async def test_pending_continuation_prevents_duplicate_response_and_overlap_is_recoverable(self):
+        await self.agent.request_response()
+        await self.agent.request_response()
+        self.assertEqual(sum(e['type']=='response.create' for e in self.sent),1)
+        await self.agent.handle({'type':'error','error':{'code':'conversation_already_has_active_response'}})
+        self.assertIn('response_overlap',self.events)
+        await self.agent.handle({'type':'input_audio_buffer.speech_started'})
+        await self.agent.request_response()
+        self.assertEqual(sum(e['type']=='response.create' for e in self.sent),1)
