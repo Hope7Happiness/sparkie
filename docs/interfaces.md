@@ -32,7 +32,7 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 
 `Task` 保存唯一 task_id、meeting_id、原始 request、创建时的 context 快照、status、result、error、sources。状态流为 queued → running → completed / failed。completed 必须有 result；failed 必须有 error；sources 只记录实际使用过的来源。
 
-任务层使用独立异步 worker；完成结果先入队，初版仅在用户再次询问时播报，后续才验证自然停顿策略。demo.py 尚未实现 worker。
+任务层使用独立异步 worker。Realtime 会把完成或失败通知入队，在当前用户轮次和音频播放结束后唤醒前台，由前台决定播报或 remain_silent。demo.py 尚未实现 worker。
 
 ## 会议报告
 
@@ -72,7 +72,7 @@ worker 异步排队执行，提交立即返回；无每会话任务数量上限�
 `output/realtime/<session>/transcript.jsonl` 保存全部记录，`tasks.json` 保存任务、不可变输入快照和结果，`events.jsonl` 保存诊断事件，`run.json` 保存会话报告；不保存原始音频。
 转写持久化成功后才发送 UI 事件。助手的完整生成文本不代表全部已播放，以 `realtime_interrupted` 为准。
 网页默认使用浏览器 `getUserMedia(echoCancellation: {exact: true})`，检查实际 track settings 并将处理后的 PCM 并行发送给两个 provider；不会在 AI 播放时门控人声。浏览器不支持时明确启动失败，不静默退化成无保护双工。旧 local CLI 的扬声器门控仍写入 coverage_gap / coverage_resumed。
-结果完成后仅更新界面，不主动打断。用户问进展时用 task_status；点击播报调用 `/api/control` 的 report_task，仅当前语音空闲时执行。
+结果完成或失败后更新界面，同时向 Realtime 投递包含任务结果的系统通知并触发 response.create。每个任务只通知一次，忙碌期间排队，多个完成结果合并唤醒；等待用户轮次与全部本地音频播放结束。前台自行决定直接汇报或调用 remain_silent（不生成后续语音），结果保留在对话上下文。用户问进展仍可用 task_status；手动 report_task 仍只在空闲时执行。通知循环随会话关闭取消；断开后不跨会话自动重投。
 页面只显示对话与任务，诊断事件仍可在日志中查看；`realtime_audio_started.latency_ms` 是最近口述结束到设备首音频的估算，不是后台任务最终答案延迟，也不是独立声学测量。
 
 ### Browser audio transport

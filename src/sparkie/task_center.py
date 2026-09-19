@@ -90,6 +90,8 @@ class TaskCenter:
         self.ledger, self.worker, self.emit = ledger, worker, emit
         self.jobs, self.runners = {}, {}
         self.semaphore = asyncio.Semaphore(1)
+        self.notifications = asyncio.Queue()
+        self.notified = set()
 
     def _save(self, job):
         path = self.ledger.directory / 'tasks.json'
@@ -97,6 +99,9 @@ class TaskCenter:
         temporary.write_text(json.dumps(list(self.jobs.values()), ensure_ascii=False, indent=2))
         temporary.replace(path)
         self.emit('background_task', **{k: v for k, v in job.items() if k != 'snapshot'})
+        if job['status'] in ('completed', 'failed') and job['task_id'] not in self.notified:
+            self.notified.add(job['task_id'])
+            self.notifications.put_nowait(self.status(job['task_id']))
 
     def submit(self, request):
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:

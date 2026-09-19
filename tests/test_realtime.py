@@ -36,6 +36,11 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             await center.runners[result['task_id']]
             self.assertEqual(center.status(result['task_id'])['result'], 'Verified result')
+            notice = center.notifications.get_nowait()
+            self.assertEqual(notice['result'], 'Verified result')
+            self.assertNotIn('snapshot', notice)
+            center._save(center.jobs[result['task_id']])
+            self.assertTrue(center.notifications.empty())
             from pathlib import Path
             persisted = json.loads((Path(directory) / 'tasks.json').read_text())
             self.assertEqual(len(persisted[0]['snapshot']), 75)
@@ -174,3 +179,34 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
         await self.agent.handle({'type':'input_audio_buffer.speech_started'})
         await self.agent.request_response()
         self.assertEqual(sum(e['type']=='response.create' for e in self.sent),1)
+
+    async def test_completion_wakes_idle_frontend_once_after_speech_and_playback(self):
+        self.tasks.notifications = asyncio.Queue()
+        self.agent.ready.set()
+        self.agent.user_speaking = True
+        self.audio.append_output('playing', b'\1\0' * 480)
+        self.tasks.notifications.put_nowait({'task_id': 'done', 'status': 'completed', 'result': '42'})
+        notifier = asyncio.create_task(self.agent.notify_tasks())
+        try:
+            await asyncio.sleep(.12)
+            self.assertEqual(self.sent, [])
+            self.agent.user_speaking = False
+            await asyncio.sleep(.12)
+            self.assertEqual(self.sent, [])
+            await self.audio.stop_speaking()
+            await asyncio.sleep(.12)
+            self.assertEqual([e['type'] for e in self.sent], ['conversation.item.create', 'response.create'])
+            self.assertIn('42', self.sent[0]['item']['content'][0]['text'])
+            await asyncio.sleep(.12)
+            self.assertEqual(len(self.sent), 2)
+        finally:
+            notifier.cancel()
+            await asyncio.gather(notifier, return_exceptions=True)
+
+    async def test_remain_silent_does_not_trigger_spoken_continuation(self):
+        await self.agent.handle({'type': 'response.created', 'response': {'id': 'silent'}})
+        await self.agent.handle({'type': 'response.function_call_arguments.done', 'response_id': 'silent',
+                                 'call_id': 'choice', 'name': 'remain_silent', 'arguments': '{}'})
+        await self.agent.handle({'type': 'response.done', 'response': {'id': 'silent', 'status': 'completed'}})
+        self.assertEqual([e['type'] for e in self.sent], ['conversation.item.create'])
+        self.assertIn('background_notification_deferred', self.events)

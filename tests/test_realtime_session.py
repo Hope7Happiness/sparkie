@@ -35,6 +35,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self, *args, **kwargs):
                 self.ready = asyncio.Event(); self.model = 'test'; self.last_speech_end = None
             async def run(self): self.ready.set(); await asyncio.Event().wait()
+            async def notify_tasks(self): await asyncio.Event().wait()
             async def append(self, frame): Agent.received.append(frame)
         class Ears:
             def __init__(self, *args, **kwargs):

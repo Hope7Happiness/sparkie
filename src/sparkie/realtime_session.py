@@ -162,8 +162,9 @@ async def run(args):
         capturer = asyncio.create_task(capture())
         sender = asyncio.create_task(send_audio())
         control = asyncio.create_task(controls())
-        running.extend([capturer, sender, control])
-        done, _ = await asyncio.wait([rt, capturer, sender, stopper], return_when=asyncio.FIRST_COMPLETED)
+        notifier = asyncio.create_task(agent.notify_tasks())
+        running.extend([capturer, sender, control, notifier])
+        done, _ = await asyncio.wait([rt, capturer, sender, stopper, notifier], return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
         if stopper in done:
