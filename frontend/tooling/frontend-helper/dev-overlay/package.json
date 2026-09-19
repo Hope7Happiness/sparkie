@@ -1,0 +1,10 @@
+{
+  "name": "@frontend-helper/dev-overlay",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@rrweb/record": "^2.1.1"
+  }
+}

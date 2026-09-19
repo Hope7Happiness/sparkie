@@ -48,6 +48,8 @@ class LocalAudioMeeting:
         self._overflow_streak = 0
         self.output_underflows = 0
         self.input_peak = 0
+        self.current_peak = 0
+        self._last_level_at = 0.0
 
     def _callback(self, indata, outdata, frames, timing, status):
         now = time.monotonic()
@@ -92,7 +94,8 @@ class LocalAudioMeeting:
         pcm = bytes(indata)
         # Peak is diagnostic only; a quiet mic is not proof of denied permission.
         samples = memoryview(pcm).cast("h")
-        self.input_peak = max(self.input_peak, max((abs(samples[i]) for i in range(0, len(samples), 16)), default=0))
+        self.current_peak = max((abs(samples[i]) for i in range(0, len(samples), 16)), default=0)
+        self.input_peak = max(self.input_peak, self.current_peak)
         self.captured_samples += frames
         if self.echo_mode == "speaker" and (self._playback is not None or adc < self._gate_until):
             pcm = b"\0" * len(pcm)
@@ -141,6 +144,12 @@ class LocalAudioMeeting:
                     if not self._stream.active:
                         raise ProviderError("Audio device stopped; reconnect the device and restart")
                     continue
+                now = time.monotonic()
+                if self.on_event and now - self._last_level_at >= .1:
+                    self._last_level_at = now
+                    self.on_event("audio_level", peak=round(self.current_peak / 32768, 4),
+                                  gated=self.echo_mode == "speaker" and now < self._gate_until,
+                                  timing_reliable=self.timing_reliable)
                 yield frame
         finally:
             self.request_stop()

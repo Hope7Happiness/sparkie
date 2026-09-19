@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#f5f3ee"><title>Sparkie · Voice Lab</title></head>
+<body>
+  <div class="app">
+    <header><a class="brand" href="/" aria-label="Sparkie 首页"><span class="brand-icon">✳</span> sparkie<span class="brand-tag">VOICE LAB</span></a><span class="connection" id="connection">连接本地服务…</span></header>
+    <main>
+      <div class="intro"><div><div class="eyebrow">让声音先跑起来 / 01</div><h1>叫一声，<span>看看多快。</span></h1><p>说出 “Sparkie”，听到 “I'm here.”。把每一次等待变成看得见的数字。</p></div><span class="local-tag">● 本机麦克风测试</span></div>
+      <div class="workspace">
+        <section class="panel session-panel" aria-labelledby="session-title">
+          <div class="panel-top"><h2 id="session-title">语音测试</h2><span class="status" id="status">准备就绪</span></div>
+          <div class="voice-stage" id="stage"><div class="orb"><svg width="34" height="42" viewBox="0 0 34 42" fill="none" aria-hidden="true"><rect x="11" y="2" width="12" height="24" rx="6" stroke="currentColor" stroke-width="2.5"/><path d="M4 19v2a13 13 0 0026 0v-2M17 34v6m-6 0h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></div><h3 id="prompt">准备好就开口</h3><p id="hint">点击开始，等待连接后说 “Sparkie”</p><div class="wave" id="wave" aria-label="实时麦克风电平"></div><span class="mic-note" id="mic-note">麦克风尚未开启</span></div>
+          <div class="settings"><label>输入设备<select id="input"><option value="">系统默认麦克风</option></select></label><label>输出设备<select id="output"><option value="">系统默认扬声器</option></select></label><div class="settings-row"><label>识别语言<select id="language"><option value="en">English</option><option value="zh-CN">中文</option></select></label><label>播放方式<select id="echo"><option value="speaker">扬声器</option><option value="headphones">耳机</option></select></label><label>测试时长<select id="seconds"><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></label></div></div>
+          <button class="primary" id="start" disabled><span>●</span> 开始测试</button><button class="stop" id="stop" hidden>■ 停止测试</button>
+          <p class="privacy">使用这台电脑的音频设备。音频发送至 Deepgram，不保存原始录音。扬声器回复期间暂停识别。</p>
+          <p class="error" id="error" role="alert" hidden></p>
+        </section>
+        <div class="results">
+          <section class="panel latency-panel" aria-labelledby="latency-title"><div class="panel-top"><h2 id="latency-title">最近一次响应</h2><span class="small-label">设备时间估算</span></div><div class="latency-main"><span id="total">—</span><span class="unit">ms</span></div><p class="metric-caption" id="metric-caption">说完最后一个词 → 开始播放回复</p><div class="latency-breakdown"><div><span class="dot coral"></span><span>说完 → 识别唤醒</span><strong id="recognition">—</strong></div><div><span class="dot green"></span><span>识别唤醒 → 播放</span><strong id="playback">—</strong></div></div><div class="breakdown-track"><span id="recognition-bar"></span><span id="playback-bar"></span></div><p class="fine">包含断句等待与服务响应；不包含页面刷新耗时。不是独立声学测量，丢帧时不计入统计。</p></section>
+          <section class="panel transcript-panel" aria-labelledby="transcript-title"><div class="panel-top"><h2 id="transcript-title">现场转录</h2><span class="small-label" id="elapsed">00:00</span></div><div class="transcripts" id="transcripts" role="log" aria-live="polite"><div class="empty"><span>“ ”</span><p>你的声音会出现在这里</p><small>试试 “Sparkie, are you there?”，然后停顿。</small></div></div></section>
+        </div>
+      </div>
+      <section class="panel history-panel" aria-labelledby="history-title"><div class="panel-top"><div class="history-heading"><h2 id="history-title">本轮测试记录</h2><span class="count" id="count">0 次唤醒</span></div><button id="download" class="text-button" disabled>导出记录 ↗</button></div><div class="stats"><span>有效样本 <strong id="samples">0</strong></span><span>平均 <strong id="average">—</strong></span><span>最快 <strong id="fastest">—</strong></span><span>最慢 <strong id="slowest">—</strong></span></div><div class="table-scroll"><table><thead><tr><th>次数</th><th>唤醒语句</th><th>识别等待</th><th>播放等待</th><th>总延迟</th></tr></thead><tbody id="trials"><tr><td colspan="5" class="table-empty">开始测试后，每一次唤醒都会记录在这里。</td></tr></tbody></table></div></section>
+      <details class="event-details"><summary>查看事件与会话编号</summary><pre id="events">尚无会话</pre></details>
+      <footer><span>SPARKIE / LOCAL AUDIO PRIMITIVE</span><span>先说一句，再快一点。</span></footer>
+    </main>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body></html>

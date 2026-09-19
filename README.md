@@ -25,3 +25,5 @@ uv run --frozen python -m unittest discover -s tests -v
 协作方式：先由 [@Hope7Happiness](https://github.com/Hope7Happiness) 与 Codex 搭建 primitive，再由 [@YIFANK](https://github.com/YIFANK) 和 [@bowenyu066](https://github.com/bowenyu066) 测试；后续三人轮换一人编码、两人测试反馈，不设固定模块负责人。
 
 最高优先级：先证明 Sparkie 可以加入真实会议，在被叫到时迅速播放“我在”。
+
+本机网页测试台：`bash scripts/web.sh`，打开 http://127.0.0.1:5178；选择设备后开始说话，查看转录和每次响应延迟。详见 [primitive](docs/primitive.md#网页语音测试台)。
