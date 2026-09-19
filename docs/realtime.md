@@ -13,7 +13,7 @@ bash scripts/web.sh
 SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 ```
 
-点击开始才打开麦克风。默认中文、扬声器模式、五分钟。设置可选输入输出设备、扬声器和时长。实际使用耳机时可在设置中切换耳机模式，支持语音打断；默认扬声器模式使用「打断」按钮，在回复期间暂停输入，以防自身回声触发，日志记录转写缺口。macOS 首次运行需要给启动服务的终端/应用麦克风权限。
+点击开始才打开麦克风。默认英语转写、扬声器模式、五分钟。说中文时在设置中选择中文；界面语言不决定转写语言。设置可选输入输出设备、扬声器和时长。实际使用耳机时可在设置中切换耳机模式，支持语音打断；默认扬声器模式使用「打断」按钮，在回复期间暂停输入，以防自身回声触发，日志记录转写缺口。macOS 首次运行需要给启动服务的终端/应用麦克风权限。
 
 ## 验收范围
 
@@ -38,3 +38,9 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 ## 本地扬声器自我打断修正
 
 验收日志记录默认 headphones 模式下播放 421 ms / 330 ms 后被 speech_started 取消，echo_gated_seconds 为 0。此传输是 PortAudio，不具备 Personal Agent 中 AVAudioEngine.setVoiceProcessingEnabled 的原生回声消除。现将网页与 Realtime CLI 默认模式改成 speaker，启用已有输入静音及播放尾音保护，与 Personal Agent 未启用 Voice Processing 时的备用方案一致。无需改动 VAD 或关闭耳机模式的语音打断。音频回调回归验证了播放、流式包间停顿和尾音阶段的回音不能进入两条上游音频流，结束保护后真实输入恢复。真实设备验收需重新开始一轮会话。
+
+## 转写语言回归
+
+旧网页默认 en，新网页一度默认 zh-CN，英文验收出现单词粘连和错字。已恢复默认 en，设置标签明确为「转写语言」；中文仍可手动选择。Realtime 会话恢复读取 DEEPGRAM_MODEL，并在 transcription_config 事件中记录实际模型、语言和采样率，便于复现。Deepgram Nova-3 当前 multi 文档支持范围不包含中文，因此未将 multi 冒充中英自动切换。
+
+真实接口对照（同一段合成英文 PCM16 32 kHz，仅切换 language）：zh-CN 得到 `SparkieHowreyoudoingtoday` 并遗漏后文；en 得到 `Sparkie, how are you doing today? Thank you. You. Please compare the two options.`，仍有一个重复词。本实验支持语言不匹配是此次明显退化的原因，不等于已验证真人音频完全准确。

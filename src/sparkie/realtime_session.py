@@ -49,6 +49,7 @@ async def run(args):
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1')
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
+                        model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
                         language=args.language, on_ready=dg_ready.set)
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
@@ -125,6 +126,8 @@ async def run(args):
     reason = 'completed'
     try:
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model)
+        emit('transcription_config', provider='deepgram', model=ears.model,
+             language=ears.language, sample_rate=ears.rate)
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())
         running.extend([rt, dg])
@@ -194,7 +197,7 @@ async def run(args):
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--language', choices=['en', 'zh-CN'], default='zh-CN')
+    parser.add_argument('--language', choices=['en', 'zh-CN'], default='en')
     parser.add_argument('--seconds', type=int, default=120)
     parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')
     parser.add_argument('--input-device')

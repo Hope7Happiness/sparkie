@@ -37,7 +37,8 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
             async def run(self): self.ready.set(); await asyncio.Event().wait()
             async def append(self, frame): Agent.received.append(frame)
         class Ears:
-            def __init__(self, *args, **kwargs): pass
+            def __init__(self, *args, **kwargs):
+                self.model = kwargs['model']; self.language = kwargs['language']; self.rate = kwargs['rate']
             async def transcribe(self, frames):
                 raise RuntimeError('test network failure')
                 yield
