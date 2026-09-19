@@ -105,7 +105,7 @@ Devin 每次语音会话启动一个 `devin acp --model ...` 进程，经 initia
 `output/realtime/<session>/transcript.jsonl` 保存全部记录，`tasks.json` 保存任务、执行时的输入快照和结果，`events.jsonl` 保存诊断事件，`run.json` 保存会话报告；不保存原始音频。Codex JSON 事件只提取执行步骤与用量元数据作为 progress，不把原始命令输出或 stderr 转发到前端。
 转写持久化成功后才发送 UI 事件。助手的完整生成文本不代表全部已播放，以 `realtime_interrupted` 为准。
 网页默认使用浏览器 `getUserMedia(echoCancellation: {exact: true})`，检查实际 track settings 并将处理后的 PCM 并行发送给两个 provider；不会在 AI 播放时门控人声。浏览器不支持时明确启动失败，不静默退化成无保护双工。旧 local CLI 的扬声器门控仍写入 coverage_gap / coverage_resumed。
-结果完成或失败后更新界面，同时向 Realtime 投递包含任务结果的系统通知并触发 response.create。每个任务只通知一次，忙碌期间排队，多个完成结果合并唤醒；等待用户轮次与全部本地音频播放结束。前台自行决定直接汇报或调用 remain_silent（不生成后续语音），结果保留在对话上下文。用户问进展仍可用 task_status；手动 report_task 仍只在空闲时执行。通知循环随会话关闭取消；断开后不跨会话自动重投。
+结果完成或失败后更新界面，同时向 Realtime 投递包含任务结果的系统通知并触发 response.create。任务通知使用下方持久化 announcement 状态，忙碌期间排队，多个完成结果合并唤醒；等待用户轮次与全部本地音频播放结束。前台自行决定直接汇报或调用 remain_silent（不生成后续语音），结果保留在对话上下文。用户问进展仍可用 task_status；手动 report_task 仍只在空闲时执行。通知循环随会话关闭取消；断开后不跨会话自动重投。
 页面只显示对话与任务，诊断事件仍可在日志中查看；`realtime_audio_started.latency_ms` 是最近口述结束到设备首音频的估算，不是后台任务最终答案延迟，也不是独立声学测量。
 
 ### Browser audio transport
@@ -139,3 +139,38 @@ AudioFrame has an optional gated field (default None). Zoom freezes the gate dec
 The aggregate 120-second playback queue remains bounded across multiple items, and each item retains the hard 120-second generation limit. Overlapping items whose combined pending audio exceeds that aggregate limit still fail explicitly and invoke cancellation; interruption reclaims all pending PCM and resamplers. Realtime Zoom limits routine zoom_playback_submitted telemetry to once every five seconds, retaining per-item first submission and all errors/completion acknowledgements.
 
 Idle speech_started does not create or extend a silence window. Cancellation adds the 350ms echo tail only when output is active, pending or in flight; an existing genuine playback tail retains its original deadline when idle. Replacement playback waits for native cancellation acknowledgement, including cancellation triggered by stopping an in-flight Python play task.
+
+### Semantic interruption and trusted human controls
+
+Interruption cancels the active response and any response.create already in flight, stops **all** transport outputs through the existing cancel-v1 barrier, discards pending PCM/resampler state, and truncates every incomplete assistant audio item at the transport's conservative progress estimate. Late chunks for cancelled responses, including previously unseen items, cannot restart playback. Cancelled items are truncated once. Generated transcript fragments are retained as explicitly unconfirmed draft context, separate from heard conversation; verified task results remain the source of truth. No native protocol changes are required.
+
+The application now owns response creation: server VAD still detects speech and cancels generation, but create_response=false. Speech-start cancels playback; speech-stop alone does not regenerate. The subsequent input_audio_buffer.committed event makes the user audio turn available. Fresh response creation waits for any cancelled response to finish, injects pending semantics, and generates new audio. The same ordering applies to an externally committed text turn. A terminal interrupt with no subsequent turn deliberately stays silent; it never resumes old PCM.
+
+TaskCenter persists an announcement object in tasks.json, independent of job execution status:
+
+- pending: completion/failure awaiting a response opportunity, ordered by completion.
+- offered: result supplied to Realtime for an attempt; generation, queueing, rendering and SDK submission do **not** confirm delivery.
+- confirmed: a trusted explicit human acknowledgement of that task and attempt. Confirmed results are excluded from automatic recovery and the model receives a do-not-repeat update. A user can still explicitly request a result again.
+
+Interrupting an in-flight announcement or one with unfinished playback returns its unconfirmed tasks to pending in original order. Repeated interruptions deduplicate obligations. Tool continuations retain their associated announcements. Results offered in an uninterrupted, fully submitted reply remain offered/unconfirmed: ordinary later speech does not automatically repeat them. remain_silent likewise leaves results available without an automatic notification loop. Pending results are explicitly supplied for reconsideration after the new user turn; fresh wording and whether to defer depend on that turn. This is delivery uncertainty, not a claim of audibility. Tasks and announcement states persist for inspection; automatic cross-session recovery remains unsupported.
+
+background_notification_offered replaces the misleading background_notification_delivered event and includes announcements [{task_id, attempt}] plus delivery_confirmed=false. background_notification_confirmed is emitted only on explicit human confirmation. Attempt IDs reject stale confirmations after retry. Cancellation, native errors and truncation diagnostics remain intact.
+
+Trusted stdin JSON controls (also callable as RealtimeAgent.control from a local integration):
+
+~~~json
+{"action":"interrupt"}
+{"action":"human_turn","source":"human","turn_id":"human-42","phase":"start"}
+{"action":"human_turn","source":"human","turn_id":"human-42","phase":"commit","text":"Stop; just give me the conclusion."}
+{"action":"confirm_delivery","source":"human","task_id":"<task-id>","attempt":1}
+~~~
+
+human_turn start stops playback immediately, before provider cancellation/truncation messages. A matching commit supplies authoritative final human text (nonempty, at most 8000 characters), records it in the transcript ledger and requests fresh generation. IDs are unique per session, 1–128 characters; duplicate starts/commits are idempotent. Only one external turn may be open; another start or unmatched commit is rejected. source=bot or missing source is rejected. These labels are a trusted caller contract, **not speaker identification or authentication**. The teammate's separator must exclude Sparkie's output before calling this boundary; this module performs no separation, diarization, VAD or STT on separate streams.
+
+The first human_turn start selects external-text input for the remainder of that session. Mixed microphone frames sent to Realtime become equal-length silence, and mixed VAD commits are removed/ignored, including delayed events, so a turn cannot appear through two input paths. All subsequent conversational turns must use start/commit controls; restart the session to return to mixed audio input. Deepgram's existing capture/transcription path and capture-time Zoom echo gate are unchanged; externally committed text is separately recorded as source=human. The legacy interrupt control alone does not select external-text mode and can still be followed by a normal microphone turn once the echo tail expires.
+
+Zoom speaker mode still cannot acoustically hear an interruption through its gated mixed input. The external signal can stop playback immediately when received; already submitted SDK/network/device audio cannot be recalled, and cancel-v1 acknowledgement does not establish the remote stop instant. Real meeting testing must verify acoustic stop latency, response sequencing and natural semantic recovery. No remote audibility or full-duplex capability is claimed by offline tests.
+
+Interruption review refinements: public response requests acquire the same turn lock as controls, provider events and notifications; internal transitions use a separate lock-held helper (no recursive lock acquisition). Announcement deferral matches both task_id and attempt, including explicit report_task retries and send failures. Completion during a semantics send remains independently pending. Duplicate response-created/done and microphone-start/commit events cannot consume newer state. An overlap error restores pending obligations and waits for the existing response before retrying. An unsolicited cancellation clears queued playback even if its speech-start event has not arrived yet.
+
+Cancelled audio cleanup records the provider content_index and also tracks audio-transcript parts with no PCM delta. Late final transcripts update draft context; identical final/delta replays do not enqueue already supplied text again. Only audio content is truncated; committed mixed-input items are deleted once; cancelled function calls receive one explicit non-executed output without running tools. Local playback progress freezes at cancellation while queued PCM is reclaimed. Simple injected task stubs remain usable: notification obligations are retained in memory when persistence methods are absent, and unsupported delivery confirmations are rejected rather than crashing. These protocol paths are tested offline; provider acceptance and remote playout timing still require live validation.
