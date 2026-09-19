@@ -12,4 +12,4 @@ build/
 dist/
 *.egg-info/
 node_modules/
-.frontend-helper/traces/
+**/.frontend-helper/traces/
