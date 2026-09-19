@@ -1,10 +1,14 @@
 import asyncio
+import json
+import os
+import stat
 import struct
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
-from sparkie.zoom_audio import ZoomAudioMeeting
+from sparkie.zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
 
 
 def packet(kind, data=b''):
@@ -208,3 +212,68 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         finally:
             consumer.cancel()
             await asyncio.gather(consumer, return_exceptions=True)
+
+
+class FakeProcess:
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+        self.terminated = False
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = -15
+
+    async def wait(self):
+        return self.returncode
+
+
+class ZoomMacVoiceTests(unittest.IsolatedAsyncioTestCase):
+    ENV = {'ZOOM_CLIENT_ID': 'client-test', 'ZOOM_CLIENT_SECRET': 'secret-value',
+           'ZOOM_MEETING_ID': '123 4567-8901', 'ZOOM_MEETING_PASSWORD': '001234',
+           'OPENAI_API_KEY': 'other-secret'}
+
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.binary = Path(self.temp.name) / 'SparkieZoom'
+        self.binary.touch()
+        self.meeting = ZoomMacAudioMeeting(Path(self.temp.name) / 'run', self.binary, max_seconds=.1)
+
+    async def asyncTearDown(self):
+        await self.meeting.leave()
+        self.temp.cleanup()
+
+    async def test_launch_writes_voice_config_and_excludes_provider_secrets(self):
+        with patch.dict(os.environ, self.ENV, clear=True), \
+             patch('asyncio.create_subprocess_exec', new=AsyncMock(return_value=FakeProcess())) as spawn:
+            await self.meeting.launch()
+        config_path = self.meeting.runtime / 'config.json'
+        config = json.loads(config_path.read_text())
+        self.assertIs(config['voice'], True)
+        self.assertEqual(config['bridge_token'], self.meeting._token)
+        self.assertEqual(config['bridge_port'], self.meeting.port)
+        self.assertEqual(config['meeting_number'], '12345678901')
+        self.assertNotIn('secret-value', config_path.read_text())
+        self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
+        env = spawn.call_args.kwargs['env']
+        self.assertNotIn('ZOOM_CLIENT_SECRET', env)
+        self.assertNotIn('OPENAI_API_KEY', env)
+        self.assertTrue(env['SPARKIE_ZOOM_CONFIG'].endswith('config.json'))
+
+    async def test_missing_binary_explains_build_step(self):
+        meeting = ZoomMacAudioMeeting(Path(self.temp.name) / 'x', Path(self.temp.name) / 'missing')
+        with self.assertRaisesRegex(ValueError, 'build --platform macos'):
+            await meeting.launch()
+
+    async def test_exited_receiver_fails_connect_fast(self):
+        self.meeting.process = FakeProcess(returncode=1)
+        self.assertIsInstance(self.meeting.launch_failure(), RuntimeError)
+
+    async def test_leave_terminates_process_and_removes_config(self):
+        process = FakeProcess()
+        self.meeting.process = process
+        self.meeting.runtime.mkdir(parents=True)
+        (self.meeting.runtime / 'config.json').write_text('secret')
+        await self.meeting.leave()
+        self.assertTrue(process.terminated)
+        self.assertFalse((self.meeting.runtime / 'config.json').exists())
+        await self.meeting.leave()

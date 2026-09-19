@@ -108,6 +108,12 @@ def check(root):
         raise ValueError("SDK initialization timed out. Check macOS Keychain prompts; rebuilding an ad-hoc signed app may require approval again. See docs/zoom-macos.md.") from None
 
 
+def child_env():
+    # Never forward project API credentials or the signing secret to the SDK process.
+    return {key: value for key, value in os.environ.items()
+            if key in {"HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING"}}
+
+
 def start(root):
     runtime, _, binary = paths(root)
     if running_pid(root):
@@ -119,9 +125,7 @@ def start(root):
     private_write(config, json.dumps(meeting_config()))
     logfile = runtime / "receiver.log"
     private_write(logfile, "")
-    # Do not forward project API credentials or the signing secret to the SDK process.
-    env = {key: value for key, value in os.environ.items()
-           if key in {"HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING"}}
+    env = child_env()
     env["SPARKIE_ZOOM_CONFIG"] = str(config)
     with logfile.open("a") as log:
         process = subprocess.Popen([str(binary)], env=env, stdin=subprocess.DEVNULL,

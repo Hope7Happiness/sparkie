@@ -1,6 +1,6 @@
 # Zoom 会议内语音问答
 
-现已接通真实闭环：Zoom 会议音频 → Deepgram STT → Sparkie 唤醒 → Codex Terra Medium → Deepgram TTS → Zoom 虚拟麦克风 → 其他参会者。沿用已验证的 Linux ARM64 Meeting SDK **7.0.5.3529**；macOS 原生接收探针仍保持原有用途。
+现已接通真实闭环：Zoom 会议音频 → Deepgram STT → Sparkie 唤醒 → Codex Terra Medium → Deepgram TTS → Zoom 虚拟麦克风 → 其他参会者。沿用已验证的 Linux ARM64 Meeting SDK **7.0.5.3529**。macOS 原生路径（`ZOOM_PLATFORM=macos`）已实现同一闭环、无需 Docker，但尚未完成真实会议验收；以下步骤与记录仍对应 Linux 路径。
 
 ## 启动
 
