@@ -2,6 +2,8 @@
 
 这份流程复现 2026-09-19 已通过的实测：**Sparkie 以独立参会者进入 Zoom，取得主持人许可后收到真实会议音频。** 不需要 Deepgram、OpenAI 或 TTS 配置。它是独立接入探针，尚未接入 Python `AudioMeeting`、转文字、内容理解或语音回复。
 
+macOS 原生 SDK 用户可使用 [macOS 接收探针](zoom-macos.md)。本文继续描述已验证的 **Linux Docker** 路径；`ZOOM_PLATFORM` 默认 `linux`，切换过平台时可在 start/logs/stop 命令后加 `--platform linux`。
+
 ## 1. 准备环境与账号
 
 已验证环境：Apple Silicon Mac、可运行 ARM64 Linux 容器的 Docker、Python 3.11+、uv、Git。先启动 Docker，再在仓库根目录执行：
@@ -11,7 +13,7 @@ uv sync --frozen
 docker info
 ```
 
-此流程固定使用 **Zoom Meeting SDK Linux ARM64 7.0.5.3529**。不要选 macOS SDK 或 Linux x86_64 包；Intel / Windows 环境尚未按这份流程验证。
+此流程固定使用 **Zoom Meeting SDK Linux ARM64 7.0.5.3529**。此 Docker 流程不要选 macOS SDK 或 Linux x86_64 包；Intel / Windows 环境尚未按这份流程验证。
 
 1. 登录 [Zoom App Marketplace](https://marketplace.zoom.us/)，创建或打开 **General App**。
 2. 在应用的 **Features → Embed → Meeting SDK** 开启 Meeting SDK，保存应用的 **Client ID / Client Secret**。不要用 Server-to-Server OAuth 应用凭据代替。

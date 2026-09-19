@@ -14,6 +14,8 @@
 
 ## Zoom 是关键路径
 
+以下编号步骤描述 Linux Docker 路径。macOS SDK 用户按 [macOS 原生探针](zoom-macos.md) 配置 `ZOOM_PLATFORM=macos` 与 `ZOOM_MACOS_SDK_PATH`，无需 Docker；`doctor` 会按所选平台检查依赖。两者共享 Zoom 凭证。
+
 1. 登录 [Zoom App Marketplace](https://marketplace.zoom.us/)。账号需为 owner/admin，或有 Zoom for developers 角色及 SDK View/Edit 权限。
 2. 创建 **General App**，在 **Features → Embed → Meeting SDK** 开启功能，保存应用的 Client ID 和 Client Secret。不要拿 Server-to-Server OAuth 凭据替代 Meeting SDK 凭据。
 3. 在 Meeting SDK 下载页选择 Linux 并下载；解压目录应包含 `h/`、`libmeetingsdk.so` 等文件。`ZOOM_SDK_PATH` 填解压后的绝对路径。商业 SDK 文件不提交仓库。[创建应用与凭据](https://developers.zoom.us/docs/meeting-sdk/get-credentials/)、[Linux 下载说明](https://developers.zoom.us/docs/meeting-sdk/linux/get-started/download/)
