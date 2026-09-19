@@ -4,7 +4,7 @@
 
 技术栈：**Deepgram = ears + mouth · Codex CLI / OpenAI API = brain · Zoom = body**。
 
-提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**Zoom 独立探针已完成真实入会与非静音音频接收；共享 Python adapter 尚未接入。**
+提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**Zoom 共享音频 adapter 已接入，真实会议内问答及另一端收到完整语音已通过一次实测。**
 
 本地语音闭环已提供：`bash scripts/local.sh --language en --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
 
@@ -31,3 +31,7 @@ uv run --frozen python -m unittest discover -s tests -v
 本机网页测试台：`bash scripts/web.sh`，打开 http://127.0.0.1:5178；默认真实问答（Terra Medium）；叫出 Sparkie 后紧接问题，可查看转录、答案和分别计时的确认/回答延迟。详见 [primitive](docs/primitive.md#网页语音测试台)。
 
 Zoom 接收探针支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker 配置；设为 `macos` 可使用官方 macOS SDK，无需 Docker。两者共用 `.env` 的 Zoom 凭证，新 macOS 探针已验证编译，首次 SDK 初始化通过；重建后的钥匙串授权与真实会议音频仍待验收。
+
+## Zoom 会议内问答
+
+真实 Zoom 音频 → Deepgram → Terra Medium → Zoom 语音回复已接通。构建后运行 `bash scripts/zoom.sh --language en --seconds 600`，详见 [Zoom 语音启动和实测记录](docs/zoom-voice.md)。本地网页仍使用本地麦克风模式。

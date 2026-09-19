@@ -148,10 +148,14 @@ class Primitive:
         return self.report()
 
     def report(self):
-        limitations = ["Real Zoom native adapter and full meeting acceptance are pending SDK setup."]
+        limitations = []
         if self.mode == "local-audio":
             limitations.extend(["Speaker mode replaces input with silence during playback and echo tail; voice interruption is unavailable in that window.",
                                 "DAC latency is an audio-device timestamp estimate, not an independently measured acoustic latency."])
+        elif self.mode == "zoom-audio":
+            limitations = ["Input is gated during playback plus 350 ms; voice interruption is unavailable in that window.",
+                           "Playback completion means frames accepted by Zoom SDK; remote audible latency is not measured.",
+                           "Same-account Linux ARM64 test path; long meetings and reconnection are not yet validated."]
         else:
             limitations.extend(["Meeting and transcripts are simulated; TTS is live only in hybrid-tts mode.",
                                 "Timing is process orchestration timing, not real wake-to-audible latency."])

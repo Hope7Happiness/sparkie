@@ -1,6 +1,6 @@
 # Primitive：模拟流程与真实服务可以分别验证
 
-当前技术栈：**Zoom + Deepgram STT/TTS + Codex CLI / OpenAI API**。已验证真实 Deepgram TTS→流式 STT、Codex 上下文回答；Zoom 原生 adapter 尚未实现，真实入会与会议内音频仍未验收。
+当前技术栈：**Zoom + Deepgram STT/TTS + Codex CLI / OpenAI API**。已验证真实 Deepgram TTS→流式 STT、Codex 上下文回答；Zoom Linux adapter 已接通会议内问答，并验证另一端收到完整语音；运行方式见 [Zoom 语音](zoom-voice.md)。
 
 ## 网页语音测试台
 
@@ -118,7 +118,7 @@ Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终
 | 模块 | 文件 | 状态 |
 | --- | --- | --- |
 | 本地音频 | `local_audio.py`、`local_session.py` | 已实现麦克风/扬声器、回声静音窗口和日志；真人多次验收待进行 |
-| Zoom 音频边界 | `audio.py` 的 `AudioMeeting` | 待实现原生 SDK 接入：join/audio/play_audio/stop_speaking/leave |
+| Zoom 音频边界 | `zoom_audio.py`、`zoom_session.py`、`native/zoom-linux` | 已实现 SDK 入会、PCM 收发与会议内问答；通过 `AudioMeeting` 复用现有引擎 |
 | 模拟会议、STT、TTS | `simulation.py` | 可运行，脚本 transcript 与静音占位 |
 | Deepgram STT | `providers.py` 的 `DeepgramEars` | 真实 WebSocket 检查通过 |
 | Deepgram TTS | `providers.py` 的 `DeepgramMouth` | 真实 Aura REST PCM 检查通过 |
@@ -130,8 +130,8 @@ Codex CLI 已实测成功，运行于临时只读目录，使用 stdin 与最终
 
 Deepgram 当前官方 TTS 列表没有中文，因此固定回复为 **I'm here.**，英语模型不会静默接受中文文本。ElevenLabs adapter 暂保留为可选实现，默认配置和流程均不使用。
 
-唤醒是保守称呼与问句/命令规则，接受 `Sparkie` 和 `Sparky`，支持前置 Hi/Hey/Hello、标点变化和连续叫名。对已复现的问候误转录 `Hi. It's Sparkie.` 做了仅限完整问候句的兼容；不会任意匹配句中提到产品名字。部分句式可能漏检。回复中再次唤醒会记录 `response_busy` 并忽略；取消词会停止当前回复。模拟可标注 bot 来源；本地扬声器模式有静音窗口，Zoom 混合音轨回声过滤仍待实现。
+唤醒是保守称呼与问句/命令规则，接受 `Sparkie` 和 `Sparky`，支持前置 Hi/Hey/Hello、标点变化和连续叫名。对已复现的问候误转录 `Hi. It's Sparkie.` 做了仅限完整问候句的兼容；不会任意匹配句中提到产品名字。部分句式可能漏检。回复中再次唤醒会记录 `response_busy` 并忽略；取消词会停止当前回复。模拟可标注 bot 来源；本地扬声器模式有静音窗口，Zoom 也在回复和尾音期间替换输入为静音；全双工回声消除仍未实现。
 
-尚无 Zoom native adapter、稳定重连、滚动摘要、后台任务队列、搜索和会后纪要。云端单服务通过不等于整场会议可用。人工配置见 [清单](manual-setup.md)。
+尚无稳定重连、滚动摘要、后台任务队列、搜索和会后纪要。云端单服务通过不等于整场会议可用。人工配置见 [清单](manual-setup.md)。
 
 2026-09-19 唤醒与音频停滞回归：已复现旧规则漏掉 `hi Sparky`、`Hi. It's Sparkie.` 和连续叫名，扩展规则后回放测试通过，仍拒绝普通产品提及。真实合成问候经扬声器/麦克风触发确认，随后采集 100.48 秒无输入溢出或输出欠载，正常停止；这不代表嘈杂环境下的 ASR 永不漏词。对无匹配的转录，页面明确标注“已记入上下文，未触发唤醒”。音频超时、强制终止与短暂中断后恢复均有回归覆盖；失败状态页面经过浏览器检查。

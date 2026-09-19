@@ -175,6 +175,11 @@ def main():
     local.add_argument("--response-mode", choices=["wake", "qa"], default="wake",
                        help="qa enables real contextual answers using the configured reasoning backend")
     local.add_argument("--output", type=Path, default=Path("output/local"))
+    zoom = sub.add_parser("zoom", help="Join real Zoom and answer through the meeting SDK virtual microphone")
+    zoom.add_argument("--language", default="en")
+    zoom.add_argument("--seconds", type=int, default=600)
+    zoom.add_argument("--response-mode", choices=["wake", "qa"], default="qa")
+    zoom.add_argument("--output", type=Path, default=Path("output/zoom"))
     args = parser.parse_args()
     if args.command == "doctor":
         raise SystemExit(doctor())
@@ -184,8 +189,9 @@ def main():
     if args.command == "simulate" and args.interval < 0:
         parser.error("--interval must be non-negative")
     from .local_session import local_session
-    command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check, "local": local_session}[args.command]
-    if args.command == "local" and not 1 <= args.seconds <= 3600:
+    from .zoom_session import zoom_session
+    command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check, "local": local_session, "zoom": zoom_session}[args.command]
+    if args.command in {"local", "zoom"} and not 1 <= args.seconds <= 3600:
         parser.error("--seconds must be between 1 and 3600")
     try:
         raise SystemExit(asyncio.run(command(args)))

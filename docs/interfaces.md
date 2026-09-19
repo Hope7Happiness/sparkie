@@ -43,3 +43,11 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 ## Zoom 独立接收探针
 
 `scripts/zoom-sanity.py` 通过 `--platform linux|macos` 或 `ZOOM_PLATFORM` 选择运行时，默认保留 Linux Docker。两平台共用 `sparkie.zoom_config` 生成凭证；macOS 原生接收器在 `native/zoom-macos/main.m`。它们只输出音频诊断指标，还没有实现或接入上文的 Python `AudioMeeting`；不能用探针入会成功宣称完整语音闭环完成。
+
+## Zoom 音频桥
+
+`ZoomAudioMeeting` 实现相同 `AudioMeeting` 协议，使用 Linux SDK 7.0.5。Docker 内的 C++ 桥通过只发布到 127.0.0.1 的随机 TCP 端口与宿主 Python 通信。先发送 64 字节随机会话令牌，再交换 `type:1 byte + length:4 bytes big-endian + payload`；每条音频为单声道 PCM16 32 kHz。
+
+SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。
+
+`zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。
