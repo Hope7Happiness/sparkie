@@ -1,6 +1,6 @@
 # Realtime 本地验收
 
-网页唯一入口 `/`：浏览器收音/播放 → Realtime 实时对话，同时 → Deepgram 人类转写；Codex 异步执行工具任务。Zoom 传输仍由独立改动接入。
+网页唯一入口 `/`：浏览器收音/播放 → Realtime 实时对话，同时 → Deepgram 人类转写；Codex 异步执行工具任务。Zoom 已通过同一会话入口接入，见下文；本轮仅完成离线验证。
 
 ## 运行
 
@@ -41,3 +41,35 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 - 单元测试覆盖输入持续采集、输出清空、旧 generation 丢弃、任务取消、转写持久化及回复续接。
 
 参考：[浏览器回声消除](https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackSettings/echoCancellation)、[Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)。
+
+
+## Zoom 中验收完整 agent
+
+本机完成原生构建后，直接运行：
+
+```bash
+uv sync --frozen
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
+```
+
+需要 `OPENAI_API_KEY`（Realtime）、`DEEPGRAM_API_KEY`（并行转写）、既有 Codex CLI 登录和 Zoom 配置。默认 Realtime 模型沿用 `OPENAI_REALTIME_MODEL`，后台沿用 `CODEX_MODEL`。不会用固定 “I'm here.” 代替语音 agent，也不会调用 Deepgram TTS。`--response-mode wake` 仅用于诊断。
+
+主持人接纳 Sparkie、允许录制权限，看到 `listening_ready` 后：
+
+1. 从另一台参会设备问一个普通问题，确认听到与问题相关的自然语音回答。
+2. 请它调研一个需要外部信息的问题，检查出现 `background_task`，状态由 queued/running 进入 completed 或 failed。
+3. 后台进行中继续提出普通问题，确认前台可以响应；等后台完成后，检查结果通知及语音汇报。以来源/实际产物核对结果，不只看“完成”文本。
+4. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
+
+本轮不启动真人会议。Zoom 仍沿用播放及后 350ms 的回声静音保护，期间的发言不会进入 agent，也不支持该窗口内语音打断。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
+
+
+### 终端输出背压修复
+
+本地会话 `20260919T171253-ac5d40a5` 在 107742ms 的 `BlockingIOError` 紧跟播放事件输出，随后 5100ms 播放等待超时。该时刻 SDK 日志已完成第 335 包发送，收音仍持续；Python 队列最大仅 3 帧。以写满的真实伪终端复现：同步 stdout 打印抛错，中断接收循环，已到达的播放完成确认未被处理；错误日志自身再次抛错还会跳过原来的清理。
+
+现在 stdout 通过 `EventOutput` 有界异步队列输出，支持部分写入、EAGAIN 等待和断管处理。CLI 终端长期堵塞时只省略终端副本，完整事件仍先写 events.jsonl；run.json 的 event_output 记录省略数量和输出错误。网页 stdout 承载音频协议，不能省略，溢出会明确失败。音频接收异常会先唤醒播放等待者并停止采集，再输出诊断，避免第二次超时掩盖原始错误。
+
+已做真实伪终端/管道的离线回归；仍需真人重跑原场景确认，不将离线复现等同于整场会议稳定性验收。本修复不改变模型、音频采样率或 Zoom SDK 配置，无需重建原生程序。
+
+Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。

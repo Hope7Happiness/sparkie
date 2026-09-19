@@ -52,6 +52,10 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 
 SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。
 
+取消协议更新：两平台 `H` payload 必须为 ASCII `cancel-v1`。`C` 现在携带 4-byte big-endian 单调递增取消 ID；原生 `K` 回传同一 ID，只有旧 generation 的 SDK send/sleep 已结束、待播包已清空后才确认。Python 序列化 C 与新的 P，最多等 5 秒（包括发送时间）；旧 ID 不解除等待。超时、断连或取消等待被中断会禁用该连接，不能继续提交替代音频。原生网络线程不等待 SDK，不在持有 sender mutex 时等待取消；播放线程在空闲边界发 K。旧空 H / 无确认 C 不做兼容降级，启动明确提示重建 macOS receiver 或 Linux image。诊断 reason 包含 bridge_rebuild_required、cancel_ack_timeout、cancel_aborted。
+
+macOS `E` 现在为版本 1 JSON：`reason` 只允许 `sdk_send_failed` / `playback_active` / `microphone_unavailable` / `invalid_input_format`，另带整数 `sdk_result`、`playback_id`、`frame_index`（从 1 开始的发送尝试；无尝试为 0）。`sdk_result=-1` 表示未调用 SDK，没有实际返回码。原生日志保留相同 `BRIDGE_ERROR`。Python 兼容上述四种旧固定文本，未知内容只记 `unknown_native_error`，额外字段和任意正文不会进入遥测。`ZoomBridgeError` 的白名单字段进入 `audio_failed`、`session_failed` 和 `run.json.failure`；错误仍终止本轮，不盲目重试 SDK 发送。
+
 `zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。
 
 ## Realtime 前台与后台分析（本地验收）
@@ -63,7 +67,7 @@ Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网
 `RealtimeAudioTransport`（`audio.py`）使用 PCM16LE、mono、24 kHz：`join` / `audio` / `append_output(item_id, pcm)` / `finish_output(item_id)` / `stop_speaking` / `leave`。
 `append_output` 必须立即入有界播放队列；`finish_output` 只标记生成完成，不表示音频已播放。
 `outputs` 保存每个 item 的字节数、取消标志和 `played_ms()`；打断会清空待播内容并向 Realtime 发送截断时间，防止未听到的内容留在模型上下文。
-本地实现使用 PortAudio DAC 时间估算实际播放进度。Zoom 当前 32 kHz 整段播放协议不满足该接口，需另行实现流式播放、24↔32 kHz 重采样及可靠的播放进度；不能直接声称兼容。
+本地实现使用 PortAudio DAC 时间估算实际播放进度。Zoom 由 `RealtimeZoomAudio` 适配：SoXR 有状态重采样 32↔24 kHz，输出累计到 100ms 就通过既有原生协议提交，最后一块在生成结束时 flush，不等待整句。`played_ms()` 只累计已完成 SDK 提交的包；打断时不计尚未确认的包，是保守进度，不是远端 DAC 或可听证明。
 
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
 worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。用户取消或结束会话会终止对应进程。
@@ -82,3 +86,25 @@ worker 异步排队执行，提交立即返回；无每会话任务数量上限�
 WebSocket `/audio?session=<id>` 仅接受当前本地 Origin、当前会话和一个连接，PCM 不进入状态轮询或磁盘日志。browser→Python：audio_settings、连续 sequence 的 audio_input、带 generation 的 audio_progress。Python→browser：audio_ready、audio_output、audio_clear。只有 provider ready 后才发输入；24 kHz PCM16 mono、20 ms 包；队列/管道溢出明确失败。清空播放递增 generation，旧音频/播放进度不能复活。AudioWorklet 每 20 ms 报告渲染进度供截断使用，不宣称是准确 DAC 时间。密钥仍仅保存在 Python。浏览器断开关闭会话并释放麦克风。
 
 Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页、文件、代码和外部工具请求应直接委派，而不是建议用户自己完成或声称没有工具。
+
+
+### Zoom Realtime 会话
+
+`bash scripts/zoom.sh` 默认 `--response-mode realtime`，复用同一 `RealtimeAgent`、`TaskCenter` 和 `CodexTaskWorker`。输入并行送 GPT Realtime 与 Deepgram；回复直接使用 Realtime 输出音频，不经过 Deepgram TTS。`wake` / `qa` 仅在显式指定时进入旧 primitive。也可直接用 `python -m sparkie.realtime_session --transport zoom`。
+
+`RealtimeZoomAudio.append_output` 只进行有状态重采样和有界入队（所有 item 合计最多 120 秒待播 PCM，7,680,000 bytes；另有最多一个 100ms 在途包）；独立异步播放任务按 100ms 包复用 Zoom 原生桥的 20ms 发送节奏。保留 item_id、取消状态与生成/SDK 提交进度；取消清除尚未发送的内容，迟到的相同 item 音频不会恢复播放；后台结果通知等待待播语音处理完毕。SDK 错误会结束输入并报告失败。
+
+Zoom 播放队列或单条回复时长达到上限时，`PlaybackLimitError` 由 Realtime adapter 捕获：记录 `realtime_playback_limited`，取消当前回复并按已确认的 SDK 播放进度截断上下文；清空待播音频，继续接收后续会话，不扩大队列。该回复可能只播放一部分。`session_failed` 和 `run.json.failure` 保存 `error_type`、`provider`、本地白名单 `reason`、可用的代码位置 `source` 和白名单 `provider_code`；未知原因标为 `unclassified`，不保存异常正文、provider message、响应 body 或凭据。
+
+输入仍受原生 Zoom 播放期间及尾音 350ms 的回声静音窗口限制，并向 transcript ledger 记录 `zoom_echo_gate` 覆盖缺口。这个传输没有浏览器 AEC，尚不支持在回复期间靠语音打断；stdin `{"action":"interrupt"}` 控制可以取消。会话退出会停止原生进程/容器和后台任务。所有 Zoom 播放指标均明确为 SDK 提交进度，不报告声学延迟。真实 Realtime + Codex 会议验收仍待完成。
+
+
+### Zoom Realtime duration and capture gating
+
+Zoom Realtime accepts 1–3600 seconds. Listening readiness records configured_duration_seconds and duration_deadline_elapsed_ms; the limit starts after joining. Normal expiry emits session_duration_elapsed and saves exit_reason=duration_elapsed with exit code 0. Signals remain stopped; failures remain failed. Duration expiry ends playback too; use --seconds 3600 for conversation runs.
+
+AudioFrame has an optional gated field (default None). Zoom freezes the gate decision when an A frame enters Python, before the bounded input queue, and replaces gated PCM with equal-length zeros. This is bridge-receive timing, not a remote capture timestamp: the native protocol has no capture clock. Native callback gating still covers SDK playback and its tail before native/network backlog. The Python gate additionally spans pending output, generation gaps, SDK stalls, and 350ms after playback/cancellation. A queued gated frame cannot become audible merely because consumption occurs later. Resampling maps gated intervals by sample counts; output chunks overlapping an interval are conservatively zeroed in full, and the same frames/coverage markers reach both providers. Chunk-level suppression can slightly extend the gap; sample count and cadence are preserved. No speaker-mode voice barge-in or full-duplex AEC is claimed.
+
+The aggregate 120-second playback queue remains bounded across multiple items, and each item retains the hard 120-second generation limit. Overlapping items whose combined pending audio exceeds that aggregate limit still fail explicitly and invoke cancellation; interruption reclaims all pending PCM and resamplers. Realtime Zoom limits routine zoom_playback_submitted telemetry to once every five seconds, retaining per-item first submission and all errors/completion acknowledgements.
+
+Idle speech_started does not create or extend a silence window. Cancellation adds the 350ms echo tail only when output is active, pending or in flight; an existing genuine playback tail retains its original deadline when idle. Replacement playback waits for native cancellation acknowledgement, including cancellation triggered by stopping an in-flight Python play task.
