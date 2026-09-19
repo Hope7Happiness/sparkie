@@ -221,6 +221,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.audio.buffered, 0)
         await agent.handle({'type': 'response.done', 'response': {'id': 'burst', 'status': 'cancelled'}})
         self.meeting.block = False
+        # Recovery waits for the next committed user turn before fresh generation.
+        await agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'new-human-turn'})
         await agent.handle({'type': 'response.created', 'response': {'id': 'next'}})
         await agent.handle({'type': 'response.output_audio.delta', 'response_id': 'next',
                             'item_id': 'next', 'delta': base64.b64encode(bytes(4800)).decode()})

@@ -73,3 +73,13 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 已做真实伪终端/管道的离线回归；仍需真人重跑原场景确认，不将离线复现等同于整场会议稳定性验收。本修复不改变模型、音频采样率或 Zoom SDK 配置，无需重建原生程序。
 
 Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。
+
+### Interrupting without losing task results
+
+The terminal still accepts one JSON command per line: {"action":"interrupt"} stops all queued output and waits for the next user turn. In Zoom speaker mode, the mixed microphone remains echo-gated while Sparkie speaks; interruption during that window requires this control or a trusted separated-human producer.
+
+A separated-human producer can send human_turn/start immediately and human_turn/commit with final text after the user finishes. This selects external-text input for the session; all later turns must use those controls. See [the control contract](interfaces.md#semantic-interruption-and-trusted-human-controls) for examples, delivery acknowledgements and integration boundaries. Speaker separation itself is not implemented here.
+
+Task results whose announcements are cut off remain pending for fresh generation after the user's turn. Generated or SDK-submitted speech is never marked heard automatically. Fully submitted, uninterrupted announcements remain unconfirmed without repeatedly waking the agent; explicit human confirmation prevents later automatic reannouncement.
+
+Focused offline validation: uv run --frozen python -m unittest discover -s tests -p test_semantic_interruption.py -v. These tests use a fake audio bridge and WebSocket and provide no live audibility evidence. Native cancellation protocol is unchanged; no SDK rebuild is required for this feature.

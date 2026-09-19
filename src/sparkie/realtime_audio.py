@@ -22,9 +22,12 @@ class AudioOutput:
     cancelled: threading.Event = field(default_factory=threading.Event)
     # Each block records its scheduled DAC time; underruns do not count as played speech.
     blocks: list = field(default_factory=list)
+    cancelled_at: float | None = None
 
     def played_ms(self, now=None):
         now = time.monotonic() if now is None else now
+        if self.cancelled_at is not None:
+            now = min(now, self.cancelled_at)
         return int(sum(max(0, min(length, (now - start) * 48000)) for start, length in self.blocks) / 48)
 
 
@@ -36,6 +39,7 @@ class RealtimeLocalAudio(LocalAudioMeeting):
         self.output = None
         self.outputs = {}
         self.waiting_outputs = deque()
+        self._playback_lock = threading.Lock()
 
     def append_output(self, item_id, pcm):
         if not pcm or len(pcm) % 2:
@@ -64,10 +68,24 @@ class RealtimeLocalAudio(LocalAudioMeeting):
 
     async def stop_speaking(self):
         await super().stop_speaking()
-        for stream in self.outputs.values():
-            stream.cancelled.set()
+        with self._playback_lock:
+            for stream in self.outputs.values():
+                if stream.cancelled_at is None:
+                    stream.cancelled_at = time.monotonic()
+                stream.cancelled.set()
+                stream.pending = b''
+                while True:
+                    try:
+                        stream.chunks.get_nowait()
+                    except queue.Empty:
+                        break
+            self.waiting_outputs.clear()
 
     def _callback(self, indata, outdata, frames, timing, status):
+        with self._playback_lock:
+            self._stream_callback(indata, outdata, frames, timing, status)
+
+    def _stream_callback(self, indata, outdata, frames, timing, status):
         stream = self.output
         if stream and (stream.cancelled.is_set() or (stream.finished and not stream.pending and stream.chunks.empty())):
             while self.waiting_outputs:

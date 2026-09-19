@@ -40,6 +40,8 @@ async def run(args):
         event = {'type': kind, 'elapsed_ms': round((time.monotonic() - started) * 1000), **fields}
         if kind in ('assistant_transcript', 'realtime_interrupted'):
             ledger.append({**event, 'source': 'bot', 'note': 'Generated reply text; interruption events mark unplayed content.'})
+        elif kind == 'human_turn_committed':
+            ledger.append({**event, 'event_id': 'control:' + fields['turn_id']})
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear'):
             log.write(line + '\n')
@@ -132,10 +134,12 @@ async def run(args):
             while line := await reader.readline():
                 try:
                     command = json.loads(line)
+                    if not isinstance(command, dict):
+                        raise ValueError('invalid control')
                     if browser_transport and command.get('action') in ('audio_input', 'audio_progress', 'audio_settings'):
                         audio.accept(command)
-                    elif command.get('action') == 'interrupt':
-                        await agent.interrupt()
+                    elif command.get('action') in ('interrupt', 'human_turn', 'confirm_delivery'):
+                        await agent.control(command)
                     elif command.get('action') == 'cancel_task':
                         center.cancel(command.get('task_id'))
                     elif command.get('action') == 'report_task':
