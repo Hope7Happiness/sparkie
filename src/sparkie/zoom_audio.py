@@ -12,6 +12,7 @@ import time
 from .audio import AudioFrame
 from .providers import failure_details
 from .zoom_errors import ZoomBridgeError
+from .zoom_join import NativeJoinProgress, ZoomJoinError
 from .zoom_config import meeting_config, private_write
 
 
@@ -117,17 +118,60 @@ class ZoomAudioMeeting:
                 await asyncio.sleep(.5)
 
     async def join(self):
-        await self.launch()
-        self.on_event('zoom_connecting', hint='Host must admit Sparkie and allow recording for audio access.',
-                      **self.connect_context())
-        async with asyncio.timeout(self.join_timeout):
-            await self.connect()
-            self.reader_task = asyncio.create_task(self.receive())
-            while not (self.audio_ready.is_set() and self.mic_ready.is_set()):
-                if self.failure:
-                    raise self.failure
-                await asyncio.sleep(.05)
+        joining = asyncio.create_task(self._join())
+        succeeded = False
+        try:
+            async with asyncio.timeout(self.join_timeout):
+                while not joining.done():
+                    self.check_join_progress()
+                    await asyncio.wait({joining}, timeout=.05)
+                joining.result()
+                self.check_join_progress()
+                succeeded = True
+        except TimeoutError:
+            try:
+                self.check_join_progress()
+            except Exception as exc:
+                self.failure = exc
+            else:
+                self.failure = self.join_timeout_error()
+            self.on_event('zoom_join_failed', **failure_details(self.failure))
+            raise self.failure from None
+        except Exception as exc:
+            self.failure = exc
+            self.on_event('zoom_join_failed', **failure_details(exc))
+            raise
+        finally:
+            joining.cancel()
+            await asyncio.gather(joining, return_exceptions=True)
+            if not succeeded:
+                # Session callers also call leave; cleanup is idempotent. Ensure a
+                # timed-out/aborted join never leaves its native participant behind.
+                try:
+                    await self.leave()
+                except Exception as exc:
+                    self.on_event('zoom_cleanup_failed', error_type=type(exc).__name__)
         self.on_event('zoom_audio_ready', sample_rate=32000, channels=1)
+
+    async def _join(self):
+        await self.launch()
+        self.on_event('zoom_connecting', hint='Waiting for Zoom join and audio readiness.',
+                      join_timeout_seconds=self.join_timeout, **self.connect_context())
+        await self.connect()
+        self.reader_task = asyncio.create_task(self.receive())
+        while not (self.audio_ready.is_set() and self.mic_ready.is_set()):
+            if self.failure:
+                raise self.failure
+            await asyncio.sleep(.05)
+
+    def check_join_progress(self):
+        failure = self.launch_failure()
+        if failure:
+            raise failure
+
+    def join_timeout_error(self):
+        return ZoomJoinError('join_timeout', {'join_timeout_seconds': self.join_timeout,
+                             'audio_ready': self.audio_ready.is_set(), 'microphone_ready': self.mic_ready.is_set()})
 
     async def read_packet(self):
         header = await self.reader.readexactly(5)
@@ -338,6 +382,7 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         self.name = 'sparkie-zoom-macos-' + secrets.token_hex(4)
         self.process = None
         self._log = None
+        self.join_progress = NativeJoinProgress(self.runtime / 'sdk.log')
 
     async def launch(self):
         from .zoom_macos import child_env
@@ -355,6 +400,7 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         config_path = self.runtime / 'config.json'
         private_write(config_path, json.dumps(config))
         private_write(self.runtime / 'sdk.log', '')
+        self.join_progress = NativeJoinProgress(self.runtime / 'sdk.log')
         self._log = (self.runtime / 'sdk.log').open('ab')
         env = child_env()
         env['SPARKIE_ZOOM_CONFIG'] = str(config_path)
@@ -367,8 +413,27 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
 
     def launch_failure(self):
         if self.process is not None and self.process.returncode is not None:
-            return RuntimeError('Zoom macOS receiver exited during join; inspect sdk.log')
+            try:
+                self.check_join_progress()
+            except ZoomJoinError as exc:
+                return exc
         return None
+
+    def check_join_progress(self):
+        for fields in self.join_progress.read():
+            self.on_event('zoom_join_progress', **fields, join_timeout_seconds=self.join_timeout)
+        if self.join_progress.failure:
+            raise ZoomJoinError(self.join_progress.failure, self.join_progress.snapshot())
+        if self.process is not None and self.process.returncode is not None:
+            raise ZoomJoinError('receiver_exited_during_join', self.join_progress.snapshot())
+
+    def join_timeout_error(self):
+        return ZoomJoinError(self.join_progress.timeout_reason(), {**self.join_progress.snapshot(),
+                            'join_timeout_seconds': self.join_timeout,
+                            'audio_ready': self.audio_ready.is_set(), 'microphone_ready': self.mic_ready.is_set()})
+
+    def diagnostics(self):
+        return {**super().diagnostics(), 'join': self.join_progress.snapshot()}
 
     async def leave(self):
         await self._disconnect()
@@ -380,6 +445,7 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
             try:
                 await asyncio.wait_for(process.wait(), 10)
             except (asyncio.TimeoutError, ProcessLookupError):
+                self.on_event('zoom_receiver_forced_stop', reason='graceful_shutdown_timeout')
                 with contextlib.suppress(ProcessLookupError):
                     process.kill()
                 with contextlib.suppress(Exception):
