@@ -18,7 +18,7 @@
     return match ? normalize(Number(match[1]) - 1, Number(match[2] || 1) - 1) : normalize(0);
   }
   const hashFor = (state) => '#' + number(state.slide) + (state.beat ? '/' + (state.beat + 1) : '');
-  let state = readHash(), speakerWindow, transition, demoPlayer;
+  let state = readHash(), speakerWindow, demoPlayer;
   let running = false, accumulated = 0, started = 0;
   const elapsed = () => accumulated + (running ? performance.now() - started : 0);
   const formatTime = (ms) => String(Math.floor(ms / 60000)).padStart(2, '0') + ':' + String(Math.floor(ms / 1000 % 60)).padStart(2, '0');
@@ -47,15 +47,10 @@
       renderPresenter();
       if (!options.remote) send(window.opener, {type: 'navigate', ...state});
     } else {
-      if (changedSlide && document.startViewTransition && !reduced.matches && !preview) {
-        if (transition) transition.skipTransition();
-        transition = document.startViewTransition(() => renderSlide(true));
-        transition.ready.catch(() => {}); transition.finished.catch(() => {});
-      } else {
-        if (transition) transition.skipTransition();
-        renderSlide(changedSlide);
-        if (changedBeat && !changedSlide) animateBeat(old.beat);
-      }
+      // Commit visibility and content together. A pending View Transition
+      // snapshot can retain hidden text when another item is selected on entry.
+      renderSlide(changedSlide);
+      if (changedBeat && !changedSlide) animateBeat(old.beat);
       syncSpeaker();
     }
   }

@@ -7,7 +7,7 @@ Two standalone English experiences with the same forest-green, warm-paper and am
 - **[speaker-notes.md](speaker-notes.md)** — the English speaking outline, demo cues and implementation boundaries.
 - **[research.md](research.md)** — official market sources, fair competitor positioning, code evidence, scenario boundaries and motion references.
 
-The revised slides use sourced scene photographs, official product icons and website captures, real product captures, illustrative Gemini routing examples, and progressively illuminated system diagrams. The projected slides keep large, essential text. Supporting explanations live in the separate speaker view and documents. Circles, the Sparkie mark and artifact panels move between scenes using shared-element View Transitions. The homepage pairs text and screenshots vertically on phones, with a sticky screenshot sequence on larger screens.
+The revised slides use sourced scene photographs, official product icons and website captures, real product captures, illustrative Gemini routing examples, and progressively illuminated system diagrams. The projected slides keep large, essential text. Supporting explanations live in the separate speaker view and documents. Slide visibility and content update synchronously, with CSS fades and item-level animations. This avoids hidden text when items are selected during slide entry. The homepage pairs text and screenshots vertically on phones, with a sticky screenshot sequence on larger screens.
 
 ## Open locally
 
@@ -109,7 +109,7 @@ The notes in story-data.js power the current speaker view. Keep speaker-notes.md
 
 The current deck was checked in Chrome at 1440×900, 1280×720, 768×1024 and 390×844. Checks cover all ten slides and 24 item states, product screenshot loading and enlargement, all three Gemini examples, speaker notes and two-way speaker navigation, and video removal on slide exit. Desktop layouts fit without vertical scrolling; phone slides can scroll. Offline checks confirm that product assets remain local; inserting the requested YouTube embed is checked without claiming successful network playback.
 
-View Transitions require browser support; other browsers fall back to ordinary slide transitions. Reduced-motion preferences disable the animated choreography. Mobile slides can scroll vertically when needed. Chrome is the tested browser; Safari and Firefox have not been separately verified. The presentation does not establish new backend or real-Zoom behavior, and no core runtime files are changed.
+Reduced-motion preferences disable the animated choreography. Navigation does not depend on asynchronous View Transition snapshots. Mobile slides can scroll vertically when needed. Chrome is the tested browser; Safari and Firefox have not been separately verified. The presentation does not establish new backend or real-Zoom behavior, and no core runtime files are changed.
 
 ## Publishing the interactive deck
 
