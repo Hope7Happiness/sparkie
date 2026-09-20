@@ -155,7 +155,7 @@ test('task cards carry a status for every lifecycle event', () => {
 
   api.upsertTask({ task_id: 't1', instruction: 'research related work', status: 'queued' });
   assert.equal(card().dataset.status, 'queued');
-  assert.equal(card().querySelector('small').textContent, '排队中');
+  assert.equal(card().querySelector('small').textContent, 'Queued');
 
   api.upsertTask({ type: 'task.started', task_id: 't1' });
   assert.equal(card().dataset.status, 'running');
@@ -163,11 +163,11 @@ test('task cards carry a status for every lifecycle event', () => {
 
   api.upsertTask({ type: 'task.completed', task_id: 't1' });
   assert.equal(card().dataset.status, 'completed');
-  assert.equal(card().querySelector('small').textContent, '已完成');
+  assert.equal(card().querySelector('small').textContent, 'Done');
 
   api.upsertTask({ type: 'task.failed', task_id: 't1', error_type: 'TimeoutError' });
   assert.equal(card().dataset.status, 'failed');
-  assert.equal(card().querySelector('small').textContent, '失败 · TimeoutError');
+  assert.equal(card().querySelector('small').textContent, 'Failed · TimeoutError');
   assert.equal(document.getElementById('task-count').textContent, '1', 'one card, not four');
 });
 
@@ -178,8 +178,8 @@ test('task.updated mirrors a live session task in place', () => {
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', status: 'queued' });
   assert.equal(card().dataset.status, 'queued');
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X',
-                   status: 'running', progress: '拉取数据中' });
-  assert.equal(card().querySelector('small').textContent, '执行中… · 拉取数据中');
+                   status: 'running', progress: 'fetching data' });
+  assert.equal(card().querySelector('small').textContent, 'Running… · fetching data');
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X', status: 'completed' });
   assert.equal(card().dataset.status, 'completed');
   assert.equal(card().querySelector('h3').textContent, 'dig into X');
@@ -214,7 +214,7 @@ test('stage renders each artifact content shape', () => {
   assert.equal(body().querySelector('.stage-caption').querySelector('a').href, 'https://example.com');
 
   api.renderStage({ artifact_id: 'a8', content: { markdown_url: 'https://example.com/notes.md' } });
-  assert.equal(body().querySelector('.stage-md').textContent, '加载 markdown…');
+  assert.equal(body().querySelector('.stage-md').textContent, 'Loading markdown…');
   assert.equal(body().querySelector('.type-badge').dataset.kind, 'markdown_url');
   assert.equal(body().querySelector('iframe'), null, 'markdown url never goes through an iframe');
 
@@ -251,7 +251,9 @@ test('artifact list cards get a type badge matching their content', () => {
   api.upsertArtifact({ artifact_id: 'art_1', title: '报告', type: 'report' });
   const card = document.querySelector('[data-artifact="art_1"]');
   assert.equal(card.querySelector('.type-badge').dataset.kind, 'report');
-  assert.equal(card.querySelector('small').textContent, 'art_1');
+  assert.equal(card.querySelector('small').textContent, '', 'id is not shown as a subtitle');
+  api.upsertArtifact({ artifact_id: 'art_1', title: '报告', type: 'report', summary: 'read me' });
+  assert.equal(card.querySelector('small').textContent, 'read me', 'summary becomes the subtitle');
 
   api.upsertArtifact({ artifact_id: 'art_2', content: { pdf: 'https://example.com/a.pdf' } });
   assert.equal(document.querySelector('[data-artifact="art_2"]').querySelector('.type-badge').dataset.kind, 'pdf');

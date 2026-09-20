@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,15 +9,15 @@
 <div class="app">
 
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Sparkie 首页"><span>✳</span> sparkie</a>
-    <form id="join" class="join-bar" aria-label="连接会议">
-      <input name="server" class="server-input" value="127.0.0.1:8790" title="Backend 地址" aria-label="Backend 地址">
-      <input name="external_id" class="meeting-input" placeholder="Zoom Meeting ID" required aria-label="Zoom Meeting ID">
-      <button type="submit">进入</button>
+    <a class="brand" href="/" aria-label="Sparkie home"><span>✳</span> sparkie</a>
+    <form id="join" class="join-bar" aria-label="Join meeting">
+      <input name="server" class="server-input" value="127.0.0.1:8790" title="Backend address" aria-label="Backend address">
+      <input name="external_id" class="meeting-input" placeholder="Zoom meeting ID" required aria-label="Zoom meeting ID">
+      <button type="submit">Join</button>
     </form>
     <div class="topbar-meta">
       <span class="ws-chip" title="Workspace ID"><em>WS</em><span id="ws-id">—</span></span>
-      <span id="state" role="status">未连接</span>
+      <span id="state" role="status">Not connected</span>
     </div>
   </header>
   <p id="error" role="alert"></p>
@@ -30,26 +30,26 @@
 
         <section class="panel stage-panel">
           <div class="section-title">
-            <h2>当前 artifact<span class="hint">STAGE</span></h2>
-            <span class="live-dot">正在展示</span>
+            <h2>Current artifact<span class="hint">STAGE</span></h2>
+            <span class="live-dot">Presenting</span>
           </div>
           <div id="stage" class="stage-body">
-            <p class="empty">说 “Sparkie, show us …” 把产物投到这里。</p>
+            <p class="empty">Say “Sparkie, show us …” to present output here.</p>
           </div>
         </section>
 
         <section class="panel transcript-panel">
           <div class="section-title">
-            <h2>会议转写<span class="hint">LIVE</span></h2>
-            <span class="count"><span id="utterance-count">0</span> 条</span>
+            <h2>Transcript<span class="hint">LIVE</span></h2>
+            <span class="count"><span id="utterance-count">0</span> lines</span>
           </div>
           <div id="transcript" class="feed">
-            <p class="empty">等待 RTMS / ingest 输入。</p>
+            <p class="empty">Waiting for transcript input.</p>
           </div>
-          <form id="simulate" aria-label="模拟发言">
-            <input name="speaker" value="You" aria-label="发言人">
-            <input name="text" placeholder="模拟一句会议发言，例如：Sparkie, research related work" required>
-            <button>发送</button>
+          <form id="simulate" aria-label="Simulate speech">
+            <input name="speaker" value="You" aria-label="Speaker">
+            <input name="text" placeholder="Simulate a line, e.g. Sparkie, research related work" required>
+            <button>Send</button>
           </form>
         </section>
 
@@ -59,11 +59,11 @@
 
         <section class="panel list-panel tasks-panel">
           <div class="section-title">
-            <h2>任务<span class="hint">TASKS</span></h2>
+            <h2>Tasks<span class="hint">TASKS</span></h2>
             <span class="count"><span id="task-count">0</span></span>
           </div>
           <div id="tasks" class="list">
-            <p class="empty">研究类请求会在这里排队执行。</p>
+            <p class="empty">Delegated work queues up here.</p>
           </div>
         </section>
 
@@ -73,7 +73,7 @@
             <span class="count"><span id="artifact-count">0</span></span>
           </div>
           <div id="artifacts" class="list">
-            <p class="empty">任务完成会产出 artifact。</p>
+            <p class="empty">Finished tasks produce artifacts.</p>
           </div>
         </section>
 
@@ -84,9 +84,9 @@
   </main>
 </div>
 
-<div id="artifact-overlay" hidden aria-label="全屏展示">
+<div id="artifact-overlay" hidden aria-label="Fullscreen presentation">
   <div id="overlay-card"></div>
-  <button id="overlay-return" type="button">← 返回 workspace · Esc</button>
+  <button id="overlay-return" type="button">← Back to workspace · Esc</button>
 </div>
 <script type="module" src="/src/workspace.js"></script>
 </body>

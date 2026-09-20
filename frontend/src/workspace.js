@@ -8,7 +8,7 @@ const state = {
 };
 
 const setState = text => { $('state').textContent = text; };
-const fail = message => { $('error').textContent = message; setState('连接失败'); };
+const fail = message => { $('error').textContent = message; setState('Connection failed'); };
 
 const bump = id => { $(id).textContent = String(Number($(id).textContent) + 1); };
 
@@ -351,16 +351,16 @@ function renderContent(artifact, mount) {
     let url = mediaUrl(raw, 'text/markdown');
     if (!url) {
       const safe = safeUrl(raw);
-      if (!safe) { mount.append(jsonFallback(content, 'Markdown 地址不安全，已退回原始数据。')); return 'json'; }
+      if (!safe) { mount.append(jsonFallback(content, 'Unsafe markdown URL — showing raw data.')); return 'json'; }
       // Relative paths live on the workspace backend, not the vite origin.
-      url = safe.startsWith('/') && state.server ? `http://${state.server}${safe}` : safe;
+      url = safe.startsWith('/') && state.server ? `${state.server}${safe}` : safe;
     }
     const article = document.createElement('div');
     article.className = 'stage-md';
     mount.append(article);
     const note = document.createElement('p');
     note.className = 'stage-note';
-    note.textContent = '加载 markdown…';
+    note.textContent = 'Loading markdown…';
     article.append(note);
     fetch(url).then(response => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -371,15 +371,15 @@ function renderContent(artifact, mount) {
       article.append(renderMarkdown(text));
     }).catch(() => {
       if (!article.isConnected) return;
-      note.textContent = '无法内嵌加载，';
-      note.append(link(url, '在新标签页打开 .md'));
+      note.textContent = 'Cannot embed — ';
+      note.append(link(url, 'open .md in a new tab'));
     });
     return 'markdown';
   }
 
   if (shape === 'image') {
     const url = safeUrl(content.image, 'image/');
-    if (!url) { mount.append(jsonFallback(content, '图片地址不安全，已退回原始数据。')); return 'json'; }
+    if (!url) { mount.append(jsonFallback(content, 'Unsafe image URL — showing raw data.')); return 'json'; }
     const box = document.createElement('div');
     box.className = 'stage-media';
     const img = document.createElement('img');
@@ -398,13 +398,13 @@ function renderContent(artifact, mount) {
 
   if (shape === 'pdf') {
     const url = mediaUrl(content.pdf, 'application/pdf');
-    if (!url) { mount.append(jsonFallback(content, 'PDF 地址不安全，已退回原始数据。')); return 'json'; }
+    if (!url) { mount.append(jsonFallback(content, 'Unsafe PDF URL — showing raw data.')); return 'json'; }
     const box = document.createElement('div');
     box.className = 'stage-media stage-media-tall';
     box.append(mediaFrame('iframe', url, artifact.title || 'PDF', { sandbox: false }));
     const row = document.createElement('p');
     row.className = 'stage-caption';
-    row.append('无法预览？', link(url, '在新标签页打开 PDF'));
+    row.append('Preview unavailable? ', link(url, 'open PDF in a new tab'));
     box.append(row);
     mount.append(box);
     return 'pdf';
@@ -412,13 +412,13 @@ function renderContent(artifact, mount) {
 
   if (shape === 'url') {
     const url = safeUrl(content.url);
-    if (!url) { mount.append(jsonFallback(content, '链接不安全，已退回原始数据。')); return 'json'; }
+    if (!url) { mount.append(jsonFallback(content, 'Unsafe link URL — showing raw data.')); return 'json'; }
     const box = document.createElement('div');
     box.className = 'stage-media stage-media-tall';
     box.append(mediaFrame('iframe', url, content.title || artifact.title || url));
     const row = document.createElement('p');
     row.className = 'stage-caption';
-    row.append('来源：', link(url, content.title || url));
+    row.append('Source: ', link(url, content.title || url));
     box.append(row);
     mount.append(box);
     return 'url';
@@ -447,12 +447,9 @@ function renderStage(artifact) {
   badge.dataset.kind = kind;
   badge.textContent = KIND_LABEL[kind] || kind;
 
-  const meta = document.createElement('small');
-  meta.textContent = artifact.artifact_id || '';
-
   const head = document.createElement('div');
   head.className = 'stage-head';
-  head.append(badge, meta);
+  head.append(badge);
 
   const summary = document.createElement('p');
   summary.className = 'stage-summary';
@@ -468,15 +465,15 @@ function renderStage(artifact) {
   const actions = document.createElement('div');
   actions.className = 'stage-actions';
   const full = document.createElement('button');
-  full.type = 'button'; full.className = 'secondary'; full.textContent = '全屏投放';
+  full.type = 'button'; full.className = 'secondary'; full.textContent = 'Present';
   full.onclick = () => openOverlay(artifact);
   const download = document.createElement('button');
-  download.type = 'button'; download.className = 'secondary'; download.textContent = '下载 .md';
+  download.type = 'button'; download.className = 'secondary'; download.textContent = 'Download .md';
   download.onclick = () => downloadArtifact(artifact);
   actions.append(full, download);
   if (shape && shape !== 'markdown') {
     const json = document.createElement('button');
-    json.type = 'button'; json.className = 'secondary'; json.textContent = '下载 .json';
+    json.type = 'button'; json.className = 'secondary'; json.textContent = 'Download .json';
     json.onclick = () => downloadJson(artifact);
     actions.append(json);
   }
@@ -524,7 +521,7 @@ async function hydrateArtifact(id) {
   if (!known || known.content !== undefined || !state.server || state.hydrated.has(id)) return;
   state.hydrated.add(id);
   try {
-    const response = await fetch(`http://${state.server}/api/artifacts/${id}`);
+    const response = await fetch(`${state.server}/api/artifacts/${id}`);
     if (!response.ok) return;
     const full = await response.json();
     const merged = { ...state.artifacts.get(id), ...full, artifact_id: id };
@@ -539,16 +536,17 @@ async function hydrateArtifact(id) {
   }
 }
 
-function presentArtifact(id) {
+// artifact.ready only carries metadata, so hydrate first: presenting an empty
+// shell mid-generation looks like a broken artifact.
+async function presentArtifact(id, { overlay = false } = {}) {
   state.activeArtifact = id;
   document.querySelectorAll('.artifact').forEach(el =>
     el.classList.toggle('active', el.dataset.artifact === id));
+  if (!state.artifacts.get(id)) return;
+  if (state.artifacts.get(id).content === undefined) await hydrateArtifact(id);
   const artifact = state.artifacts.get(id);
-  if (artifact) {
-    renderStage(artifact);
-    if (overlayOpen()) renderOverlay(artifact);
-  }
-  hydrateArtifact(id);
+  renderStage(artifact);
+  if (overlay || overlayOpen()) openOverlay(artifact);
 }
 
 function paintArtifactCard(artifact) {
@@ -559,7 +557,7 @@ function paintArtifactCard(artifact) {
   const badge = card.querySelector('.type-badge');
   badge.dataset.kind = kind;
   badge.textContent = KIND_LABEL[kind] || kind;
-  card.querySelector('small').textContent = artifact.artifact_id;
+  card.querySelector('small').textContent = artifact.summary || '';
   card.classList.toggle('active', artifact.artifact_id === state.activeArtifact);
 }
 
@@ -580,8 +578,8 @@ function upsertArtifact(event) {
     const meta = document.createElement('small');
     row.append(badge, meta);
     const open = document.createElement('button');
-    open.type = 'button'; open.className = 'secondary'; open.textContent = '全屏展示';
-    open.onclick = () => { presentArtifact(id); openOverlay(state.artifacts.get(id)); };
+    open.type = 'button'; open.className = 'secondary'; open.textContent = 'Present';
+    open.onclick = () => presentArtifact(id, { overlay: true });
     card.append(title, row, open);
     $('artifacts').querySelector('.empty')?.remove();
     $('artifacts').append(card);
@@ -598,7 +596,7 @@ const STATUS_FROM_EVENT = {
   'task.completed': 'completed', 'task.failed': 'failed',
   'task.cancelled': 'cancelled',
 };
-const STATUS_LABEL = { queued: '排队中', running: '执行中…', completed: '已完成', failed: '失败', cancelled: '已取消' };
+const STATUS_LABEL = { queued: 'Queued', running: 'Running…', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' };
 
 function taskStatus(event) {
   if (event.status && STATUS_LABEL[event.status]) return event.status;
@@ -628,13 +626,13 @@ function upsertTask(event) {
   card.querySelector('h3').textContent = task.instruction || task.title || id;
   const reason = task.error_type || task.error;
   card.querySelector('small').textContent =
-    status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || '未知原因'}`
-    : status === 'running' && task.progress ? `执行中… · ${task.progress}`
+    status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || 'unknown error'}`
+    : status === 'running' && task.progress ? `Running… · ${task.progress}`
     : STATUS_LABEL[status];
   const cancel = card.querySelector('.task-cancel');
   if ((status === 'running' || status === 'queued') && !cancel) {
     const button = document.createElement('button');
-    button.type = 'button'; button.className = 'task-cancel quiet'; button.textContent = '取消';
+    button.type = 'button'; button.className = 'task-cancel quiet'; button.textContent = 'Cancel';
     button.onclick = () => state.socket?.readyState === WebSocket.OPEN &&
       state.socket.send(JSON.stringify({ type: 'cancel_task', task_id: id }));
     card.append(button);
@@ -676,14 +674,11 @@ function onEvent(event) {
     case 'artifact.ready':
       upsertArtifact(event);
       break;
-    case 'artifact.present': {
-      presentArtifact(event.artifact_id);
-      const artifact = state.artifacts.get(event.artifact_id);
-      if (artifact) openOverlay(artifact);
+    case 'artifact.present':
+      presentArtifact(event.artifact_id, { overlay: true });
       break;
-    }
     case 'meeting.ended':
-      setState(`已结束 · ${state.workspaceId || ''}`);
+      setState(`Ended · ${state.workspaceId || ''}`);
       break;
     case 'workspace.reset':
       reloadSnapshot();
@@ -714,9 +709,9 @@ async function reloadSnapshot() {
     const snapshot = await (await fetch(
       `${state.server}/api/workspaces/${state.workspaceId}`)).json();
     loadSnapshot(snapshot);
-    setState(`已连接 · ${state.workspaceId} · 新会议`);
+    setState(`Connected · ${state.workspaceId} · new session`);
   } catch (error) {
-    fail(`刷新 workspace 失败：${error.message}`);
+    fail(`Failed to refresh workspace: ${error.message}`);
   }
 }
 
@@ -749,14 +744,14 @@ $('join').onsubmit = async event => {
     loadSnapshot(snapshot);
     const socket = new WebSocket(`${base.ws}/workspaces/${workspace.workspace_id}/events`);
     socket.onmessage = ({ data }) => onEvent(JSON.parse(data));
-    socket.onopen = () => setState(`已连接 · ${workspace.workspace_id}`);
-    socket.onclose = () => setState('已断开');
-    socket.onerror = () => fail('事件流连接失败，确认 sparkie workspace 正在运行。');
+    socket.onopen = () => setState(`Connected · ${workspace.workspace_id}`);
+    socket.onclose = () => setState('Disconnected');
+    socket.onerror = () => fail('Event stream connection failed — is sparkie workspace running?');
     state.socket = socket;
     $('workspace').hidden = false;
-    setState('连接中…');
+    setState('Connecting…');
   } catch (error) {
-    fail(`连不上 backend：${error.message}。先运行 sparkie workspace`);
+    fail(`Cannot reach backend: ${error.message}. Run sparkie workspace first`);
   }
 };
 
