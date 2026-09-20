@@ -2,34 +2,34 @@
   <img src="docs/assets/sparkie-icon.png" alt="Sparkie — an AI teammate at the meeting table" width="160">
 </p>
 <h1 align="center">Sparkie</h1>
-<p align="center"><strong>Your next teammate joins the call.</strong></p>
+<p align="center"><strong>Your AI teammate joins the call and GETS WORK DONE.</strong></p>
 <p align="center">An AI meeting agent that listens, speaks, and gets work done while you keep talking.</p>
 <p align="center">
-  <a href="docs/demo-links.md#demo-video">Demo video · coming soon</a> &nbsp; / &nbsp;
-  <a href="docs/demo-links.md#project-website">Website · coming soon</a> &nbsp; / &nbsp;
+  <a href="docs/demo-links.md#demo-video">Demo video</a> &nbsp; / &nbsp;
+  <a href="docs/demo-links.md#project-website">Website</a> &nbsp; / &nbsp;
   <a href="presentation/README.md">Interactive presentation</a> &nbsp; / &nbsp;
   <a href="#quick-start">Quick start</a>
 </p>
 
 [![Sparkie demo video placeholder: Your meeting. Already moving forward.](docs/assets/readme-demo.svg)](docs/demo-links.md#demo-video)
 
-Sparkie joins Zoom as a participant. It follows the discussion, answers in context, and delegates work to a background agent. Your team keeps talking; Sparkie comes back with a result you can hear, open, and discuss in the shared workspace.
-
-**Bring the work into the meeting. Leave with more than notes.**
+Sparkie joins Zoom as a participant, just like a real person. It follows the discussion, answers in context, and delegates research, writing and coding to a background agent while the meeting continues. All of these amazing things happen in the background while your team keeps talking, and Sparkie will come back with a result you can hear, open, and discuss in the shared workspace instantly.
 
 ## A conversation becomes a deliverable
 
-You are planning a launch. The team has just debated two approaches.
+Imagine you are planning a launch. The team has just debated two approaches.
 
-> **You:** “Sparkie, compare the two options we just discussed.”
+> **You:** “Sparkie, compare the two options we just discussed. Turn that into a one-page recommendation and show it to us.”
 >
-> **You:** “Turn that into a one-page recommendation and show it to us.”
+> **Sparkie:** Sure, I can do that. I’ll start working on the document now and will let you know when it’s ready to review!
 >
-> *Keep discussing the rollout while the background agent works.*
+> **Keep discussing the rollout while the background agent works*
 >
 > **You:** “Add the risks we just agreed on to the document.”
+>
+> **Sparkie updates the document in the background and notifies you when it’s ready to review*
 
-Sparkie can answer from meeting context, delegate the document, report back, and present a ready result on the workspace board. Follow-up requests can revise the work. This is an example workflow; the recording slot above will hold the real demo.
+That's it, and the team can keep talking while Sparkie does the work. You no longer need to pause the meeting to take notes, research, or copy-paste the meeting notes to ask ChatGPT.
 
 | In your meeting | Ask Sparkie to… | Bring back into the discussion |
 | --- | --- | --- |
@@ -38,32 +38,20 @@ Sparkie can answer from meeting context, delegate the document, report back, and
 | Creative collaboration | Turn agreed ideas into an outline | A draft to review and revise together |
 | Team coordination | Extract decisions and explicitly agreed responsibilities | An action list grounded in the conversation |
 
-Tool-dependent work uses the selected worker’s available tools and integrations.
+(Note: Tool-dependent work uses the selected worker’s available tools and integrations)
 
 ## Built for a live conversation
 
-- **Context, not repeated prompts.** Per-participant transcripts preserve who said what. Ask about “the second option” without pasting the discussion into a chat.
-- **A sense of when to speak.** Semantic turn detection waits for a complete thought. Wake routing considers the current utterance and up to eight recent human/assistant entries, including follow-ups without repeating “Sparkie.”
-- **Room to interrupt.** Confirmed human speech stops a reply. Brief unconfirmed noise pauses playback for 350 ms, then lets the remaining audio continue.
-- **Work in parallel.** A Devin or Codex worker handles research, documents, files, and commands while the voice agent stays available. Ask for progress, updates, or cancellation.
-- **Results everyone can discuss.** The workspace displays task progress, Markdown documents, and images. Sparkie can show, switch, or hide a ready artifact by voice.
+- **Context, not repeated prompts.** Per-participant transcripts preserve who said what, so you no longer need to repeat the discussion again and again in order to ask about “the second option” in the context.
+- **A sense of when to speak.** Semantic turn detection waits for a complete thought, and wires with a fast wake routing model to decide whether to reply or delegate. You don't need to explicitly wake up the agent every time you want to ask a question.
+- **Room to interrupt.** You can interrupt Sparkie’s spoken reply anytime to follow up, correct, or redirect, without having to wait for the agent to finish speaking.
+- **Work in parallel.** A background worker handles research, documents, files, and commands while the voice agent stays available. You can ask for progress, updates, or cancellation.
+- **Results everyone can discuss.** Sparkie can pull up a shared workspace and share it on the screen, so that everyone can instantly see task progress, Markdown documents, and images. You can control Sparkie to show, switch, or hide a ready artifact by voice, easy and fast.
 
-## Demo and project pages
+![Sparkie workspace showing a generated demo outline, meeting transcript, tasks, and artifacts](docs/assets/workspace.png)
 
-| Experience | Link |
-| --- | --- |
-| Short product demo | [Video link placeholder](docs/demo-links.md#demo-video) |
-| Full Zoom walkthrough | [Recording link placeholder](docs/demo-links.md#zoom-walkthrough) |
-| Project website | [Public URL placeholder](docs/demo-links.md#project-website) |
-| Interactive pitch · 5–7 minutes | [Slides and English speaker notes](presentation/README.md) · [Hosted URL placeholder](docs/demo-links.md#hosted-presentation) |
-
-The [project homepage](presentation/home.html) and [slide deck](presentation/index.html) already run locally without API keys or a build:
-
-```bash
-python3 -m http.server 8088 --directory presentation
-```
-
-Open [the homepage](http://localhost:8088/home.html) or [the slides](http://localhost:8088/). Public links and real recordings are still to be added; the demo cover is artwork, not a session screenshot.
+---
+*[The following sections are technical sections for engineers or agents]*
 
 ## Quick start
 
