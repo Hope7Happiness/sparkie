@@ -51,6 +51,8 @@ class ZoomAudioMeeting:
         self._cancel_id = 0
         self._cancel_waiter = None
         self.cancel_timeout = 5.0
+        self._joining = False
+        self.startup_frames_discarded = 0
 
     async def docker(self, *args):
         process = await asyncio.create_subprocess_exec('docker', *args, stdout=asyncio.subprocess.PIPE,
@@ -120,6 +122,7 @@ class ZoomAudioMeeting:
                 await asyncio.sleep(.5)
 
     async def join(self):
+        self._joining = True
         joining = asyncio.create_task(self._join())
         succeeded = False
         try:
@@ -153,6 +156,7 @@ class ZoomAudioMeeting:
                     await self.leave()
                 except Exception as exc:
                     self.on_event('zoom_cleanup_failed', error_type=type(exc).__name__)
+            self._joining = False
         self.on_event('zoom_audio_ready', sample_rate=32000, channels=1)
 
     async def _join(self):
@@ -214,7 +218,18 @@ class ZoomAudioMeeting:
                     if kind == b'A':
                         gated = self.input_gate()
                         frame = AudioFrame(frame.sequence, bytes(len(data)) if gated else data, gated=gated)
-                    self.enqueue_frame(frame)
+                    if self._joining:
+                        # No capture/playback consumer exists until join returns.
+                        # Discard pre-ready input on BOTH paths: buffering here
+                        # overflows, while transcribing U can authorize unheard replies.
+                        self.startup_frames_discarded += 1
+                        if self.startup_frames_discarded == 1:
+                            self.on_event('zoom_startup_audio_discarded',
+                                          reason='waiting_for_audio_and_microphone',
+                                          audio_ready=self.audio_ready.is_set(),
+                                          microphone_ready=self.mic_ready.is_set())
+                    else:
+                        self.enqueue_frame(frame)
                     self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
                     if self.frames_received % 32 == 0:
                         # StreamReader may return buffered packets without suspending.
@@ -384,6 +399,7 @@ class ZoomAudioMeeting:
 
     def diagnostics(self):
         return {'frames_received': self.frames_received, 'bytes_received': self.bytes_received,
+                'startup_frames_discarded': self.startup_frames_discarded,
                 'frames_consumed': self.frames_consumed, 'max_queued_frames': self.max_queued_frames,
                 'max_receive_gap_ms': self.max_receive_gap_ms, 'raw_audio_saved': False, 'echo_mode': 'silence_during_playback_plus_350ms',
                 'remote_audible_latency_measured': False}

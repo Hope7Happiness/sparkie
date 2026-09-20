@@ -108,6 +108,10 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600
 
 ### 分轨打断验收
 
+启动回归修复（2026-09-19）：多音轨合并后的麦克风设置改成了非静音入会，实测出现 source 已初始化却没有 onMicStartSend；Python 等待发送就绪时，A 混音无人消费，约 10 秒堆满，U 分轨却能提前触发无法播放的回答。现恢复原先的静音入会 → 安装外部音源 → 取消静音顺序，移除自动反复取消静音，并在 join 完成前明确丢弃 A/U 音频，记录 zoom_startup_audio_discarded 和 startup_frames_discarded。请在 listening_ready 后开始唤醒测试。
+
+232 项 Python 测试及 primitive/demo 离线检查通过；新增用例重现超过 1000 帧的启动积压，并验证麦克风缺失时正确超时、延迟就绪后两路输入恢复。原生接收器重建及签名检查通过。真实会话 20260919T223648-a87f017f 已出现 zoom_microphone_ready（75941 ms）、listening_ready（78164 ms）和首次 zoom_playback_submitted（91734 ms）；随后混音持续被消费，未再出现此次启动积压。SDK 接受音频仍不等于远端可听确认；实际听音及打断验收另行记录。
+
 本地实现与离线测试不代替真人会议验收。先重建接收器，运行：
 
 ~~~bash
@@ -122,13 +126,13 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --respo
 5. 在终端输入一行 {"action":"mute"} 检查停止；再输入 {"action":"unmute"} 后说不带唤醒词的请求，只有下一轮获准回复。打断前后的后台任务 ID/状态应保持连续。
 6. 核对 events.jsonl 的 zoom_human_speech_started → realtime_interrupted → transcript → zoom_human_speech_stopped → zoom_response_requested，以及 cancelled response 的迟到音频被丢弃。语音开始事件与模型事件可能因网络异步交错；只有远端听音/经同意的录音才能测量真实停止延迟。
 
-本轮验证记录（2026-09-19）：
+分轨打断初次接通的验证记录（启动回归修复前，2026-09-19）：
 
 - Python 230 项离线测试、primitive/demo 模拟通过；前端 26 项测试及三个页面生产构建通过。
 - 仓库 participant-1.wav（32 kHz 单声道测试录音）经真实 Deepgram + ParticipantEars：测试开始后 296 ms 收到 started，2903 ms 收到最终转写和 stopped。只证明提供者会先发送语音开始事件；不是 Zoom 网络或远端停止延迟。脱敏结果保存在本地 .runtime/zoom-barge-in-deepgram.json。
 - macOS receiver 重新编译、签名验证通过；独立 SDK check 停在 SDK_INIT_BEGIN 后超时，工具提示检查系统钥匙串授权。尚未证明该超时的具体原因，未据此声称真人 Zoom 打断成功。
 
-当前限制：Deepgram 首次分轨连接和 VAD 网络延迟会影响停止速度；最终文本延迟决定重新回答的时机。过滤 SDK 自身 ID 不等于声学回声消除；共用同一 Zoom 端也不能分人。分轨服务失败会停播并记录 zoom_barge_in_unavailable，后台继续，自动语音需重启恢复。尚无本轮真人 Zoom 成功证据。
+当前限制：Deepgram 首次分轨连接和 VAD 网络延迟会影响停止速度；最终文本延迟决定重新回答的时机。过滤 SDK 自身 ID 不等于声学回声消除；共用同一 Zoom 端也不能分人。分轨服务失败会停播并记录 zoom_barge_in_unavailable，后台继续，自动语音需重启恢复。真人远端停止延迟仍待验收。
 
 ### 终端输出背压修复
 
