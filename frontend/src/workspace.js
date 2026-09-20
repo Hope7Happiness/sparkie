@@ -735,3 +735,13 @@ document.addEventListener?.('keydown', event => {
     }
   } catch { /* Backend offline — the join form already explains itself on submit. */ }
 })();
+
+// Shareable entry: /workspace.html?meeting=<zoom id> joins straight in.
+try {
+  const meeting = new URLSearchParams(globalThis.location?.search || '').get('meeting');
+  if (meeting) {
+    const form = document.querySelector('#join');
+    form.external_id.value = meeting;
+    form.requestSubmit();
+  }
+} catch { /* No location outside the browser. */ }

@@ -37,6 +37,16 @@ def running_pid(root):
     return pid if result.returncode == 0 and result.stdout.strip() == str(binary) else None
 
 
+def _signing_identity(environ=None):
+    environ = os.environ if environ is None else environ
+    if environ.get("SPARKIE_CODESIGN_IDENTITY"):
+        return environ["SPARKIE_CODESIGN_IDENTITY"]
+    keychain = Path.home() / "Library/Keychains/login.keychain-db"
+    found = subprocess.run(["security", "find-certificate", "-c", "Sparkie Local Codesign",
+                            str(keychain)], capture_output=True)
+    return "Sparkie Local Codesign" if found.returncode == 0 else "-"
+
+
 def build(root):
     require_macos()
     if running_pid(root):
@@ -82,7 +92,10 @@ def build(root):
     for attribute in ("com.apple.FinderInfo", "com.apple.ResourceFork"):
         subprocess.run(["xattr", "-dr", attribute, str(staging)], check=True)
     # Sign only the copied runtime, never modify the user's SDK download.
-    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(staging)], check=True)
+    # A stable self-signed identity keeps TCC grants (mic, screen) across rebuilds;
+    # ad-hoc signatures change the cdhash and macOS re-prompts every build.
+    subprocess.run(["codesign", "--force", "--deep", "--sign", _signing_identity(), str(staging)],
+                   check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(staging)], check=True)
     if installed.exists():
         shutil.rmtree(installed)
