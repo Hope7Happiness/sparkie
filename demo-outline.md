@@ -2,6 +2,13 @@
 
 **Target length:** 75–90 seconds
 
+## Roles and overall plan
+
+- **User — host/narrator:** Opens the meeting, bridges each transition, and keeps the demo paced to the meeting-first story: discuss, wake Sparkie, keep talking while work runs, then decide from the result.
+- **Teammate — screen capture:** Records the meeting view, the visible task panel as it moves from `queued` to `running` to `completed`, and the result moment where the team makes its next decision.
+
+The demo stays anchored in a real-looking meeting rather than a product tour: show the task panel only as supporting evidence, keep Sparkie’s returned result concise and decision-ready, briefly reveal the architecture, then close on the meeting outcome.
+
 ## 1. Open in the meeting (0:00–0:10)
 
 **Show:** A live Zoom-style meeting with Sparkie visible as a quiet participant. Two teammates are deciding how to position their product.
@@ -10,7 +17,7 @@
 
 ## 2. Wake and delegate (0:10–0:32)
 
-**Show:** The team continues its discussion. A teammate speaks directly to Sparkie; a small task-status indicator changes to `queued`.
+**Show:** The team continues its discussion. A teammate speaks directly to Sparkie; the visible task panel changes to `queued`.
 
 **Say (teammate):** “Sparkie, compare the public voice meeting agents and tell us how to position this.”
 
@@ -18,13 +25,13 @@
 
 ## 3. Let the meeting continue (0:32–0:48)
 
-**Show:** Sparkie remains silent while the humans continue discussing the demo. Briefly show live transcript/context and the background task moving from `queued` to `running`.
+**Show:** Sparkie remains silent while the humans continue discussing the demo. Briefly show live transcript/context and the visible task panel moving from `queued` to `running`.
 
 **Say (presenter):** “The meeting doesn’t pause. Sparkie keeps the context and delegates the longer work in the background.”
 
 ## 4. Deliver a decision-ready result (0:48–1:05)
 
-**Show:** The task completes. Sparkie returns a compact spoken result plus a three-line result card.
+**Show:** The task panel reaches `completed`. Sparkie returns a compact spoken result plus a three-line, decision-ready result card; hold long enough to capture the team’s decision.
 
 **Say (Sparkie):** “Main result: position Sparkie as the quiet, explicitly invoked in-meeting teammate. It acknowledges by voice, delegates work without interrupting, and returns a short decision-ready answer.”
 
