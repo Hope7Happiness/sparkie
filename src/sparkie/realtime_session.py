@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from .local_session import device_id
+from .contracts import SpeechActivity
 from .providers import DeepgramEars, ProviderError, failure_details
 from .realtime import RealtimeAgent
 from .realtime_audio import RealtimeLocalAudio
@@ -96,7 +97,8 @@ async def run(args):
             lambda: DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
                                 model=model, language=args.language),
             speaker_name=audio.meeting.speaker_name, is_self=audio.meeting.is_self,
-            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit)
+            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit,
+            speech_events=True)
         ears.on_ready = dg_ready.set  # Router readiness; connections open when a participant speaks.
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
@@ -116,6 +118,11 @@ async def run(args):
         try:
             source = audio.participant_audio() if participant_stt else frames(queues[1])
             async for record in ears.transcribe(source):
+                if isinstance(record, SpeechActivity):
+                    handling_transcript = True
+                    await agent.participant_speech(record)
+                    handling_transcript = False
+                    continue
                 ledger.append(record)
                 emit('transcript', **asdict(record))
                 if output_policy is not None:
@@ -129,6 +136,12 @@ async def run(args):
                 stop.set()
                 raise  # Agent/native failures are not degraded Deepgram coverage.
             dg_active = False
+            if participant_stt:
+                try:
+                    await agent.participant_input_failed()
+                except Exception:
+                    stop.set()
+                    raise
             record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
                       'timestamp_ms': round(audio.captured_samples / 24)}
             ledger.append(record)
@@ -214,7 +227,9 @@ async def run(args):
         center.start()
         emit('transcription_config', provider='deepgram', model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
              language=args.language, sample_rate=32000 if participant_stt else 24000,
-             input_mode='per_participant' if participant_stt else 'mixed')
+             input_mode='per_participant' if participant_stt else 'mixed',
+             foreground_input='participant_final_text' if participant_stt else 'mixed_audio',
+             barge_in='participant_deepgram_vad' if participant_stt else 'mixed_input')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())
         running.extend([rt, dg])

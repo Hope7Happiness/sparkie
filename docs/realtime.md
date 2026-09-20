@@ -103,8 +103,32 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 4. 两位参会者轮流和同时发言、同名/改名、停顿后继续，核对 transcript 的 speaker_id、speaker、timestamp_ms。检查后台任务快照仍保留这些字段。
 5. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
 
-真实 Zoom 多人验收待进行。Realtime 混音前台仍沿用播放及后 350ms 门控，不支持该窗口内语音打断；macOS 分轨转写则继续记录其他用户，过滤机器人自身 ID，远端声学回声仍可能被识别。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
+真实 Zoom 多人验收待进行。macOS 分轨 VAD 已接通语音打断，前台改用分轨最终文本；Linux 混音路径仍受播放及后 350ms 门控限制。macOS 过滤机器人自身 ID，远端声学回声仍可能被识别。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
 
+
+### 分轨打断验收
+
+本地实现与离线测试不代替真人会议验收。先重建接收器，运行：
+
+~~~bash
+uv run --frozen python scripts/zoom-sanity.py build --platform macos
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600 --response-mode realtime
+~~~
+
+1. 用两个独立 Zoom 端参会，先戴耳机排除远端扬声器回声。说“Sparkie，详细介绍这个方案”，在回答过程中开口“我们先讨论一下”。预期先停播，普通讨论结束后保持安静；不要求等取消词或最终转写才停。
+2. 再唤醒，播放时说“Sparkie，只讲结论”。预期停掉旧音频，完整保留新的请求，听完之后生成新回答；没有旧句子续播或两段音频重叠。
+3. 说“Sparkie，stop”或“取消”，保持安静时不恢复。随后新的 Sparkie 唤醒可重新开口。
+4. 两位参会者重叠发言，任何一位开始都能停止 Sparkie；有效请求的回答等待所有活动音轨结束。没人说话时，Sparkie 不能仅因自身 SDK 音轨而停止。
+5. 在终端输入一行 {"action":"mute"} 检查停止；再输入 {"action":"unmute"} 后说不带唤醒词的请求，只有下一轮获准回复。打断前后的后台任务 ID/状态应保持连续。
+6. 核对 events.jsonl 的 zoom_human_speech_started → realtime_interrupted → transcript → zoom_human_speech_stopped → zoom_response_requested，以及 cancelled response 的迟到音频被丢弃。语音开始事件与模型事件可能因网络异步交错；只有远端听音/经同意的录音才能测量真实停止延迟。
+
+本轮验证记录（2026-09-19）：
+
+- Python 230 项离线测试、primitive/demo 模拟通过；前端 26 项测试及三个页面生产构建通过。
+- 仓库 participant-1.wav（32 kHz 单声道测试录音）经真实 Deepgram + ParticipantEars：测试开始后 296 ms 收到 started，2903 ms 收到最终转写和 stopped。只证明提供者会先发送语音开始事件；不是 Zoom 网络或远端停止延迟。脱敏结果保存在本地 .runtime/zoom-barge-in-deepgram.json。
+- macOS receiver 重新编译、签名验证通过；独立 SDK check 停在 SDK_INIT_BEGIN 后超时，工具提示检查系统钥匙串授权。尚未证明该超时的具体原因，未据此声称真人 Zoom 打断成功。
+
+当前限制：Deepgram 首次分轨连接和 VAD 网络延迟会影响停止速度；最终文本延迟决定重新回答的时机。过滤 SDK 自身 ID 不等于声学回声消除；共用同一 Zoom 端也不能分人。分轨服务失败会停播并记录 zoom_barge_in_unavailable，后台继续，自动语音需重启恢复。尚无本轮真人 Zoom 成功证据。
 
 ### 终端输出背压修复
 

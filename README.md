@@ -36,7 +36,7 @@ Zoom 接入支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker
 
 ## Zoom Realtime（当前主路径）
 
-macOS Meeting SDK 7.1.5 同时提供连续混音给 Realtime 前台、每位参会者的独立音轨给 Deepgram 转写。转写保留 Zoom 用户 ID、显示名和会议时间；多个同时发言者的音轨不会串接到前台。
+macOS Meeting SDK 7.1.5 提供每位参会者的独立音轨给 Deepgram；分轨语音开始事件触发打断，最终文本交给 Realtime 前台回应。转写保留 Zoom 用户 ID、显示名和会议时间；多个同时发言者的音轨不会串接到前台。
 
 配置 .env 中的 Zoom 凭据、ZOOM_MACOS_SDK_PATH、OPENAI_API_KEY、DEEPGRAM_API_KEY，以及所选后台 CLI 的登录，然后运行：
 
@@ -49,7 +49,7 @@ macOS Meeting SDK 7.1.5 同时提供连续混音给 Realtime 前台、每位参�
 
 多人测试包括轮流和重叠发言、同名用户、停顿后继续、改名/进出、后台任务期间继续对话。详见 [Realtime Zoom 验收](docs/realtime.md#zoom-中验收完整-agent)。离线与合成输入测试不代表真实 Zoom 多人验收；真人重叠发言、回声和长时间稳定性仍待验证。
 
-分轨转写过滤 Sparkie 自身用户 ID，播放期间仍记录其他用户；Realtime 混音前台暂保留播放及尾音 350 ms 门控，**这不代表前台已支持播放期间的语音打断**。远端声学回声仍可能进入分轨转写；共用同一 Zoom 麦克风的多人仍不能分人。Linux 保留混音转写。
+分轨转写过滤 Sparkie 自身用户 ID，播放期间仍记录其他用户；检测到真人开始说话后停止播放，最终文本叫到 Sparkie 才重新回应，普通讨论保持静音。Realtime 在此模式使用分轨最终文本，混音只保留静音时钟，避免重复输入和自触发。远端声学回声仍可能进入分轨转写；共用同一 Zoom 麦克风的多人仍不能分人。Linux 保留混音转写。
 
 ## Legacy：wake / qa
 

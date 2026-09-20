@@ -1,5 +1,20 @@
 # Phase 0 接口约定
 
+## macOS Zoom 分轨语音打断（当前行为）
+
+本节覆盖下文旧混音前台的打断限制，仅适用于支持 dual-input-v1 的 macOS Realtime 会话。Linux、browser/local 和 legacy wake/qa 保留既有输入路径。
+
+- 原生 U 音轨排除 SDK 自身 userID；ParticipantEars 再按 is_self 过滤。播放期间继续读取各真人音轨，不使用全局播放静音门控。
+- Deepgram 请求 vad_events=true。SpeechStarted 立即产生共享 SpeechActivity(phase, timestamp_ms, speaker_id, stream_id)；未收到 VAD 开始时，首个非空识别结果作为后备。不是以“任意非零 PCM”判断真人开始说话。首次连接与网络/VAD 延迟仍影响实际停止时间。
+- SpeechActivity 与 TranscriptEvent 经同一有界队列按每条连接的顺序送入 RealtimeAgent。started 立即取消生成、停止/清空播放，沿用 cancel-v1 和语义截断。speech_final / UtteranceEnd 或正常关闭该连接释放 speaking 状态；无文本时不伪造用户请求。重复最终结果不再触发打断。
+- 使用分轨最终文本作为 Realtime 的权威用户输入，包括普通讨论与播放期间的发言。原 A 混音流保留采集时钟，但发给 Realtime 的 PCM 全部置零；不把混音和分轨文本当成两轮输入。输入模式由会话启动时确定，不调用人工 human_turn 切换，不依赖前台混音 VAD。前台因此等待 Deepgram 最终文本，不再直接理解该模式的原始声学输入。
+- 普通人声一开始就停止 Sparkie，但不自动授权回复；最终文本仍按既有 Sparkie/Sparky 唤醒和取消规则开/闭输出。mute 停止当前输出；unmute 只放行下一轮最终文本，并保留到该轮 VAD 开始之后。新回答等待所有正在说话的参会音轨结束及旧 response.done；不续播旧 PCM。
+- 打断不取消后台工作。被打断的结果播报继续保留 pending 语义。分轨识别失败时停止当前输出，保持 Realtime 连接和后台任务，记录 zoom_barge_in_unavailable 与转写覆盖缺口；不会静默降级为可能自打断的混音。恢复自动语音需重启会话；可信 human_turn 手动文本控制仍可用。
+
+诊断：zoom_human_speech_started / zoom_human_speech_stopped 含 speaker_id、stream_id；开始事件在本地/native 取消之前发出，其 elapsed_ms 表示应用收到语音事件，不是远端听到停止的时刻。transcription_config.foreground_input=participant_final_text、barge_in=participant_deepgram_vad。分轨 ID 排除机器人自身音轨，不能排除他人麦克风重新录入的扬声器回声，也不能区分共用同一 Zoom 端的多人。
+
+离线测试覆盖真实适配器间的事件/状态闭环，不代表真实 Zoom 会议验收或远端可听延迟已通过。启动和真人验收见 docs/realtime.md 的“分轨打断验收”。
+
 ## 本地双人讨论转写测试页
 
 当前 /multitrack.html 使用两个互斥的麦克风按钮，将同一真实麦克风路由到两个模拟参会者；点击当前按钮可全部静音。两路共用 32 kHz AudioWorklet 时钟，每 20 ms 发送当前参与者 PCM 与另一条零填充音轨。切换时清除旧部分帧，主线程按 capture epoch 拒绝切换前排队的语音，避免跨身份串音。页面只调用真实 Deepgram，不加入 Zoom、不调用 Realtime 或后台任务。
@@ -68,7 +83,7 @@ macOS `E` 现在为版本 1 JSON：`reason` 只允许 `sdk_send_failed` / `playb
 
 ### macOS Zoom Realtime 分用户转写（SDK 7.1.5）
 
-RealtimeZoomAudio 在入会前选择 participant_audio=true、mixed_audio=true。原生桥同时发送 A 连续混音与 U 分用户音频；Python 为两者使用独立有界队列。A 只进入 32→24 kHz 重采样和 Realtime 前台；U 只进入 ParticipantEars 与独立 Deepgram 连接。两者不能拼接，U 也不会再复制到混音转写队列。Linux 和浏览器保持原有转写链路。wake/qa 为 legacy，保留其原有独立模式。
+RealtimeZoomAudio 在入会前选择 participant_audio=true、mixed_audio=true。原生桥同时发送 A 连续混音与 U 分用户音频；Python 为两者使用独立有界队列。A 进入 32→24 kHz 重采样以保留前台输入时钟，当前分轨模式发送给 Realtime 前会置零；U 进入 ParticipantEars 与独立 Deepgram 连接，提供前台 VAD 边界和最终文本。两者不能拼接，U 也不会再复制到混音转写队列。Linux 和浏览器保持原有转写链路。wake/qa 为 legacy，保留其原有独立模式。
 
 macOS H 握手必须是 ASCII cancel-v1,dual-input-v1；旧二进制会明确提示重建。Linux 仍使用 cancel-v1。既有取消确认协议保持不变。
 
@@ -81,11 +96,11 @@ AudioFrame 携带可选 speaker_id、timestamp_ms；优先使用归一化 SDK ge
 
 ParticipantEars 按用户分流，每条连接独立断句。仅非零 PCM 建立/续期连接，1.5 秒无非零帧后补 500 ms 静音并关闭；之后发言开启新段，事件 ID 带用户和段编号。段内空隙补静音，长停顿按新会议时间偏移处理。噪声可能保持连接，这不是语义 VAD。默认并发上限 32（含结束中的连接），SPARKIE_ZOOM_MAX_STT_STREAMS 可设为 1–64。
 
-Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台 A 仍继续。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
+Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台连接和后台任务仍继续，但自动语音输出关闭。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
 
 启动 transcript_ready 的 readiness=router 仅表示分流器可接收；每位用户的真实连接就绪单独记录 participant_stt_ready。结束时先停止分轨输入、排空并刷新转写，最多等 10 秒，超时记录缺口，然后关闭所有连接。transcript.jsonl 按结果到达顺序保存，后台快照保留身份与时间；run.json 的 transcript 按 timestamp_ms 排序。
 
-同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。前台混音播放门控仍限制播放期间的语音打断。离线或合成输入验证不作为真实多人会议成功证据。
+同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。当前前台通过独立分轨 VAD 打断，不依赖混音门控。离线或合成输入验证不作为真实多人会议成功证据。
 
 ## Realtime 前台与后台分析（本地验收）
 
@@ -201,7 +216,7 @@ The output permit belongs to a response chain, including its legitimate tool con
 
 There is no product speech-duration limit and Zoom's former per-item 120-second generation limit is removed. The aggregate bounded pending-PCM capacity remains 120 seconds (7,680,000 bytes plus one in-flight packet); it is a backlog safety limit, not a maximum total reply duration. Overflow still fails explicitly/cancels rather than dropping audio or growing unbounded. Long replies drain normally while generation continues. Configured overall session expiry also remains in force.
 
-Tasks created by an authorized response chain (delegate_task or the direct create_desktop_file/open_website tools) receive zoom_output_origin=addressed_turn in tasks.json and an in-session eligibility record. Only their pending notification attempts may open output at the existing idle opportunity; unrelated task completions remain pending/visible and cannot open output or be automatically mixed into offered semantics. Mute/interruption returns affected offers to pending without cancelling jobs or marking them delivered. Confirmed states remain unchanged. Automatic reannouncement pauses after dismissal/manual mute until a new wake; pending information is reconsidered on that new chain or an explicit eligible report_task. Eligibility is not restored as an output permit after restart.
+Tasks created by an authorized response chain (delegate_task) receive zoom_output_origin=addressed_turn in tasks.json and an in-session eligibility record. Only their pending notification attempts may open output at the existing idle opportunity; unrelated task completions remain pending/visible and cannot open output or be automatically mixed into offered semantics. Mute/interruption returns affected offers to pending without cancelling jobs or marking them delivered. Confirmed states remain unchanged. Automatic reannouncement pauses after dismissal/manual mute until a new wake; pending information is reconsidered on that new chain or an explicit eligible report_task. Eligibility is not restored as an output permit after restart.
 
 Trusted controls: {"action":"mute"} immediately revokes the current chain and stops/clears all queued audio through semantic interruption and cancel-v1; jobs and input continue. {"action":"unmute"} also clears/revokes any stale chain and arms the **next final human turn**, even without a wake name; it does not replay PCM, immediately speak, or enable all future turns. A wake name can reopen output after mute; mute is not a permanent hard lock. In external-human mode, final human_turn text uses the same rules; start still stops current playback. Speaker separation is not implemented. Existing external-text input selection remains an independent input mode, never a consequence of mute/unmute.
 

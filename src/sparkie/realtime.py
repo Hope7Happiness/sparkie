@@ -106,6 +106,8 @@ class RealtimeAgent:
         self.response_id = None
         self.response_pending = False
         self.user_speaking = False
+        self.participant_input = bool(getattr(audio, 'participant_transcription', False))
+        self.participant_speakers = set()
         self.speaking_item = None
         self.cancelled = set()
         self.calls = set()
@@ -140,6 +142,45 @@ class RealtimeAgent:
         self.legacy_announcements = {}
         self.output_policy = output_policy
 
+    async def participant_speech(self, event):
+        """Only the self-filtered participant router calls this boundary."""
+        if not self.participant_input or self.external_input or not event.stream_id:
+            return
+        async with self.turn_lock:
+            if event.phase == 'started':
+                if event.stream_id in self.participant_speakers:
+                    return
+                self.participant_speakers.add(event.stream_id)
+                self.user_speaking = True
+                # A manual unmute arms the final turn, not the VAD start.
+                manual_next = self.output_policy.manual_next
+                had_output = self.output_policy.chain is not None
+                notifications_paused = self.output_policy.notifications_paused
+                self.emit('zoom_human_speech_started', speaker_id=event.speaker_id,
+                          stream_id=event.stream_id, timestamp_ms=event.timestamp_ms)
+                await self._interrupt()
+                self.output_policy.manual_next = manual_next
+                if not had_output:
+                    self.output_policy.notifications_paused = notifications_paused
+            elif event.phase == 'stopped' and event.stream_id in self.participant_speakers:
+                self.participant_speakers.remove(event.stream_id)
+                self.user_speaking = bool(self.participant_speakers)
+                self.last_user_stop = time.monotonic()
+                self.emit('zoom_human_speech_stopped', speaker_id=event.speaker_id,
+                          stream_id=event.stream_id)
+                if not self.user_speaking:
+                    self.awaiting_turn = False
+                    if self.turn_response_due:
+                        await self._request_response()
+
+    async def participant_input_failed(self):
+        # Without participant VAD/STT we cannot safely authorize further automatic output.
+        async with self.turn_lock:
+            await self._interrupt()
+            self.participant_speakers.clear()
+            self.user_speaking = False
+            self.emit('zoom_barge_in_unavailable', reason='participant_transcription_failed')
+
     async def human_transcript(self, record):
         if self.output_policy is None or self.external_input:
             return
@@ -150,9 +191,14 @@ class RealtimeAgent:
             if identifier in self.output_policy.seen:
                 return
             self.output_policy.seen.add(identifier)
-            await self._zoom_transcript(record['text'])
+            if self.participant_input:
+                # Include ordinary discussion and words spoken during playback. Mixed
+                # audio is silenced for this mode, so there is one authoritative input.
+                await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
+                    'role': 'user', 'content': [{'type': 'input_text', 'text': record['text']}]}})
+            await self._zoom_transcript(record['text'], context_entered=self.participant_input)
 
-    async def _zoom_transcript(self, text):
+    async def _zoom_transcript(self, text, *, context_entered=False):
         policy = self.output_policy
         decision, text = policy.evaluate(text)
         if decision == 'ignore':
@@ -166,8 +212,9 @@ class RealtimeAgent:
         policy.open('addressed_turn')
         # Keep the live input stream/context. Deepgram and Realtime lack a shared
         # turn ID, so explicitly identify this finalized request instead of guessing.
-        await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
-            'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}})
+        if not context_entered:
+            await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
+                'role': 'user', 'content': [{'type': 'input_text', 'text': text}]}})
         await self.user_turn_available()
 
     def collect_legacy_notice(self, job):
@@ -277,7 +324,7 @@ class RealtimeAgent:
             raise ProviderError('Realtime requires PCM16 mono 24000Hz')
         # Once selected, external text is authoritative for the rest of the session.
         # Never combine delayed mixed-microphone VAD turns with that human stream.
-        pcm = bytes(len(frame.pcm)) if self.external_input else frame.pcm
+        pcm = bytes(len(frame.pcm)) if self.external_input or self.participant_input else frame.pcm
         await self.send({'type': 'input_audio_buffer.append', 'audio': base64.b64encode(pcm).decode()})
         self.sent_seconds += len(frame.pcm) / 48000
 
@@ -366,6 +413,8 @@ class RealtimeAgent:
                     self.external_turn = turn_id
                     first_external_turn = not self.external_input
                     self.external_input = True
+                    self.participant_speakers.clear()
+                    self.user_speaking = False
                     manual_next = self.output_policy.manual_next if self.output_policy else False
                     await self._interrupt()
                     if self.output_policy is not None:
@@ -408,7 +457,7 @@ class RealtimeAgent:
 
     async def user_turn_available(self):
         self.awaiting_turn = False
-        self.user_speaking = False
+        self.user_speaking = bool(self.participant_speakers)
         self.last_user_stop = time.monotonic()
         self.turn_response_due = True
         await self._request_response()
@@ -447,7 +496,7 @@ class RealtimeAgent:
                 return
             if item_id:
                 self.started_audio_turns.add(item_id)
-            if self.external_input:
+            if self.external_input or self.participant_input:
                 self.ignored_audio_turns.add(event.get('item_id'))
                 return
             self.active_audio_turn = item_id
@@ -456,7 +505,7 @@ class RealtimeAgent:
                 await self._interrupt(cancel=False)  # Server VAD already cancels generation.
             self.emit('user_speech_started')
         elif kind == 'input_audio_buffer.speech_stopped':
-            if self.external_input or event.get('item_id') in self.ignored_audio_turns:
+            if self.external_input or self.participant_input or event.get('item_id') in self.ignored_audio_turns:
                 return
             if self.active_audio_turn and event.get('item_id') != self.active_audio_turn:
                 return
@@ -468,7 +517,7 @@ class RealtimeAgent:
             item_id = event.get('item_id')
             if not isinstance(item_id, str) or not item_id:
                 return
-            if self.external_input or item_id in self.ignored_audio_turns:
+            if self.external_input or self.participant_input or item_id in self.ignored_audio_turns:
                 # Server may already have committed a mixed-input item before clear.
                 if item_id and item_id not in self.seen_audio_turns:
                     self.seen_audio_turns.add(item_id)

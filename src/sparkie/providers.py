@@ -6,7 +6,7 @@ from urllib.parse import urlencode, quote
 import httpx
 from websockets.asyncio.client import connect
 
-from .contracts import TranscriptEvent
+from .contracts import TranscriptEvent, SpeechActivity
 from .reasoning import ANSWER_INSTRUCTIONS, conversation_input
 
 
@@ -162,7 +162,7 @@ def deepgram_url(rate: int, model: str, language: str) -> str:
     return "wss://api.deepgram.com/v1/listen?" + urlencode({
         "model": model, "language": language, "encoding": "linear16",
         "sample_rate": rate, "channels": 1, "interim_results": "true",
-        "endpointing": 300, "utterance_end_ms": 1000, "punctuate": "true", "keyterm": "Sparkie",
+        "vad_events": "true", "endpointing": 300, "utterance_end_ms": 1000, "punctuate": "true", "keyterm": "Sparkie",
     })
 
 
@@ -219,11 +219,12 @@ class Utterances:
 
 class DeepgramEars:
     """Streaming adapter for a future real AudioMeeting. No network in simulation."""
-    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect, on_ready=None, on_partial=None):
+    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect, on_ready=None, on_partial=None, speech_events=False):
         self.key, self.meeting_id, self.rate = key, meeting_id, rate
         self.model, self.language, self.connector = model, language, connector
         self.on_ready = on_ready
         self.on_partial = on_partial
+        self.speech_events = speech_events
 
     async def transcribe(self, frames):
         queue = asyncio.Queue(maxsize=128)
@@ -261,8 +262,25 @@ class DeepgramEars:
             async def receive():
                 sequence = 0
                 previous_partial = ''
+                speaking = False
+                last_vad_start = -1
                 async for raw in ws:
                     message = json.loads(raw)
+                    channel = message.get('channel', {})
+                    alternatives = channel.get('alternatives', []) if isinstance(channel, dict) else []
+                    words = alternatives[0].get('transcript', '').strip() if alternatives else ''
+                    key = (message.get('start'), message.get('duration'), words)
+                    replayed_final = bool(message.get('is_final') and key in utterances.seen)
+                    vad_start = message.get('type') == 'SpeechStarted'
+                    timestamp = message.get('timestamp', 0)
+                    if vad_start:
+                        vad_start = timestamp > last_vad_start
+                        last_vad_start = max(last_vad_start, timestamp)
+                    has_words = bool(words) and not replayed_final
+                    if self.speech_events and not speaking and (vad_start or has_words):
+                        speaking = True
+                        timestamp = message.get('timestamp', message.get('start', 0))
+                        queue.put_nowait(SpeechActivity('started', round(timestamp * 1000)))
                     text = utterances.feed(message)
                     if self.on_partial and message.get('type') in ('Results', 'UtteranceEnd'):
                         parts = list(utterances.parts)
@@ -279,6 +297,10 @@ class DeepgramEars:
                         sequence += 1
                         timestamp_ms = round(utterances.end_seconds * 1000)
                         queue.put_nowait(TranscriptEvent(self.meeting_id, f"dg-{sequence}", timestamp_ms, text))
+                    if self.speech_events and speaking and not replayed_final and (text or message.get('speech_final') or
+                            message.get('type') == 'UtteranceEnd'):
+                        speaking = False
+                        queue.put_nowait(SpeechActivity('stopped', round(utterances.end_seconds * 1000)))
 
             async def supervise():
                 tx = asyncio.create_task(send())
