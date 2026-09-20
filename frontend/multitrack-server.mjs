@@ -34,7 +34,6 @@ export function multitrackApi(port = 5178) {
             ws.close();
           };
           active = stop;
-          const timeout = setTimeout(stop, 95000); timeout.unref();
           const lines = createInterface({ input: child.stdout });
           lines.on('line', line => {
             try { send(JSON.parse(line)); }
@@ -50,7 +49,7 @@ export function multitrackApi(port = 5178) {
           child.stdin.on('error', stop);
           child.on('error', () => { send({ type: 'failed', reason: 'backend_unavailable' }); stop(); if (active === stop) active = null; });
           child.on('exit', code => {
-            clearTimeout(timeout); lines.close();
+            lines.close();
             if (code !== 0 && !stopped) send({ type: 'failed', reason: 'backend_exited' });
             stopped = true; if (active === stop) active = null; ws.close();
           });

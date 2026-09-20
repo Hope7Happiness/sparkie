@@ -1,23 +1,30 @@
-# 本地多音轨转写测试
+# 本地双人讨论转写测试
 
-启动 `bash scripts/web.sh`，打开 http://localhost:5178/multitrack.html；语音首页“设置”中也有入口。需要服务端 `.env` 的 DEEPGRAM_API_KEY；默认模型 nova-3，默认识别语言 English。
+启动命令：bash scripts/web.sh。打开 http://localhost:5178/multitrack.html；语音首页“设置 → 双人讨论测试”也可进入。服务端需要 .env 中的 DEEPGRAM_API_KEY，默认模型 nova-3，默认识别语言 English。
 
-本页只模拟参会者输入并调用真实 Deepgram，不加入 Zoom、不调用 GPT Realtime 或 Devin，也不提供假转写/离线模式。单路 Realtime 混音由正式会议入口处理，与此页面独立。
+## 使用
 
-## 操作
+1. 点击左侧或右侧麦克风直接开始，以这一侧的身份发言。“开始讨论”默认启用左侧。
+2. 点击另一侧自动切换发言身份，原来一侧立即静音。同一时间最多启用一侧；再次点击已启用的麦克风，两侧全部静音。
+3. 下方左右两栏分别显示两人的实际转写。设置中可更改显示名、识别语言和使用的物理麦克风；同名仍按两个独立 ID 区分。
+4. 点击“结束讨论”释放麦克风，并等待最后的转写。讨论无固定时长上限，静音期间仍可随时点击任一侧继续。已完成或中断的记录均可导出。
 
-1. 默认加载两路英文合成语音；点“开始测试”可同时发送。也可以分别上传浏览器支持的音频文件或点击“录制音轨”。录音在本机完成，开始测试后才发送音频。
-2. 为每条音轨填写名字及起点偏移。最多四路，每轮含偏移最多 60 秒。允许同名；身份由独立的 zoom:1、zoom:2 等模拟 ID 区分。录音需要 localhost 或可信 HTTPS。
-3. 可选择同时从扬声器回放。回放只供听音核对；提供者输入来自独立音轨 PCM，不从扬声器重新采集。
-4. 查看分轨文本及时间。语音时间是 Deepgram 词尾时间加音轨在共同时间轴上的偏移；“收到于”是浏览器收到结果距本轮开始的时间，不是精确识别延迟。
-5. 停止会结束这一轮输入及连接，已显示文本保留但可能不完整。正常完成后可导出完整结果。服务器产物在 output/multitrack/<session>/，包含 transcript.jsonl、events.jsonl、run.json；不保存输入录音。
+两个按钮共用同一只真实麦克风，适合一个人切换身份模拟轮流讨论，不是两个物理输入设备，也不能模拟同时说话。麦克风需要 localhost 或可信 HTTPS。页面沿用原语音前端样式，但只调用真实 Deepgram 进行转写，不加入 Zoom、不调用 Realtime 或 Devin，不提供离线假转写。
 
-## 测试边界
+## 音频与结果
 
-浏览器先把每路音频解码为 32 kHz 单声道 PCM16，按统一时钟每 20 ms 发送一组分轨帧。Python 使用生产 ZoomMacAudioMeeting 的 U 帧解码/独立队列和 ParticipantEars 分流器，每位活跃参会者独立连接 Deepgram；不会生成或转写混音。每个连接最多一轮，当前服务一次允许一轮多轨测试；输入积压、提供者错误、断开或超时明确结束，不伪造结果。
+浏览器持续采集为 32 kHz PCM16，每 20 ms 发出两路帧；当前身份使用真实音频，另一条填零，全部静音则两路都填零。切换会丢弃至多一个未完成的 20 ms 片段及已排队的旧身份帧，避免把上一人的话写到下一人名下；建议说完一句后再切换。
 
-2026-09-19 浏览器真实链路验证：两路示例完全重叠时，分别得到 bicycle / apple 原句，身份对应 zoom:1 / zoom:2；改为相同显示名且第二路偏移 1 秒后，两条文本仍正确隔离，第二路词尾时间由 1840 ms 变为 2840 ms。证据保存在本机 output/multitrack/20260919T211829-c04e1f85/ 与 20260919T211833-6d4466d8/。这些是浏览器模拟输入到真实 Deepgram 的结果，不是 Zoom SDK 入会或真实多人会议验证。
+Python 使用生产 ZoomMacAudioMeeting 的 U 帧解码/独立队列及 ParticipantEars 分流器，每位活跃参会者独立连接 Deepgram。切换身份不重启整场会话；识别流按生产路由器的静音策略关闭和重开。显示时间来自词尾在整场讨论中的位置，不能当作识别延迟。服务器产物保存在 output/multitrack/<session>/，包含 transcript.jsonl、events.jsonl、run.json，不保存原始音频。
 
-同日补充验证：通过浏览器上传四路音频并同时发送，四个独立 ID 均得到各自正确文本（output/multitrack/20260919T212056-4a32f267/）；中途停止后可重新开始。浏览器本机麦克风录制约 1 秒后成功生成音轨，停止后媒体轨道状态为 ended；此项只验证录音与释放资源。390 px 宽视口无横向溢出。
+输入积压、设备失联、转写失败或连接断开会明确结束会话并保留已收到的文本。关闭页面会释放麦克风与本轮后端进程。真实 Zoom 入会、回声与会议表现仍需另行验收。
 
-运行回归：`uv run --frozen python -m unittest discover -s tests -v`（204 项通过）、`npm --prefix frontend test`（18 项通过）、`npm --prefix frontend run build`、`bash scripts/primitive.sh`、`bash scripts/demo.sh` 均通过。单元测试中的替身提供者只验证错误清理和路由隔离；primitive/demo 是原有离线回归，不作为真实识别证据。
+## 验证
+
+AudioWorklet 单元测试验证半帧切换不串音、全静音、恢复及停止。运行回归：uv run --frozen python -m unittest discover -s tests -v、npm --prefix frontend test、npm --prefix frontend run build、bash scripts/primitive.sh、bash scripts/demo.sh。primitive/demo 是既有离线回归，不作为真实识别证据。
+
+2026-09-19 当前界面验证：204 项 Python 测试、20 项前端测试、构建与两个回归脚本均通过。浏览器中将两条固定英文音频接入 MediaStream 后，实际经过页面 AudioWorklet → WebSocket → 生产分轨路由 → 真实 Deepgram；左→右→左三次分别得到 bicycle / apple / bicycle 原句，身份正确。全静音期间两路 PCM 都为零，未出现同时启用或送错身份的帧；结束时最后一句完整排空，媒体轨道停止。产物：output/multitrack/20260919T213241-1fb1ab66/。这是固定音频注入测试，不是声学识别证明。
+
+另用原生麦克风及扬声器回放验证了设备采集、左右互斥、全部静音、超过原 95 秒连接上限后仍可继续、结束释放设备及再次点击右侧重启。右侧 apple 原句正确识别，但这轮左侧 bicycle 未正确识别，因此不宣称完整声学识别验收通过；记录在 output/multitrack/20260919T212954-d8850bce/。390 px 视口保持左右麦克风且无横向溢出。
+
+之前文件音轨界面的两路/四路真实 Deepgram 验证记录保存在 output/multitrack/20260919T211829-c04e1f85/、20260919T211833-6d4466d8/ 与 20260919T212056-4a32f267/；这些只证明之前的分轨输入链路，不能替代当前实时麦克风界面的验收。

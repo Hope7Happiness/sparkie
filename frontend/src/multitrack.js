@@ -1,204 +1,164 @@
 import './multitrack.css';
 
 const $ = selector => document.querySelector(selector);
-const tracks = [];
-let context, socket, running = false, recording = null, recordingTimer, recordingPending = false;
-let timer, startedAt = 0, frameIndex = 0, totalFrames = 0, sources = [], events = [], result = null;
-const RATE = 32000, FRAME = 640;
+const silence = btoa('\0'.repeat(1280));
+let current = null, events = [], result = null;
+const names = () => [0, 1].map(i => $('#speaker-' + i).value.trim());
 const setError = message => { $('#error').textContent = message || ''; };
 const status = message => { $('#state').textContent = message; };
-const seconds = ms => (ms / 1000).toFixed(2) + ' s';
-function refresh() {
-  $('#start').disabled = running || !!recording || recordingPending || tracks.some(t => !t.samples || t.loading);
-  $('#stop').disabled = !running;
-  $('#add').disabled = running || !!recording || tracks.length >= 4;
-  $('#samples').disabled = running || !!recording;
-  $('#language').disabled = running;
-  $('#track-count').textContent = tracks.length;
-  for (const track of tracks) {
-    for (const input of track.card.querySelectorAll('input, button')) input.disabled = running || (!!recording && recording.track !== track);
-  }
+function clock(ms) {
+  const seconds = Math.floor(ms / 1000);
+  return String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
 }
-function audioContext() {
-  context ||= new AudioContext();
-  return context;
+function render() {
+  const active = current?.phase === 'listening';
+  const busy = !!current;
+  $('#start').hidden = busy; $('#stop').hidden = !busy;
+  $('#stop').disabled = current?.phase === 'finishing';
+  $('#timeline').hidden = !busy && !events.length;
+  $('.settings-drawer').querySelectorAll('input,select,button').forEach(el => { el.disabled = busy; });
+  [0, 1].forEach(i => {
+    const selected = active && current.speaker === i, name = names()[i] || ('发言人' + (i + 1));
+    $('#name-' + i).textContent = name; $('#transcript-name-' + i).textContent = name;
+    $('#mic-' + i).setAttribute('aria-pressed', String(selected));
+    $('#mic-' + i).setAttribute('aria-label', (selected ? '静音' : '启用') + name + '麦克风');
+    $('#mic-' + i).disabled = busy && !active;
+    $('[data-side="' + i + '"]').classList.toggle('active', selected);
+    $('#mic-state-' + i).textContent = selected ? '正在聆听 · 点击静音' : busy ? '已静音' : '点击开始说话';
+    if (!selected) $('#level-' + i).style.width = '0%';
+  });
+  if (active) $('#notice').textContent = current.speaker < 0 ? '两侧已静音，点击任意一侧继续。' : names()[current.speaker] + '正在发言，点击另一侧切换。';
+  $('#export').disabled = !events.length;
 }
-async function setAudio(track, bytes, label, blob) {
-  const version = ++track.version;
-  track.loading = true; refresh();
-  try {
-  const decoded = await audioContext().decodeAudioData(bytes.slice(0));
-  if (decoded.duration > 60 || decoded.duration < .05) throw new Error('请选择 0.05–60 秒的音频。');
-  const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * RATE), RATE);
-  const input = offline.createBufferSource(); input.buffer = decoded; input.connect(offline.destination); input.start();
-  const rendered = await offline.startRendering();
-  if (track.version !== version) return;
-  track.samples = rendered.getChannelData(0).slice(); track.buffer = rendered;
-  track.source.textContent = label + ' · ' + rendered.duration.toFixed(2) + ' 秒';
-  if (track.url) URL.revokeObjectURL(track.url);
-  track.url = URL.createObjectURL(blob); track.audio.src = track.url;
-  } finally { if (track.version === version) track.loading = false; refresh(); }
+function selectSpeaker(index) {
+  if (!current) { start(index); return; }
+  if (current.phase !== 'listening') return;
+  current.speaker = current.speaker === index ? -1 : index;
+  current.epoch++;
+  current.stream.getAudioTracks().forEach(track => { track.enabled = current.speaker >= 0; });
+  current.node.port.postMessage({ type: 'select', enabled: true, speaker: current.speaker, epoch: current.epoch });
+  render();
 }
-function addTrack() {
-  const index = tracks.length;
-  const card = document.createElement('div'); card.className = 'track';
-  card.innerHTML = '<h3></h3><div class="fields"><label>显示名<input class="name" maxlength="80"></label><label>起点（秒）<input class="offset" type="number" value="0" min="0" max="55" step="0.1"></label></div><p class="source">上传音频或录制一段话</p><input class="upload" type="file" accept="audio/*"><audio controls></audio><div class="buttons"><button class="record quiet">录制音轨</button></div>';
-  card.querySelector('h3').textContent = '音轨 ' + (index + 1) + ' · zoom:' + (index + 1);
-  card.querySelector('.name').value = ['Ava', 'Leo', 'Mia', 'Noah'][index];
-  const track = { card, source: card.querySelector('.source'), audio: card.querySelector('audio'), samples: null, version: 0 };
-  tracks.push(track); $('#tracks').append(card);
-  card.querySelector('.upload').onchange = async event => {
-    const file = event.target.files[0]; if (!file) return;
-    try {
-      if (file.size > 15 * 1024 * 1024) throw new Error('请选择小于 15 MB 的音频文件。');
-      setError(); $('#start').disabled = true;
-      await setAudio(track, await file.arrayBuffer(), file.name, file);
-    } catch (error) { setError(error.message || '无法解码音频，请换一个文件。'); refresh(); }
-  };
-  card.querySelector('.record').onclick = () => record(track).catch(error => { setError(error.message); refresh(); });
-  refresh();
+function releaseAudio(session) {
+  session.node?.port.postMessage({ type: 'select', enabled: false, speaker: -1, epoch: ++session.epoch });
+  session.stream?.getTracks().forEach(track => track.stop());
+  session.source?.disconnect(); session.node?.disconnect();
+  if (session.context?.state !== 'closed') session.context?.close().catch(() => {});
+  clearInterval(session.watchdog);
 }
-async function record(track) {
-  if (recording?.track === track) { recording.recorder.stop(); return; }
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('录音需要 localhost 或可信 HTTPS。');
-  if (recording || running || recordingPending) return;
-  recordingPending = true; refresh();
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } }); }
-  finally { recordingPending = false; refresh(); }
-  let recorder;
-  try { recorder = new MediaRecorder(stream); }
-  catch (error) { stream.getTracks().forEach(t => t.stop()); throw error; }
-  const chunks = [];
-  recording = { track, recorder, stream };
-  const button = track.card.querySelector('.record'); button.textContent = '结束录制'; button.classList.add('recording');
-  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-  recorder.onstop = async () => {
-    clearTimeout(recordingTimer); stream.getTracks().forEach(t => t.stop()); recording = null;
-    button.textContent = '录制音轨'; button.classList.remove('recording');
-    try {
-      const blob = new Blob(chunks, { type: recorder.mimeType });
-      await setAudio(track, await blob.arrayBuffer(), '本机录音', blob);
-    } catch (error) { setError(error.message || '录音处理失败。'); }
-    refresh();
-  };
-  recorder.start(); refresh();
-  recordingTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 55000);
+function closeSession(session, message, error) {
+  releaseAudio(session); clearTimeout(session.deadline);
+  session.ws?.close();
+  if (current !== session) return;
+  current = null;
+  if (error) setError(error);
+  status(message); $('#notice').textContent = message; render();
 }
-async function samples() {
-  setError(); $('#start').disabled = true;
-  await Promise.all(tracks.slice(0, 2).map(async (track, index) => {
-    const response = await fetch('/samples/participant-' + (index + 1) + '.wav');
-    if (!response.ok) throw new Error('示例音频加载失败。');
-    const blob = await response.blob();
-    await setAudio(track, await blob.arrayBuffer(), index ? 'The red apple is on the kitchen table.' : 'The blue bicycle is parked outside the library.', blob);
-  }));
-  status('示例已就绪。默认同时发言，也可以调整起点。'); refresh();
-}
-function stopPlayback() {
-  clearTimeout(timer);
-  for (const source of sources) { try { source.stop(); } catch {} }
-  sources = [];
-}
-function finishUI(message) {
-  stopPlayback(); running = false; refresh(); status(message);
-  $('#export').disabled = events.length === 0;
-}
-function stop() {
-  const current = socket; socket = null; current?.close();
-  if (running) finishUI('已停止。已收到的转写保留，本轮可能不完整。');
-}
-function pcmPacket(track, frame) {
-  const pcm = new Uint8Array(FRAME * 2), view = new DataView(pcm.buffer);
-  const offset = frame * FRAME - track.offsetSamples;
-  for (let i = 0; i < FRAME; i++) {
-    const value = Math.max(-1, Math.min(1, track.samples[offset + i] || 0));
-    view.setInt16(i * 2, Math.round(value * (value < 0 ? 32768 : 32767)), true);
-  }
-  return btoa(String.fromCharCode(...pcm));
-}
-function pump() {
-  if (!running || socket?.readyState !== WebSocket.OPEN) return;
-  const elapsed = performance.now() - startedAt;
-  if (socket.bufferedAmount > 256 * 1024 || elapsed - frameIndex * 20 > 1500) {
-    setError('音频发送积压，已停止本轮。请保持测试页在前台后重试。'); stop(); return;
-  }
-  const due = Math.min(totalFrames, Math.floor(elapsed / 20) + 1);
-  while (frameIndex < due) {
-    socket.send(JSON.stringify({ action: 'frame', sequence: frameIndex, tracks: tracks.map(t => pcmPacket(t, frameIndex)) }));
-    frameIndex++;
-  }
-  $('#timeline').textContent = seconds(frameIndex * 20);
-  if (frameIndex >= totalFrames) {
-    socket.send(JSON.stringify({ action: 'finish' })); status('音频已发送，等待各音轨最终转写…'); return;
-  }
-  timer = setTimeout(pump, Math.max(1, frameIndex * 20 - (performance.now() - startedAt)));
+function finish() {
+  const session = current;
+  if (!session || session.phase === 'finishing') return;
+  if (session.phase !== 'listening') { closeSession(session, '已取消连接。'); return; }
+  session.phase = 'finishing'; releaseAudio(session); render();
+  status('正在结束'); $('#notice').textContent = '麦克风已关闭，等待最后的转写…';
+  session.ws.send(JSON.stringify({ action: 'finish' }));
+  session.deadline = setTimeout(() => closeSession(session, '已结束，转写可能不完整。', '等待最终转写超时。'), 20000);
 }
 function renderTranscript(event) {
-  const container = document.querySelector('[data-speaker="' + event.speaker_id + '"]');
-  if (!container) return;
-  container.querySelector('.empty')?.remove();
-  const line = document.createElement('div'); line.className = 'line';
-  const time = document.createElement('small'); time.textContent = '语音时间 ' + seconds(event.timestamp_ms) + ' · 收到于 ' + seconds(event.received_ms);
+  const index = { 'zoom:1': 0, 'zoom:2': 1 }[event.speaker_id];
+  if (index === undefined) return;
+  const feed = $('#transcript-' + index); feed.querySelector('.empty')?.remove();
+  const row = document.createElement('div'); row.className = 'entry';
+  const time = document.createElement('small'); time.textContent = clock(event.timestamp_ms);
   const text = document.createElement('p'); text.textContent = event.text;
-  line.append(time, text); container.append(line);
-  $('#count').textContent = events.filter(e => e.type === 'transcript').length;
+  row.append(time, text); feed.append(row); feed.scrollTop = feed.scrollHeight;
 }
-async function start() {
-  if (running || recording || recordingPending || tracks.some(t => t.loading)) return;
+async function start(speaker = 0) {
+  if (current) return;
   setError();
-  for (const track of tracks) {
-    if (!track.samples) throw new Error('请为每条音轨提供音频。');
-    const offset = Number(track.card.querySelector('.offset').value);
-    if (!Number.isFinite(offset) || offset < 0 || offset + track.buffer.duration > 60) throw new Error('音轨起点加时长不能超过 60 秒。');
-    if (!track.card.querySelector('.name').value.trim()) throw new Error('请填写参会者显示名。');
-    track.offsetSamples = Math.round(offset * RATE);
-  }
-  await audioContext().resume();
-  totalFrames = Math.ceil(Math.max(...tracks.map(t => t.offsetSamples + t.samples.length)) / FRAME);
-  events = []; result = null; frameIndex = 0; startedAt = 0; $('#count').textContent = '0'; $('#timeline').textContent = '0.00 s';
-  $('#results').replaceChildren();
-  tracks.forEach((track, index) => {
-    const card = document.createElement('div'); card.className = 'result'; card.dataset.speaker = 'zoom:' + (index + 1);
-    const heading = document.createElement('h3'); heading.textContent = track.card.querySelector('.name').value + ' · zoom:' + (index + 1);
-    const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '等待这条音轨的转写…'; card.append(heading, empty); $('#results').append(card);
-    track.audio.pause();
-  });
-  running = true; refresh(); $('#export').disabled = true; $('#result-mode').textContent = '真实 Deepgram · 模拟参会者输入'; status('正在连接转写服务…');
-  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/multitrack-audio'); socket = ws;
-  ws.onopen = () => ws.send(JSON.stringify({ action: 'start', language: $('#language').value,
-    tracks: tracks.map(t => ({ name: t.card.querySelector('.name').value.trim() })) }));
-  ws.onmessage = ({ data }) => {
-    if (socket !== ws) return;
-    const event = JSON.parse(data); event.received_ms = startedAt ? Math.round(performance.now() - startedAt) : 0;
-    events.push(event);
-    if (event.type === 'ready') {
-      startedAt = performance.now(); status('正在同时发送各音轨…');
-      if ($('#monitor').checked) {
-        tracks.forEach(track => {
-          const source = audioContext().createBufferSource(); source.buffer = track.buffer;
-          const gain = audioContext().createGain(); gain.gain.value = 1 / tracks.length;
-          source.connect(gain).connect(context.destination); source.start(context.currentTime + track.offsetSamples / RATE); sources.push(source);
-        });
+  if (names().some(name => !name)) { setError('请填写两位发言人的名字。'); return; }
+  const session = { phase: 'starting', speaker, epoch: 0, sequence: 0 };
+  current = session; events = []; result = null;
+  [0, 1].forEach(i => { $('#transcript-' + i).innerHTML = '<p class="empty">等待发言…</p>'; });
+  $('#timeline').textContent = '00:00'; render(); status('正在连接'); $('#notice').textContent = '正在打开麦克风和转写连接…';
+  session.deadline = setTimeout(() => closeSession(session, '连接失败', '连接超时，请重试。'), 20000);
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('麦克风需要 localhost 或可信 HTTPS。');
+    const device = $('#input-device').value;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true,
+      ...(device ? { deviceId: { exact: device } } : {}) } });
+    if (current !== session) { stream.getTracks().forEach(track => track.stop()); return; }
+    session.stream = stream;
+    stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => {
+      if (current === session && session.phase === 'listening') closeSession(session, '麦克风已断开', '请检查麦克风后重新开始。');
+    }));
+    const context = new AudioContext({ sampleRate: 32000 }); session.context = context;
+    if (context.sampleRate !== 32000) throw new Error('浏览器不支持 32 kHz 音频，请使用 Chrome。');
+    await context.resume();
+    await context.audioWorklet.addModule(new URL('./multitrack-worklet.js', import.meta.url));
+    if (current !== session) return;
+    const node = new AudioWorkletNode(context, 'participant-capture'); session.node = node;
+    session.source = context.createMediaStreamSource(stream); session.source.connect(node).connect(context.destination);
+    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/multitrack-audio'); session.ws = ws;
+    node.port.onmessage = ({ data }) => {
+      if (current !== session || session.phase !== 'listening' || ws.readyState !== WebSocket.OPEN) return;
+      if (ws.bufferedAmount > 256 * 1024 || performance.now() - session.lastFrame > 1500) {
+        closeSession(session, '音频发送已停止', '音频发送积压，请保持页面在前台后重试。'); return;
       }
-      pump();
-    } else if (event.type === 'transcript') renderTranscript(event);
-    else if (event.type === 'completed') { result = event; finishUI('本轮转写完成。可调整重叠时间或更换音轨再次测试。'); }
-    else if (event.type === 'failed') {
-      setError(event.reason === 'missing_deepgram_key' ? '服务端缺少 DEEPGRAM_API_KEY。' : '本轮转写失败，请检查网络、Deepgram 配置或输入音频。');
-      finishUI('测试失败，已收到的转写保留。');
-    }
-  };
-  ws.onerror = () => { if (socket === ws) { setError('连接失败；可能已有另一轮多音轨测试正在运行。'); finishUI('连接失败'); } };
-  ws.onclose = () => { if (socket === ws) { socket = null; if (running) finishUI('连接已结束，本轮未完整完成。'); } };
+      session.lastFrame = performance.now();
+      const packets = [silence, silence];
+      if (data.epoch === session.epoch && data.speaker === session.speaker && data.speaker >= 0) {
+        packets[data.speaker] = btoa(String.fromCharCode(...new Uint8Array(data.pcm)));
+        const pcm = new Int16Array(data.pcm);
+        const rms = Math.sqrt(pcm.reduce((sum, value) => sum + (value / 32768) ** 2, 0) / pcm.length);
+        $('#level-' + data.speaker).style.width = Math.min(100, rms * 400) + '%';
+      }
+      ws.send(JSON.stringify({ action: 'frame', sequence: session.sequence++, tracks: packets }));
+      $('#timeline').textContent = clock(session.sequence * 20);
+    };
+    ws.onopen = () => {
+      if (current !== session) { ws.close(); return; }
+      ws.send(JSON.stringify({ action: 'start', language: $('#language').value, tracks: names().map(name => ({ name })) }));
+    };
+    ws.onmessage = ({ data }) => {
+      if (current !== session) return;
+      const event = JSON.parse(data); events.push(event); $('#export').disabled = false;
+      if (event.type === 'ready') {
+        clearTimeout(session.deadline); session.phase = 'listening'; session.lastFrame = performance.now();
+        node.port.postMessage({ type: 'select', enabled: true, speaker, epoch: session.epoch });
+        session.watchdog = setInterval(() => {
+          if (performance.now() - session.lastFrame > 3000) closeSession(session, '麦克风已停止输入', '音频采集中断，请重新开始。');
+        }, 1000);
+        status('正在聆听'); render();
+      } else if (event.type === 'transcript') renderTranscript(event);
+      else if (event.type === 'completed') { result = event; closeSession(session, '讨论已结束，随时可以重新开始。'); }
+      else if (event.type === 'failed') closeSession(session, '转写失败，已收到的记录保留。',
+        event.reason === 'missing_deepgram_key' ? '服务端缺少 DEEPGRAM_API_KEY。' : '转写连接失败，请检查网络或 Deepgram 配置。');
+    };
+    ws.onerror = () => { if (current === session) closeSession(session, '连接失败', '无法连接；可能已有另一场双人讨论正在运行。'); };
+    ws.onclose = () => { if (current === session) closeSession(session, '连接已结束，转写可能不完整。'); };
+  } catch (error) {
+    closeSession(session, '未能开始讨论', error.name === 'NotAllowedError' ? '请允许浏览器使用麦克风后重试。' : error.message);
+  }
 }
-$('#start').onclick = () => start().catch(error => { setError(error.message); if (running) stop(); });
-$('#stop').onclick = stop;
-$('#add').onclick = addTrack;
-$('#samples').onclick = () => samples().catch(error => { setError(error.message); refresh(); });
+async function devices() {
+  try {
+    const list = await navigator.mediaDevices.enumerateDevices(), select = $('#input-device'), previous = select.value;
+    select.replaceChildren(new Option('系统默认', ''));
+    list.filter(device => device.kind === 'audioinput' && device.deviceId).forEach((device, index) => {
+      select.add(new Option(device.label || ('麦克风 ' + (index + 1)), device.deviceId));
+    });
+    if ([...select.options].some(option => option.value === previous)) select.value = previous;
+  } catch { setError('无法列出麦克风，请检查浏览器权限。'); }
+}
+[0, 1].forEach(i => {
+  $('#mic-' + i).onclick = () => selectSpeaker(i);
+  $('#speaker-' + i).oninput = render;
+});
+$('#start').onclick = () => start(0); $('#stop').onclick = finish; $('#devices').onclick = devices;
 $('#export').onclick = () => {
-  const blob = new Blob([JSON.stringify({ mode: 'deepgram', simulated_input: true, result, events }, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = 'sparkie-multitrack.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ mode: 'deepgram', simulated_participants: true, result, events }, null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a'); link.href = url; link.download = 'sparkie-discussion.json'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
-window.addEventListener('pagehide', () => { stop(); recording?.stream.getTracks().forEach(t => t.stop()); clearTimeout(recordingTimer); context?.close(); });
-addTrack(); addTrack(); samples().catch(error => { setError(error.message); status('可上传音频或录制后测试。'); refresh(); });
+window.addEventListener('pagehide', () => { if (current) closeSession(current, '已结束'); });
+render();

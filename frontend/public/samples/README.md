@@ -5,4 +5,4 @@ Generated locally using macOS Speech Synthesis, then converted with afconvert to
 - participant-1.wav: Samantha voice — “The blue bicycle is parked outside the library.”
 - participant-2.wav: Daniel voice — “The red apple is on the kitchen table.”
 
-The page sends their actual PCM through the same participant decoder/router as Zoom, to real Deepgram. Their expected text is never injected into recognition results.
+Retained as test fixtures for the participant decoder/router and acoustic playback checks. The current two-microphone page captures live microphone audio; it no longer loads these files as a product flow. Expected text is never injected into recognition results.

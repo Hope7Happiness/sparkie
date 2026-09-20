@@ -1,10 +1,12 @@
 # Phase 0 接口约定
 
-## 本地多音轨转写测试页
+## 本地双人讨论转写测试页
 
-`/multitrack.html` 通过同源 WebSocket `/multitrack-audio` 使用独立 Python `sparkie.multitrack_lab` 子进程。只调用真实 Deepgram，模拟 Zoom 用户 ID，不入会、不调用 Realtime/后台任务。首条 `start` 含 language 和 2–4 个 `{name}`；随后 `frame` 含从零连续递增的 sequence 和同顺序 tracks 数组，每项为 1280 bytes 的 base64 PCM16 mono 32 kHz（20 ms）。统一时间为 sequence × 20 ms；非零分轨帧使用生产 U 解码/队列及 ParticipantEars。`finish` 排空队列并等待最终转写。
+当前 /multitrack.html 使用两个互斥的麦克风按钮，将同一真实麦克风路由到两个模拟参会者；点击当前按钮可全部静音。两路共用 32 kHz AudioWorklet 时钟，每 20 ms 发送当前参与者 PCM 与另一条零填充音轨。切换时清除旧部分帧，主线程按 capture epoch 拒绝切换前排队的语音，避免跨身份串音。页面只调用真实 Deepgram，不加入 Zoom、不调用 Realtime 或后台任务。
 
-输出 ready、participant_stt_ready/closed、progress、transcript、completed/failed；转写包含 speaker_id、speaker、timestamp_ms、event_id。最多 3000 组帧（60 秒），输入连接空闲 15 秒、整个 WebSocket 95 秒上限；消息/管道/发送缓存有界，关闭页面即结束本轮。无模拟转写模式；测试替身只用于单元测试。详情与实际验证见 [多音轨测试页](multitrack-lab.md)。
+同源 WebSocket /multitrack-audio 启动独立 Python sparkie.multitrack_lab 子进程。首条 start 含 language 和 tracks（协议支持 2–4 个 {name}，当前 UI 固定两个）；随后 frame 含从零连续递增的 sequence 和同顺序 tracks 数组，每项为 1280 bytes 的 base64 PCM16 mono 32 kHz。统一时间为 sequence × 20 ms；分轨帧使用生产 U 解码/队列及 ParticipantEars，零帧不打开识别连接。finish 排空队列并等待最终转写。
+
+输出 ready、participant_stt_ready/closed、progress、transcript、completed/failed；转写包含 speaker_id、speaker、timestamp_ms、event_id。会话持续到手动结束，不再限制 60 秒音频或 95 秒连接；初始化等待 20 秒、输入空闲 15 秒、最终转写等待 15 秒及缓存上限仍有效。结束时先关闭麦克风再等待最终文本；关闭页面直接释放本轮连接。详情与实际验证见 [双人讨论测试页](multitrack-lab.md)。
 
 ## 当前 primitive 的音频边界
 

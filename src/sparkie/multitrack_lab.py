@@ -65,7 +65,7 @@ class LabSession:
 
     def accept(self, message):
         if (self.finished or type(message.get('sequence')) is not int
-                or message['sequence'] != self.frames or self.frames >= 3000):
+                or message['sequence'] != self.frames):
             raise ValueError('invalid_sequence_or_duration')
         packets = message.get('tracks')
         if not isinstance(packets, list) or len(packets) != len(self.track_samples):

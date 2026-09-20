@@ -1,17 +1,24 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sparkie · 多音轨测试</title></head>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sparkie · 双人讨论</title></head>
 <body><main class="lab">
-<header><a class="brand" href="/"><span>✳</span> sparkie</a><a href="/">返回语音对话</a></header>
-<section class="hero"><p class="eyebrow">MULTITRACK LAB · LOCAL SIMULATION</p><h1>同时说话，也各自清晰。</h1><p>用独立音轨模拟参会者，检查身份、重叠发言与转写时间。</p><p class="scope">本地模拟输入，不加入 Zoom，不调用 Realtime 或 Devin。音频发送给真实 Deepgram 进行识别。</p></section>
-<section class="session"><div class="lab-settings">
-<label>识别语言<select id="language"><option value="en">English</option><option value="zh-CN">中文</option></select></label>
-<label class="check"><input id="monitor" type="checkbox" checked>同时在扬声器回放</label>
-</div><div class="section-title"><h2>参会者音轨</h2><button id="samples" class="quiet">加载英文示例</button></div>
-<div id="tracks" class="track-grid"></div>
-<div class="actions lab-actions"><button id="start" disabled>开始测试</button><button id="stop" class="secondary" disabled>停止</button><button id="add" class="quiet">添加音轨</button><button id="export" class="quiet" disabled>导出本轮结果</button></div>
-<p id="state" role="status">正在加载英文示例…</p><p id="error" role="alert"></p>
+<header><a class="brand" href="/"><span>✳</span> sparkie</a><span id="state" role="status">准备就绪</span></header>
+<section class="hero"><p class="eyebrow">LET’S THINK TOGETHER · TWO VOICES</p><h1>两个人，一起聊。</h1><p>点击一侧麦克风，以这个人的身份说话。另一侧会自动静音。</p></section>
+<section class="session">
+<div class="speakers">
+<section class="speaker" data-side="0"><h2 id="name-0">发言人一</h2><button id="mic-0" class="voice-orb" aria-label="启用发言人一麦克风" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/><path class="slash" d="M3 3l18 18"/></svg></button><div class="meter" aria-label="发言人一音量"><div id="level-0" class="level"></div></div><p id="mic-state-0">点击开始说话</p></section>
+<section class="speaker" data-side="1"><h2 id="name-1">发言人二</h2><button id="mic-1" class="voice-orb" aria-label="启用发言人二麦克风" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/><path class="slash" d="M3 3l18 18"/></svg></button><div class="meter" aria-label="发言人二音量"><div id="level-1" class="level"></div></div><p id="mic-state-1">点击开始说话</p></section>
+</div>
+<p id="notice" role="status">选择一侧，就可以开始讨论。</p>
+<div class="actions"><button id="start">开始讨论</button><button id="stop" class="secondary" hidden>结束讨论</button><span id="timeline" hidden>00:00</span></div>
+<details class="settings-drawer"><summary>设置</summary><div class="settings">
+<label>左侧名字<input id="speaker-0" value="发言人一" maxlength="80"></label><label>右侧名字<input id="speaker-1" value="发言人二" maxlength="80"></label>
+<label>转写语言<select id="language"><option value="en">English</option><option value="zh-CN">中文</option></select></label>
+<label>麦克风<select id="input-device"><option value="">系统默认</option></select></label>
+</div><button id="devices" class="quiet">刷新设备</button><p class="privacy">两侧共用选定的本机麦克风，按点击切换身份。音频由真实 Deepgram 转写；本页仅测试转写，不加入 Zoom，不调用 Realtime 或 Devin。转写保存在本机，不保存录音。</p><p><a href="/">返回语音对话</a></p></details>
+<p id="error" role="alert"></p>
 </section>
-<section class="metrics"><div><small>模拟会议时间</small><strong id="timeline">0.00 s</strong></div><div><small>参会者音轨</small><strong id="track-count">2</strong></div><div><small>已完成转写</small><strong id="count">0</strong></div></section>
-<section class="panel"><div class="section-title"><h2>按参会者展示转写</h2><span id="result-mode">等待测试</span></div><div id="results" class="track-grid"></div></section>
-<details class="notes"><summary>这个测试验证什么？</summary><p>各音轨经过与 macOS Zoom 相同的分轨解码、独立队列与 Deepgram 转写器；重叠说话应保留独立身份与会议时间。此页面只验证转写，不生成混音或调用前台模型。</p><p>最多 4 条音轨，单轮最多 60 秒。文件仅在浏览器内解码；服务器保存转写与诊断，不保存原始音频。真实 Zoom SDK、网络入会、声学回声和真实会议表现仍需另行验收。</p></details>
+<section class="panel transcripts"><div class="section-title"><h2>讨论记录</h2><button id="export" class="quiet" disabled>导出</button></div><div class="transcript-columns">
+<section><h3 id="transcript-name-0">发言人一</h3><div id="transcript-0" class="feed"><p class="empty">等待发言…</p></div></section>
+<section><h3 id="transcript-name-1">发言人二</h3><div id="transcript-1" class="feed"><p class="empty">等待发言…</p></div></section>
+</div></section>
 </main><script type="module" src="/src/multitrack.js"></script></body></html>
