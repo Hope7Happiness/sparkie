@@ -91,3 +91,11 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en --seconds 120 --response-
 验证范围：94 项 Python/原生回归、离线 primitive/demo，以及 macOS 编译和签名检查。按本轮安排，未启动真人会议；macOS 远端收听验收仍待进行。播放与随后 350ms 内输入置为静音，无法在该窗口语音打断；整场会议稳定性和断线重连仍未验收。权限说明与网页文案本轮未改动。
 
 Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。
+
+### Connecting 停滞诊断（2026-09-19）
+
+语音/Realtime 入口在 Python 启动、桥握手、音频就绪全阶段使用默认 120 秒总期限。终端现在显示 zoom_join_progress，超时显示 zoom_join_failed，再结束当前 receiver；无需重新构建 SDK。state=1/error=101 本身是正常 Connecting/无错误，只有截止仍未就绪才分类为 connecting_timeout。等待主持人启动（2）、等待室（10）、已入会但音频未就绪（3）分别给出不同原因和操作提示。失败不会自动重新入会。
+
+20:36 会话实际在约 120.6 秒报 TimeoutError，约 132.7 秒完成退出；旧版本仅显示 unclassified，缺少 native 状态，因此 UI 的 Connecting 很难诊断。两次日志都在认证成功、join 接受后停于 1/101，没有等待室、AudioReady 或入会回调。旧成功会话会继续到 8/10/1/8/3。cb58428 未修改原生 join、配置生成或 Python bridge join；静音策略不参与该 native 阶段。日志不足以判断 SDK 内部/网络/会议侧停滞的具体原因，不把它归咎于错误密码或主持人未接纳。
+
+只需一次人工复测：主持人确认当前配置的会议已启动，然后运行正常 Zoom 命令，接纳 Sparkie 并给予录制权限。成功记录 zoom_join_progress 的状态序列、zoom_audio_ready 和 listening_ready；若失败，记录 zoom_join_failed / run.json.failure 的 reason、数值状态/错误、就绪布尔值和是否出现 zoom_receiver_forced_stop。不要分享 meeting ID、密码、JWT 或完整未经审查的 SDK 日志。超时后确认本轮 Sparkie 窗口退出；不用重复自动重试。

@@ -7,7 +7,6 @@ import time
 from uuid import uuid4
 
 from .task_workers import CodexTaskWorker, DevinTaskWorker, configured_task_worker
-from .local_actions import run_local_action
 
 
 class TranscriptLedger:
@@ -56,6 +55,9 @@ class TaskCenter:
             self.warmup = asyncio.create_task(prepare())
 
     def _save(self, job):
+        if job['status'] in ('completed', 'failed') and 'announcement' not in job:
+            job['announcement'] = {'state': 'pending', 'attempt': 0,
+                                   'order': len(self.notified)}
         path = self.ledger.directory / 'tasks.json'
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(list(self.jobs.values()), ensure_ascii=False, indent=2))
@@ -65,7 +67,50 @@ class TaskCenter:
             self.notified.add(job['task_id'])
             self.notifications.put_nowait(self.status(job['task_id']))
 
-    def submit(self, request, *, action=None, arguments=None):
+    def pending_announcements(self):
+        return [self.status(job['task_id']) for job in sorted(
+            (j for j in self.jobs.values() if j.get('announcement', {}).get('state') == 'pending'),
+            key=lambda j: j['announcement']['order'])]
+
+    def mark_output_origin(self, task_id):
+        self.jobs[task_id]['zoom_output_origin'] = 'addressed_turn'
+        self._save(self.jobs[task_id])
+
+    def offer_announcements(self, task_ids):
+        offers = []
+        for task_id in task_ids:
+            job = self.jobs[task_id]
+            notice = job['announcement']
+            if notice['state'] != 'pending':
+                continue
+            notice.update(state='offered', attempt=notice['attempt'] + 1)
+            self._save(job)
+            offers.append({'task_id': task_id, 'attempt': notice['attempt']})
+        return offers
+
+    def defer_announcements(self, offers):
+        # Offered means context supplied, never that a listener heard the result.
+        for offer in offers:
+            job = self.jobs.get(offer['task_id'], {})
+            notice = job.get('announcement', {})
+            if notice.get('state') == 'offered' and notice['attempt'] == offer['attempt']:
+                notice['state'] = 'pending'
+                self._save(job)
+
+    def confirm_announcement(self, task_id, attempt):
+        job = self.jobs.get(task_id)
+        notice = job.get('announcement', {}) if job else {}
+        if (type(attempt) is not int or notice.get('attempt') != attempt or
+                notice.get('state') not in ('offered', 'confirmed')):
+            return False
+        if notice['state'] != 'confirmed':
+            notice['state'] = 'confirmed'
+            self._save(job)
+            self.emit('background_notification_confirmed', task_id=task_id, attempt=attempt,
+                      basis='explicit_human_confirmation')
+        return True
+
+    def submit(self, request):
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:
             return {'error': 'invalid_request'}
         task_id = uuid4().hex[:12]
@@ -74,10 +119,6 @@ class TaskCenter:
                'transcript_records': len(snapshot), 'snapshot': snapshot,
                'context_note': 'All finalized transcript available at delegation; newer speech is not included. '
                                'The request also carries speech heard directly by Realtime.'}
-        if action is not None:
-            if action not in ('create_desktop_file', 'open_website') or not isinstance(arguments, dict):
-                return {'error': 'invalid_local_action'}
-            job.update(action=action, arguments=dict(arguments))
         self.jobs[task_id] = job
         self.updates[task_id] = asyncio.Queue()
         self._save(job)
@@ -87,19 +128,11 @@ class TaskCenter:
 
     async def _run(self, job):
         try:
-            if job.get('action'):
-                job.update(status='running', started_at=time.time(), progress='正在执行本机操作')
-                self._save(job)
-                job['result'] = await run_local_action(job['action'], job['arguments'])
-                job['status'] = 'completed'
-            else:
-                await self._run_worker(job)
+            await self._run_worker(job)
         except asyncio.CancelledError:
             job['status'] = 'cancelled'
         except Exception as exc:
             job.update(status='failed', error_type=type(exc).__name__)
-            if isinstance(exc, FileExistsError):
-                job['error_message'] = '同名文件已存在，未覆盖。请指定另一个文件名。'
         finally:
             job['finished_at'] = time.time()
             self._save(job)
@@ -124,20 +157,17 @@ class TaskCenter:
 
     def status(self, task_id):
         job = self.jobs.get(task_id)
-        return {k: v for k, v in job.items() if k != 'snapshot'} if job else {'error': 'unknown_task'}
+        return json.loads(json.dumps({k: v for k, v in job.items() if k != 'snapshot'})) if job else {'error': 'unknown_task'}
 
     def update(self, task_id, request):
         job = self.jobs.get(task_id)
         if not job:
             return {'error': 'unknown_task'}
-        running_update = (job['status'] == 'running' and not job.get('action')
+        running_update = (job['status'] == 'running'
                           and getattr(self.worker, 'supports_updates', False))
         if job['status'] != 'queued' and not running_update:
             return {'error': 'task_already_started', 'status': job['status'],
                     'note': 'This request was not changed. Do not claim the running action was redirected.'}
-        if job.get('action'):
-            return {'error': 'local_action_not_editable',
-                    'note': 'The action was not changed. Check its result before requesting a new action.'}
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:
             return {'error': 'invalid_request'}
         job.setdefault('request_history', []).append({'request': job['request'],

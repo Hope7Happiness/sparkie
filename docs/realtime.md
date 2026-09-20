@@ -1,8 +1,8 @@
 # Realtime 本地验收
 
-网页唯一入口 `/`：浏览器收音/播放 → Realtime 实时对话，同时 → Deepgram 人类转写；Codex 或 Devin CLI 异步执行工具任务。Zoom 已通过同一会话入口接入，见下文；本轮仅完成离线验证。
+网页唯一入口 `/`：浏览器收音/播放 → Realtime 实时对话，同时 → Deepgram 人类转写；Codex 或 Devin CLI 异步执行工具任务。Zoom 已通过同一会话入口接入，见下文；真人 Zoom 验收仍待完成。
 
-Zoom Realtime 使用连续混音输入与播放门控；macOS 按参会者分流转写仍用于旧 wake / qa 路径。合并后的原生协议需要重新构建 macOS receiver。浏览器语音不依赖此接收器。
+macOS Zoom Realtime 同时接收连续混音供前台语音、分用户音轨供 Deepgram 转写，保留用户 ID 与显示名。wake/qa 为 legacy，不是本轮验收入口。新双路协议必须重新构建 macOS receiver；浏览器语音不依赖此接收器。
 
 ## 运行
 
@@ -27,7 +27,7 @@ Devin 使用常驻的 ACP 标准输入/输出连接。每次语音会话启动�
 
 会话记录 task_backend_starting / task_backend_ready / task_backend_failed，任务记录 agent_session_id 和 agent_pid 便于核对是否复用。任务卡片显示模型与工具阶段；只提取 ACP 工具类型、状态和公开回答，不展示思考内容、原始命令输出或凭据。
 
-2026-09-19 真实验证：同一进程与同一 ACP 会话连续四轮，启动 4.55 秒；记住随机测试内容 2.92 秒；依据上一轮记忆创建并核验文件 3.83 秒；运行中修改等待任务后 1.49 秒返回新结果；最后追问原内容 0.84 秒。独立读回文件核对内容，结束后进程已退出。这是后台任务实测，不是语音端到端延迟或受控性能对比；旧 print 模式的一轮完整任务曾耗时 39.2 秒。简单桌面文件/打开网址仍优先走本机直接工具。模型依据：[Devin 模型说明](https://docs.devin.ai/cli/models)和当前账号 CLI 列表。
+2026-09-19 真实验证：同一进程与同一 ACP 会话连续四轮，启动 4.55 秒；记住随机测试内容 2.92 秒；依据上一轮记忆创建并核验文件 3.83 秒；运行中修改等待任务后 1.49 秒返回新结果；最后追问原内容 0.84 秒。独立读回文件核对内容，结束后进程已退出。这是后台任务实测，不是语音端到端延迟或受控性能对比；旧 print 模式的一轮完整任务曾耗时 39.2 秒。当前桌面文件创建和打开网址也统一委派给后台。模型依据：[Devin 模型说明](https://docs.devin.ai/cli/models)和当前账号 CLI 列表。
 
 ```bash
 bash scripts/web.sh
@@ -50,9 +50,11 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 
 ## 委派和工具权限
 
-简单的桌面文本文件创建使用 `create_desktop_file`，打开指定网址使用 `open_website`，直接调用本机能力并显示任务结果，不进入后台队列。创建文件不会覆盖已有文件；打开网址只确认默认浏览器接受请求，不声称网页已加载。网页检索、复杂内容生成、其他文件/代码操作仍通过 delegate_task 交给所选后台。
+前台提示词要求普通回答为一到两句短句，委派确认一句，任务完成时先说主要结论、最多三句短句，细节留在任务面板，用户要求时再展开。目标明确但部分词未听清时，只委派听清的目标和细节，让后台核对相关的人声转写；不猜姓名、地点、日期或数字，不添加候选解释或臆测的歧义。转写可能延迟、错误或缺失，后台无法确认必要信息时再简短追问。提示词变更在新语音会话生效；这不是转写完整性或识别准确性的保证。
 
-后台完成或失败后会主动唤醒前台，由前台决定汇报或保持安静；结果也显示在页面，可口述询问或点播报。后台一次处理一个任务，其他委派任务排队，前台和简单本机操作不受该队列阻塞。Codex JSON 与 Devin ACP 事件提供当前工具阶段。用户补充任务信息时，通过 `update_task` 更新原任务；Devin 支持运行中修订，其他后端仍只支持排队中更新。
+所有文件操作（包括桌面文件创建）、打开网页或本地 HTML 报告、网页检索和代码执行，都通过 delegate_task 交给所选 Devin / Codex 后台。Realtime 仅保留 delegate_task、task_status、update_task、cancel_task、remain_silent 五个工具；已移除创建桌面文件和打开页面的本机快捷工具及执行分支。
+
+后台完成或失败后会主动唤醒前台，由前台决定汇报或保持安静；结果也显示在页面，可口述询问或点播报。后台一次处理一个任务，其他委派任务排队，前台语音不受该队列阻塞；简单文件与打开页面请求也会排队。Codex JSON 与 Devin ACP 事件提供当前工具阶段。用户补充任务信息时，通过 `update_task` 更新原任务；Devin 支持运行中修订，其他后端仍只支持排队中更新。
 
 按用户明确授权，后台加载既有 Codex 配置、技能与工具，使用实际项目工作目录，开放 shell、网络和文件读写，关闭沙箱和审批；移除原来的每任务 90 秒超时与每会话八项任务上限。服务集成仍需要自身已安装和登录。语音 OPENAI_API_KEY 不传入 Codex，以保持 CLI 登录计费。原固定回复/旧 Q&A 模式的隔离规则不受影响。
 
@@ -69,7 +71,7 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 ## 已验证与待验证
 
 - 2026-09-19 物理音频自测：macOS 合成测试语句，经 afplay 从 MacBook 扬声器实际播放，由内置麦克风和浏览器原生 getUserMedia 收音，连接真实 Deepgram 与 Realtime；未将测试音频直接注入 WebSocket 或替换麦克风。初始配置出现英文问候转写正确、回复连续取消、20 秒无输出音频，证据在 output/acoustic-voice/20260919T190636/results.json。最终配置的 output/acoustic-voice/20260919T191638/results.json 中，连续英文问候和“二加三”均正确回复，测试语句播放结束至回复文本分别为 1.403 秒和 1.298 秒；中文“二加三”转写识别出数字，但 Realtime 在 1.873 秒后错误回答“4”，中文正确性仍未通过。最后一组各回复后的约八秒观察窗内无额外回复或取消，全部生成音频均由浏览器 AudioWorklet 渲染完毕，两次会话显式停止均正常结束。上述时间不是扬声器首音延迟；渲染完成也不代表人工听音验收。这是合成语句经真实物理设备的测试，不是 Zoom 或真人会议验收，也未验证后台任务的语音委派。
-- 2026-09-19：复现旧版后台串行排队与 `audio-stalled` 六秒强制停止。完整 Codex 小文件对照任务耗时约 41–90 秒；新增本机文件工具独立执行并核验约 21 ms，真实 Realtime 文本指令选择该工具后完成文件创建，连接就绪至任务完成约 0.7 秒。测试文件已清理；此数据不等于真人语音端到端延迟。
+- 2026-09-19：复现旧版后台串行排队与 `audio-stalled` 六秒强制停止。完整 Codex 小文件对照任务耗时约 41–90 秒；当时的本机文件工具（现已移除）独立执行并核验约 21 ms，真实 Realtime 文本指令选择该工具后完成文件创建，连接就绪至任务完成约 0.7 秒。测试文件已清理；此数据不等于真人语音端到端延迟。
 - 浏览器合成静音输入经真实提供者连接：暂停 AudioContext 超过六秒后会话仍保留，点恢复后继续输入，显式结束正常退出。没有用合成流代替真人收音验收；底层输入停顿原因尚未确诊。
 
 - 真实 Codex worker 已调用 shell 写入并读回测试文件，验证不止是提示词声称具有权限。
@@ -95,12 +97,13 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 
 主持人接纳 Sparkie、允许录制权限，看到 `listening_ready` 后：
 
-1. 从另一台参会设备问一个普通问题，确认听到与问题相关的自然语音回答。
+1. 从另一台参会设备说“Hey Sparkie”并提出问题，确认听到与问题相关的自然语音回答；未称呼时应持续监听但不播放。
 2. 请它调研一个需要外部信息的问题，检查出现 `background_task`，状态由 queued/running 进入 completed 或 failed。
 3. 后台进行中继续提出普通问题，确认前台可以响应；等后台完成后，检查结果通知及语音汇报。以来源/实际产物核对结果，不只看“完成”文本。
-4. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
+4. 两位参会者轮流和同时发言、同名/改名、停顿后继续，核对 transcript 的 speaker_id、speaker、timestamp_ms。检查后台任务快照仍保留这些字段。
+5. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
 
-本轮不启动真人会议。Zoom 仍沿用播放及后 350ms 的回声静音保护，期间的发言不会进入 agent，也不支持该窗口内语音打断。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
+真实 Zoom 多人验收待进行。Realtime 混音前台仍沿用播放及后 350ms 门控，不支持该窗口内语音打断；macOS 分轨转写则继续记录其他用户，过滤机器人自身 ID，远端声学回声仍可能被识别。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
 
 
 ### 终端输出背压修复
@@ -111,4 +114,24 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 
 已做真实伪终端/管道的离线回归；仍需真人重跑原场景确认，不将离线复现等同于整场会议稳定性验收。本修复不改变模型、音频采样率或 Zoom SDK 配置，无需重建原生程序。
 
-Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。
+Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。前台混音在播放及尾音 350ms 门控，不支持语音打断；macOS 分轨转写不受此门控影响；可用终端 interrupt 控制取消。
+
+### Interrupting without losing task results
+
+The terminal still accepts one JSON command per line: {"action":"interrupt"} stops all queued output and waits for the next user turn. In Zoom speaker mode, the mixed microphone remains echo-gated while Sparkie speaks; interruption during that window requires this control or a trusted separated-human producer.
+
+A separated-human producer can send human_turn/start immediately and human_turn/commit with final text after the user finishes. This selects external-text input for the session; all later turns must use those controls. See [the control contract](interfaces.md#semantic-interruption-and-trusted-human-controls) for examples, delivery acknowledgements and integration boundaries. Speaker separation itself is not implemented here.
+
+Task results whose announcements are cut off remain pending for fresh generation after the user's turn. Generated or SDK-submitted speech is never marked heard automatically. Fully submitted, uninterrupted announcements remain unconfirmed without repeatedly waking the agent; explicit human confirmation prevents later automatic reannouncement.
+
+Focused offline validation: uv run --frozen python -m unittest discover -s tests -p test_semantic_interruption.py -v. These tests use a fake audio bridge and WebSocket and provide no live audibility evidence. Native cancellation protocol is unchanged; no SDK rebuild is required for this feature.
+
+### Zoom 默认输出静音（当前 MVP）
+
+以上 Zoom 普通问答步骤现在需要句首点名，例如 “Hey Sparkie, explain the architecture in detail”。只关闭 Sparkie 的 Zoom 输出；Realtime 会话/输入上下文、Deepgram 和 Codex 后台任务持续运行。未点名的普通会议发言进入现有 Realtime 上下文，但不会触发无必要的助手生成。浏览器/local 模式不变。
+
+使用原有 Sparkie/Sparky（可带 Hi/Hey/Hello）最终转写唤醒；完整回答和所属工具续答结束、队列排空后自动静音。没有 12 秒或其他产品发言时长截断；保留有界音频积压保护及会话总时长。授权请求产生的后台任务，其结果通知可以单独唤醒输出；其他任务不能。
+
+终端每行一个 JSON：{"action":"mute"} 停止并清空全部播放，不取消后台任务；{"action":"unmute"} 仅允许下一条最终人类转写触发一条回答链，不恢复旧音频。也可说 “Sparkie, stop” / “不用了”等既有取消词；播放期间 Zoom 混合输入仍受回声门控，需终端或可信分离人声控制实现该窗口内取消。普通混合 VAD 不再自行打断 Zoom 回答，最终文本负责 wake/cancel。
+
+测试时分别核对：未点名讨论零输出；长回答完整；自动重新静音；后台任务归属；mute/unmute 不复活旧音频。使用同一会话观察输入/转写持续。SDK 提交不代表远端听到；需另行真人验证最终转写延迟、音质、停播残留和误唤醒。完整契约见 interfaces.md 的 Zoom output mute MVP。

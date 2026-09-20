@@ -46,14 +46,16 @@ class ZoomPlayback:
 
 class RealtimeZoomAudio:
     PACKET_BYTES = 6400  # 100ms; native SDK paces its five 20ms frames.
-    MAX_RESPONSE_SECONDS = 120
-    MAX_BUFFER_BYTES = 64000 * MAX_RESPONSE_SECONDS  # Aggregate across all pending items.
+    MAX_BUFFER_SECONDS = 120
+    MAX_BUFFER_BYTES = 64000 * MAX_BUFFER_SECONDS  # Bounded backlog, not total reply duration.
 
     def __init__(self, meeting, *, on_event):
         self.meeting, self.on_event = meeting, on_event
-        # Realtime needs one continuous mixed clock, not concatenated participant streams.
-        if hasattr(meeting, "participant_audio"):
-            meeting.participant_audio = False
+        # Foreground consumes only the continuous mix; STT has an independent per-user queue.
+        self.participant_transcription = hasattr(meeting, 'participant_audio_stream')
+        if self.participant_transcription:
+            meeting.participant_audio = True
+            meeting.mixed_audio = True
         self.outputs, self.output = {}, None
         self.waiting = deque()
         self.changed = asyncio.Event()
@@ -77,6 +79,8 @@ class RealtimeZoomAudio:
         self.input_samples = 0
         self.gate_spans = deque()
         self.gated_samples = 0
+        self.output_allowed = lambda item_id: True
+        self.output_drained = lambda: None
 
     @property
     def duration_expired(self):
@@ -113,10 +117,27 @@ class RealtimeZoomAudio:
                       zoom_sample_rate=32000, echo_mode='silence_during_playback_plus_350ms')
 
     async def audio(self):
+        try:
+            async for frame in self._mixed_audio():
+                yield frame
+        finally:
+            if self.participant_transcription:
+                self.meeting.input_finished = True
+                self.meeting.participant_input_done.set()
+
+    def participant_audio(self):
+        return self.meeting.participant_audio_stream()
+
+    def disable_participant_transcription(self):
+        self.meeting.disable_participant_transcription()
+
+    async def _mixed_audio(self):
         sequence = 0
         async for frame in self.meeting.audio():
             if self.failure:
                 raise self.failure
+            if frame.speaker_id is not None:
+                raise ProviderError('Per-user PCM must not enter the Realtime mixed stream')
             if frame.sample_rate != 32000:
                 raise ProviderError('Zoom bridge requires PCM16 mono 32000Hz')
             gated = frame.gated if frame.gated is not None else self.input_gated()
@@ -140,6 +161,8 @@ class RealtimeZoomAudio:
                 yield self.input_frame(sequence, pcm)
 
     def append_output(self, item_id, pcm):
+        if not self.output_allowed(item_id):
+            return
         if self.stopped:
             return
         if self.failure:
@@ -156,8 +179,6 @@ class RealtimeZoomAudio:
         if output.finished:
             raise ProviderError('Audio arrived after output completion')
         output.generated += len(pcm)
-        if output.generated > 48000 * self.MAX_RESPONSE_SECONDS:
-            raise PlaybackLimitError('Realtime response exceeds playback limit')
         self.enqueue(output, output.resampler.feed(pcm))
 
     def enqueue(self, output, pcm):
@@ -196,6 +217,7 @@ class RealtimeZoomAudio:
                     output.drained = True
                     # Reclaim resampling state; keep tiny progress records for truncation.
                     output.resampler = None
+                    self.output_drained()
                     continue
                 pcm = bytes(output.pending[:self.PACKET_BYTES])
                 del output.pending[:len(pcm)]
@@ -274,8 +296,11 @@ class RealtimeZoomAudio:
 
     def diagnostics(self):
         return {**self.meeting.diagnostics(), 'transport': 'zoom-realtime',
+                'participant_transcription': self.participant_transcription,
+                'foreground_echo_mode': 'silence_during_playback_plus_350ms',
+                'transcription_echo_mode': 'exclude_sdk_self_track' if self.participant_transcription else 'foreground_gate',
                 'playback_buffer_limit_bytes': self.MAX_BUFFER_BYTES,
-                'response_limit_seconds': self.MAX_RESPONSE_SECONDS,
+                'response_limit_seconds': None,
                 'gated_samples': self.gated_samples,
                 'gate_basis': 'bridge_receive_before_queue; native packet gate also active',
                 'realtime_sample_rate': 24000, 'playback_packet_ms': 100,

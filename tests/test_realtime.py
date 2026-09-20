@@ -88,7 +88,7 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
                                ('sk-private-secret', 'unknown_provider_error')]:
             with self.assertRaises(ProviderError) as caught:
                 await self.agent.handle({'type': 'response.done', 'response': {
-                    'id': 'r', 'status': 'failed', 'status_details': {
+                    'id': 'r-' + expected, 'status': 'failed', 'status_details': {
                         'error': {'code': code, 'message': 'private response body'}}}})
             details = failure_details(caught.exception)
             self.assertEqual(details['provider'], 'openai')
@@ -135,6 +135,9 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
         await self.agent.handle(delta)
         self.assertEqual(self.audio.output.generated, 4800)
         self.assertTrue(self.audio.output.cancelled.is_set())
+        self.assertTrue(self.audio.output.chunks.empty())
+        self.assertFalse(self.audio.output.pending)
+        self.assertFalse(self.audio.waiting_outputs)
 
     async def test_stream_callback_joins_chunks_without_padding_between_deltas(self):
         self.audio.append_output('i', b'\1\0' * 2)
@@ -218,11 +221,15 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(e['type']=='response.create' for e in self.sent),1)
 
     async def test_completion_wakes_idle_frontend_once_after_speech_and_playback(self):
-        self.tasks.notifications = asyncio.Queue()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tasks = TaskCenter(TranscriptLedger(directory.name), None, lambda *a, **k: None)
+        self.agent.tasks = self.tasks
         self.agent.ready.set()
         self.agent.user_speaking = True
         self.audio.append_output('playing', b'\1\0' * 480)
-        self.tasks.notifications.put_nowait({'task_id': 'done', 'status': 'completed', 'result': '42'})
+        self.tasks.jobs['done'] = {'task_id': 'done', 'status': 'completed', 'result': '42'}
+        self.tasks._save(self.tasks.jobs['done'])
         notifier = asyncio.create_task(self.agent.notify_tasks())
         try:
             await asyncio.sleep(.12)

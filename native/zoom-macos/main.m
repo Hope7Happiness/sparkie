@@ -21,6 +21,7 @@ static _Atomic int bridge_client = -1;
 static _Atomic BOOL bridge_sending = NO, bridge_playing = NO;
 static _Atomic unsigned bridge_generation = 0;
 static _Atomic long long bridge_gate_until = 0;
+static BOOL bridge_mixed_audio = NO;
 static char bridge_token[65];
 static int bridge_port;
 static BOOL bridge_participant_audio = YES;
@@ -217,7 +218,7 @@ static void *bridge_serve(void *unused) {
         [bridge_outgoing removeAllObjects];
         pthread_mutex_unlock(&out_mutex);
         bridge_client = fd;
-        bridge_emit('H', "cancel-v1", 9);
+        bridge_emit('H', "cancel-v1,dual-input-v1", (unsigned)strlen("cancel-v1,dual-input-v1"));
         if (bridge_sending) bridge_emit('M', NULL, 0);
         pthread_t writer;
         pthread_create(&writer, NULL, bridge_writer, (void *)(intptr_t)fd);
@@ -345,6 +346,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         }
         self.voice = [self.config[@"voice"] boolValue];
         bridge_participant_audio = self.config[@"participant_audio"] ? [self.config[@"participant_audio"] boolValue] : YES;
+        bridge_mixed_audio = [self.config[@"mixed_audio"] boolValue] || !bridge_participant_audio;
         if (self.voice) {
             id port = self.config[@"bridge_port"];
             NSString *token = self.config[@"bridge_token"];
@@ -568,7 +570,8 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
             bridge_last_heartbeat = bridge_millis();
             bridge_emit('R', NULL, 0);
         }
-    } else if (self.voice && bridge_client >= 0) {
+    }
+    if (self.voice && bridge_mixed_audio && bridge_client >= 0) {
         if ([data getChannelNum] != 1 || [data getSampleRate] != 32000 || size % 2 || size > 64000) {
             bridge_error("invalid_input_format");
             return;
