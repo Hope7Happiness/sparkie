@@ -165,10 +165,11 @@ class Utterances:
 
 class DeepgramEars:
     """Streaming adapter for a future real AudioMeeting. No network in simulation."""
-    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect, on_ready=None):
+    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect, on_ready=None, on_partial=None):
         self.key, self.meeting_id, self.rate = key, meeting_id, rate
         self.model, self.language, self.connector = model, language, connector
         self.on_ready = on_ready
+        self.on_partial = on_partial
 
     async def transcribe(self, frames):
         queue = asyncio.Queue(maxsize=128)
@@ -205,9 +206,21 @@ class DeepgramEars:
 
             async def receive():
                 sequence = 0
+                previous_partial = ''
                 async for raw in ws:
                     message = json.loads(raw)
                     text = utterances.feed(message)
+                    if self.on_partial and message.get('type') in ('Results', 'UtteranceEnd'):
+                        parts = list(utterances.parts)
+                        if message.get('type') == 'Results' and not message.get('is_final'):
+                            alternatives = message.get('channel', {}).get('alternatives', [])
+                            interim = alternatives[0].get('transcript', '').strip() if alternatives else ''
+                            if interim:
+                                parts.append(interim)
+                        partial = ' '.join(parts)
+                        if partial != previous_partial:
+                            self.on_partial(partial)
+                            previous_partial = partial
                     if text:
                         sequence += 1
                         timestamp_ms = round(utterances.end_seconds * 1000)

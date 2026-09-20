@@ -16,7 +16,8 @@ from .providers import DeepgramEars, ProviderError
 from .realtime import RealtimeAgent
 from .realtime_audio import RealtimeLocalAudio
 from .browser_audio import BrowserAudio
-from .task_center import TranscriptLedger, TaskCenter, CodexTaskWorker
+from .task_center import TranscriptLedger, TaskCenter
+from .task_workers import configured_task_worker
 
 
 async def run(args):
@@ -39,7 +40,7 @@ async def run(args):
         if kind in ('assistant_transcript', 'realtime_interrupted'):
             ledger.append({**event, 'source': 'bot', 'note': 'Generated reply text; interruption events mark unplayed content.'})
         line = json.dumps(event, ensure_ascii=False)
-        if kind not in ('audio_level', 'audio_output', 'audio_clear'):
+        if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')
             log.flush()
         print(line, flush=True)
@@ -47,13 +48,15 @@ async def run(args):
     audio = (BrowserAudio(max_seconds=args.seconds, on_event=emit) if browser_transport else
              RealtimeLocalAudio(device_id(args.input_device), device_id(args.output_device),
                                echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit))
-    center = TaskCenter(ledger, CodexTaskWorker(model=os.getenv('CODEX_MODEL') or 'gpt-5.6-terra'), emit)
+    worker = configured_task_worker()
+    center = TaskCenter(ledger, worker, emit)
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1')
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
-                        language=args.language, on_ready=dg_ready.set)
+                        language=args.language, on_ready=dg_ready.set,
+                        on_partial=lambda text: emit('transcript_partial', text=text))
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -135,6 +138,8 @@ async def run(args):
     reason = 'completed'
     try:
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model)
+        emit('task_backend_config', backend=worker.backend, model=worker.model)
+        center.start()
         emit('transcription_config', provider='deepgram', model=ears.model,
              language=ears.language, sample_rate=ears.rate)
         rt = asyncio.create_task(agent.run())
@@ -187,8 +192,10 @@ async def run(args):
     finally:
         for task in running:
             task.cancel()
-        await asyncio.gather(*running, return_exceptions=True)
+        # Persist task cancellation before waiting for provider socket cleanup.
+        # The web supervisor may terminate an unresponsive process after ten seconds.
         await center.close()
+        await asyncio.gather(*running, return_exceptions=True)
         try:
             await audio.leave()
         except Exception as exc:
@@ -215,8 +222,8 @@ def main():
     parser.add_argument('--output-device')
     parser.add_argument('--output', type=Path, default=Path('output/realtime'))
     args = parser.parse_args()
-    if not 10 <= args.seconds <= 300:
-        parser.error('seconds must be 10–300')
+    if not (10 <= args.seconds <= 300 or (args.transport == 'browser' and args.seconds == 0)):
+        parser.error('seconds must be 10–300, or 0 for a browser session ended manually')
     return asyncio.run(run(args))
 
 

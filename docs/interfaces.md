@@ -52,7 +52,23 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 
 SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。
 
-`zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。
+`zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。Linux 混音输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。macOS 分用户路径见下文。
+
+### macOS 分用户音频（SDK 7.1.5）
+
+macOS 语音接收器改用 `onOneWayAudioRawDataReceived:userID:`；旧 nodeID 回调保留空实现以免重复处理。混音回调只发健康心跳，不转发混合 PCM。协议扩展：
+
+- `U`：userID（4 字节 BE）+ 帧起始 timestamp_ms（8 字节 BE）+ PCM16 mono 32 kHz，总 payload 不超过 64000 字节。
+- `J`：JSON 参会端列表，含 user_id、name、is_self；主线程每秒检查变化，音频回调不查询参会端信息、不执行网络 I/O。
+- `R`：空 payload，混音接收健康心跳；静默会议也能就绪。
+
+`AudioFrame` 新增可选 speaker_id、timestamp_ms，默认 None，保留既有调用兼容。时间原点为本轮 SDK 音频订阅附近；优先归一化 SDK getTimeStamp，返回零时用单调回调时间减帧长估计，不是精确声学时间。旧 macOS 二进制发出的 A 混音帧会明确报错要求重建；Linux A 协议保留。
+
+`ParticipantEars` 按用户分流到独立 DeepgramEars，每条连接有独立断句器。无非零 PCM 的参会者不建连接；每人 1.5 秒无非零帧后补 500 ms 静音并关闭连接，之后发言建立新段，事件 ID 带用户和段编号。背景噪声可能使连接保持活跃，这不是语义 VAD。段内音频空隙补静音，长停顿以新的会议时间偏移处理。默认最多 32 条并行连接（含正在结束的连接），SPARKIE_ZOOM_MAX_STT_STREAMS 可调整为 1–64；每条输入最多 500 帧，超限或任一转写错误明确结束本轮，不静默串音或漏掉用户。
+
+`TranscriptEvent` 新增可选 speaker_id（默认 None）；macOS 为 zoom:<userID>，speaker 为显示名，名字不可得时回退为 ID。重名用户不会合并，退会前取得的名字仍可用于最终转写。实时事件按提供者完成顺序到达；run.json 的 transcript 按 timestamp_ms 排序，问答上下文保留身份和时间。一个 Zoom 端内多人共用麦克风仍不能分开。
+
+macOS 分用户模式只过滤 SDK 自身音轨，不采用上述 Linux 的全局播放静音门控；其他人的发言在播放期间仍可转写，远端扬声器回声仍可能被识别。分流测试和真实 Deepgram 合成音频测试不等于真实 Zoom 多人验收。
 
 ## Realtime 前台与后台分析（本地验收）
 
@@ -60,18 +76,27 @@ SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音�
 输入 PCM 分成两个独立有界队列：OpenAI Realtime 直接接收音频，Deepgram 只负责最终转写。
 Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网络失败会记录覆盖缺口，实时对话继续。
 
+本地语音默认浏览器 autoGainControl=false、echoCancellation=true、noiseSuppression=true；Realtime input.noise_reduction=far_field，server_vad threshold=0.5、prefix_padding_ms=600、silence_duration_ms=600，保留 create_response / interrupt_response。realtime_ready 记录服务端返回的实际 noise_reduction 和 turn_detection。无清晰语音时可调用 remain_silent，不据此伪造用户说过的话；该工具统一记录 realtime_silent，替代原本仅表示后台通知延后汇报的 background_notification_deferred。
+
 `RealtimeAudioTransport`（`audio.py`）使用 PCM16LE、mono、24 kHz：`join` / `audio` / `append_output(item_id, pcm)` / `finish_output(item_id)` / `stop_speaking` / `leave`。
 `append_output` 必须立即入有界播放队列；`finish_output` 只标记生成完成，不表示音频已播放。
 `outputs` 保存每个 item 的字节数、取消标志和 `played_ms()`；打断会清空待播内容并向 Realtime 发送截断时间，防止未听到的内容留在模型上下文。
 本地实现使用 PortAudio DAC 时间估算实际播放进度。Zoom 当前 32 kHz 整段播放协议不满足该接口，需另行实现流式播放、24↔32 kHz 重采样及可靠的播放进度；不能直接声称兼容。
 
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
-worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。用户取消或结束会话会终止对应进程。
+`update_task(task_id, request)` 接收完整修订请求并刷新快照，保持任务 ID。queued 任务保留队列位置；running 的 Devin 任务通过队列传递修订，ACP 中断当前轮后在同一会话继续。返回 update_delivery=pending 不能宣称已执行；applied_revision 和 delivered 表示已送入后台连接。request_history 保存历史请求，连续修订以最新完整请求为准。其他 running 后端及 completed 任务拒绝更新，已发生的操作不会回滚。
+`create_desktop_file(filename, content)` 和 `open_website(url)` 使用同一任务状态/通知协议，但直接执行本机操作，不占 Codex 串行队列。文件使用独占创建并读回核验；网址仅允许 HTTP(S)，结果只确认浏览器启动请求，不保证页面加载完成。
+worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。取消 Codex 任务会终止对应进程；取消 Devin 当前轮保留常驻会话，结束语音会话会终止进程组。
+`task_workers.py` 选择独立 Codex / Devin 适配器，Devin 协议实现位于 `devin_acp.py`。共用 `run(request, transcript)` / `run_with_progress(request, transcript, progress)`；持久 worker 另提供 start / close，支持运行中修订时通过 updates 队列接收 `(request, snapshot, revision)`，initial_revision 表示开始运行时的修订号。`SPARKIE_TASK_BACKEND=codex|devin` 仅选择 Realtime 后台，默认 codex；DEVIN_MODEL 默认 swe-1-6-fast。前台语音及旧 Q&A SPARKIE_BACKEND 不变。
+
+Devin 每次语音会话启动一个 `devin acp --model ...` 进程，经 initialize / session/new / session/set_mode 建立无审批会话；后续串行发送 session/prompt，共享历史。session/update 仅提取公开回答和工具类型/状态，忽略思考内容及原始工具输出；session/request_permission 复用已有用户授权，仅选择当前会话的 allow_once 选项。取消用 session/cancel，5 秒无应答则杀进程组；连接断开、RPC 错误、非 end_turn、空结果均不能作成功。进程断开不自动重启或重放任务，避免重复外部操作及丢失上下文。取消确认期限和 60 秒启动期限不是任务超时。
+
+会话发出 task_backend_config、task_backend_starting / task_backend_ready / task_backend_failed。运行任务包含 backend/model、agent_session_id、agent_pid、revision/applied_revision 和 update_delivery。常驻进程在项目目录继承 CLI 登录与工具配置，移除语音 OPENAI_API_KEY。完整快照的临时文件存续到语音会话结束；TaskCenter.close 终止进程并清理临时目录，新语音会话不继承旧 ACP 上下文。
 委派时完整最终转写、生成的助手文本、播放截断标记、覆盖缺口一并快照，不再受旧问答的 50 条限制。
 尚未到达的 Deepgram 转写不会伪装成已收集：工具描述要求前台补充当前请求与最近口述；任务记录明确快照截止语义。
 完整上下文落盘，路径交给 Codex 读取，不截断到固定提示词长度。按用户授权，Codex CLI 加载用户配置和现有集成，工作目录为实际项目目录，使用 `--dangerously-bypass-approvals-and-sandbox`、`web_search="live"`；可读写文件、执行 shell、研究网页和调用配置的工具。不再传入 ignore-user-config / shell_tool=false / read-only。仅从子进程环境移除语音 OPENAI_API_KEY，以继续复用 CLI 登录；其余工具环境继承。外部服务是否可用仍取决于实际安装与登录状态。
 
-`output/realtime/<session>/transcript.jsonl` 保存全部记录，`tasks.json` 保存任务、不可变输入快照和结果，`events.jsonl` 保存诊断事件，`run.json` 保存会话报告；不保存原始音频。
+`output/realtime/<session>/transcript.jsonl` 保存全部记录，`tasks.json` 保存任务、执行时的输入快照和结果，`events.jsonl` 保存诊断事件，`run.json` 保存会话报告；不保存原始音频。Codex JSON 事件只提取执行步骤与用量元数据作为 progress，不把原始命令输出或 stderr 转发到前端。
 转写持久化成功后才发送 UI 事件。助手的完整生成文本不代表全部已播放，以 `realtime_interrupted` 为准。
 网页默认使用浏览器 `getUserMedia(echoCancellation: {exact: true})`，检查实际 track settings 并将处理后的 PCM 并行发送给两个 provider；不会在 AI 播放时门控人声。浏览器不支持时明确启动失败，不静默退化成无保护双工。旧 local CLI 的扬声器门控仍写入 coverage_gap / coverage_resumed。
 结果完成或失败后更新界面，同时向 Realtime 投递包含任务结果的系统通知并触发 response.create。每个任务只通知一次，忙碌期间排队，多个完成结果合并唤醒；等待用户轮次与全部本地音频播放结束。前台自行决定直接汇报或调用 remain_silent（不生成后续语音），结果保留在对话上下文。用户问进展仍可用 task_status；手动 report_task 仍只在空闲时执行。通知循环随会话关闭取消；断开后不跨会话自动重投。
@@ -79,6 +104,12 @@ worker 异步排队执行，提交立即返回；无每会话任务数量上限�
 
 ### Browser audio transport
 
-WebSocket `/audio?session=<id>` 仅接受当前本地 Origin、当前会话和一个连接，PCM 不进入状态轮询或磁盘日志。browser→Python：audio_settings、连续 sequence 的 audio_input、带 generation 的 audio_progress。Python→browser：audio_ready、audio_output、audio_clear。只有 provider ready 后才发输入；24 kHz PCM16 mono、20 ms 包；队列/管道溢出明确失败。清空播放递增 generation，旧音频/播放进度不能复活。AudioWorklet 每 20 ms 报告渲染进度供截断使用，不宣称是准确 DAC 时间。密钥仍仅保存在 Python。浏览器断开关闭会话并释放麦克风。
+WebSocket `/audio?session=<id>` 仅接受通过本机网络接口地址的同源 Origin、当前会话和一个连接，PCM 不进入状态轮询或磁盘日志。browser→Python：audio_settings、连续 sequence 的 audio_input、带 generation 的 audio_progress。Python→browser：audio_ready、audio_output、audio_clear。只有 provider ready 后才发输入；24 kHz PCM16 mono、20 ms 包；队列/管道溢出明确失败。清空播放递增 generation，旧音频/播放进度不能复活。AudioWorklet 每 20 ms 报告渲染进度供截断使用，不宣称是准确 DAC 时间。密钥仍仅保存在 Python。浏览器断开关闭会话并释放麦克风。
 
-Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页、文件、代码和外部工具请求应直接委派，而不是建议用户自己完成或声称没有工具。
+Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页检索、复杂文件/代码和外部工具请求应直接委派；简单桌面文件创建与打开指定网址优先使用上述本机工具。
+
+浏览器 `seconds=0` 表示手动结束；本地 PortAudio 模式仍要求 10–300 秒。浏览器输入包续期页面及音频心跳，输入停顿只提示恢复麦克风，不取消后台任务；关闭页面、断开音频 WebSocket 或显式结束仍终止会话。`browser_audio_settings` 包含 AudioContext 和 track 状态，供排查暂停/设备中断。
+
+Realtime 的 Deepgram 适配器可通过 on_partial 回调发出 `transcript_partial`。网页服务将其合并为 `partialTranscript` 状态，显示“正在转写”，不加入最终事件历史、持久转写或任务上下文。最终 transcript 或连接结束清空预览。识别修订可替换预览，只有最终 transcript 可作为任务依据。
+
+`audio_input_diagnostics` 每累计两秒输入记录一次 RMS dBFS、峰值、削波比例、全零采样比例和最大包间隔；只保存统计，不保存音频。browser_audio_settings 另含实际设备标签、autoGainControl 和 trackEnabled。页面显示是否正在接收声音，并在 15 秒内两次回复被取消时给出暂时提示；该提示不能证明是回声或噪声，也不改变自动打断行为。

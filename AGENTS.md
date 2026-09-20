@@ -8,7 +8,7 @@ Workflow: one rotating human coding lead works with the coding agent; the other 
 Each handoff includes the commit, run command, test scope and known limitations. Close reported bugs only after reproducing, fixing and verifying the reported scenario.
 Never invent decisions, action owners, deadlines, citations, or successful task results.
 The initial fixed-reply primitive excludes email sending, video processing, proactive interruption, and precise diarization. The Realtime task worker may use external tools and take actions delegated by the user.
-Selected stack: Zoom Meeting SDK (body), Deepgram (human transcripts), GPT Realtime (foreground voice and its own output transcript), Codex CLI (background tools/reasoning). Legacy primitive uses Deepgram TTS.
+Selected stack: Zoom Meeting SDK (body), Deepgram (human transcripts), GPT Realtime (foreground voice and its own output transcript), selectable Codex or Devin CLI (background tools/reasoning via SPARKIE_TASK_BACKEND). Legacy primitive uses Deepgram TTS.
 Default TTS is Aura-2 English; do not imply Chinese STT support means Chinese TTS support.
 Default fixed-reply simulation must never call a live backend. The legacy fixed-reply/Q&A Codex backend reuses CLI login, excludes project keys, and uses a read-only temporary workspace. By explicit user request, the Realtime task worker instead loads existing Codex configuration, runs in the project workspace with full filesystem/shell/network/tool access and no approval gate, and has no per-task timeout. It keeps CLI login rather than using the voice OPENAI_API_KEY for billing.
 Simulation must remain runnable without API keys, Docker, SDK downloads, or network calls after dependency installation.

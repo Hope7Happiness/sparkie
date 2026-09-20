@@ -11,6 +11,7 @@ class TranscriptEvent:
     speaker: str | None = None
     is_final: bool = True
     source: Literal["human", "bot"] = "human"
+    speaker_id: str | None = None
 
 
 @dataclass

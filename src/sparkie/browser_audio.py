@@ -1,6 +1,7 @@
 """Browser AEC audio transport. Keys and provider connections stay server-side."""
 import asyncio
 import base64
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -36,13 +37,19 @@ class BrowserAudio:
         self.sequence = 0
         self.last_meter = 0
         self.settings = {}
+        self._stats_samples = self._stats_squared = self._stats_clipped = self._stats_zero = 0
+        self._stats_peak = 0
+        self._last_packet = None
+        self._max_packet_gap = 0
 
     async def join(self):
         self.on_event('audio_open', echo_mode=self.echo_mode, sample_rate=24000)
 
     def accept(self, command):
         if command['action'] == 'audio_settings':
-            self.settings = {k: command.get(k) for k in ('echoCancellation', 'noiseSuppression', 'sampleRate')}
+            self.settings = {k: command.get(k) for k in ('echoCancellation', 'noiseSuppression', 'sampleRate',
+                                                       'contextState', 'trackState', 'trackMuted',
+                                                       'trackEnabled', 'autoGainControl', 'deviceLabel')}
             self.on_event('browser_audio_settings', **self.settings)
         elif command['action'] == 'audio_input' and not self.stopped:
             pcm = base64.b64decode(command['pcm'], validate=True)
@@ -54,10 +61,30 @@ class BrowserAudio:
             self.sequence += 1
             self.captured_samples += len(pcm) // 2
             now = time.monotonic()
+            samples = memoryview(pcm).cast('h')
+            peak = max((abs(v) for v in samples), default=0)
+            self._stats_samples += len(samples)
+            self._stats_squared += sum(v * v for v in samples)
+            self._stats_clipped += sum(abs(v) >= 32760 for v in samples)
+            self._stats_zero += sum(v == 0 for v in samples)
+            self._stats_peak = max(self._stats_peak, peak)
+            if self._last_packet is not None:
+                self._max_packet_gap = max(self._max_packet_gap, now - self._last_packet)
+            self._last_packet = now
+            if self._stats_samples >= 48000:
+                rms = math.sqrt(self._stats_squared / self._stats_samples) / 32768
+                self.on_event('audio_input_diagnostics',
+                              captured_seconds=round(self.captured_samples / 24000, 2),
+                              rms_dbfs=round(20 * math.log10(max(rms, 1e-6)), 1),
+                              peak=round(self._stats_peak / 32768, 4),
+                              clipped_fraction=round(self._stats_clipped / self._stats_samples, 4),
+                              zero_fraction=round(self._stats_zero / self._stats_samples, 4),
+                              max_packet_gap_ms=round(self._max_packet_gap * 1000))
+                self._stats_samples = self._stats_squared = self._stats_clipped = self._stats_zero = 0
+                self._stats_peak = self._max_packet_gap = 0
             if now - self.last_meter >= .1:
                 self.last_meter = now
-                peak = max((abs(v) for v in memoryview(pcm).cast('h')), default=0) / 32768
-                self.on_event('audio_level', peak=peak, gated=False, timing_reliable=False)
+                self.on_event('audio_level', peak=peak / 32768, gated=False, timing_reliable=False)
         elif command['action'] == 'audio_progress' and command.get('generation') == self.generation:
             output = self.outputs.get(command.get('item_id'))
             if output and not output.cancelled.is_set():
@@ -65,7 +92,7 @@ class BrowserAudio:
                 self.output = output
 
     async def audio(self):
-        deadline = time.monotonic() + self.max_seconds
+        deadline = time.monotonic() + self.max_seconds if self.max_seconds else float('inf')
         try:
             while not self.stopped and time.monotonic() < deadline:
                 try:
