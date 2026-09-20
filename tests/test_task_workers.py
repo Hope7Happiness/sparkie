@@ -49,7 +49,7 @@ for line in sys.stdin:
     elif method=='session/new': result(rid,{'sessionId':sid})
     elif method=='session/set_mode': result(rid,{})
     elif method=='session/prompt':
-        payload=json.loads(params['prompt'][0]['text'].split('\n',1)[1])
+        payload=json.loads(params['prompt'][0]['text'].rsplit('\n',1)[1])
         path=Path(payload['complete_transcript_file']); request=payload['request']
         with open('calls.jsonl','a') as f:
             f.write(json.dumps({'request':request,'session_id':params['sessionId'],

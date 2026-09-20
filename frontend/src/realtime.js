@@ -66,6 +66,7 @@ function renderJobs() {
     const title = document.createElement('h3'); title.textContent = job.request;
     card.append(status, title);
     if (job.result) { const result = document.createElement('p'); result.textContent = job.result; card.append(result); }
+    if (job.artifact_error) { const e = document.createElement('p'); e.textContent = '文档展示失败：' + job.artifact_error; card.append(e); }
     if (job.error_type) { const e = document.createElement('p'); e.textContent = job.error_message || '任务未完成，请查看具体请求后重试。'; card.append(e); }
     if (job.progress && job.status === 'running') {
       const progress = document.createElement('p'); progress.textContent = job.progress; card.append(progress);

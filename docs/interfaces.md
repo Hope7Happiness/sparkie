@@ -324,3 +324,39 @@ The workspace socket accepts artifact.control with action=list|present|clear, re
 The board shows separate generation cards for queued/running tasks, with document shimmer animation while running and static waiting state while queued. Completion, failure, cancellation and reset remove the associated card; other in-progress tasks and the selected document remain visible. The animation indicates task activity, not incremental document contents or a measured completion percentage. Reduced-motion preferences disable motion.
 
 Validation: 301 Python tests, 34 frontend tests, frontend build and both offline demos passed. An isolated browser fixture traversed actual Workspace HTTP/WebSocket, Realtime tool handling and presentation events: generation/stop, reduced motion, no automatic selection on completion, explicit present/hide, refresh and session clearing. No new real-model, microphone or Zoom acceptance was performed. Realtime tool result handling follows https://developers.openai.com/api/docs/guides/realtime-conversations .
+
+### Worker document content versus completion summary
+
+This extends the earlier summary-only task_update contract. For a generated Markdown
+file, Devin and Codex workers declare their primary deliverable in one fenced
+sparkie-artifact block containing JSON with a path field. The shared task_artifacts
+processor strips the declaration from the completion summary and snapshots the
+UTF-8 file on the worker host before completion is emitted. Ordinary prose paths
+and incoming workspace socket messages never trigger local file reads.
+
+The file must resolve inside the worker workspace or the user's Desktop, have a
+.md/.markdown extension, be a nonempty regular UTF-8 file, and fit in 128 KiB.
+Symlinks resolving outside those roots are rejected. One primary document is
+supported per task. Reading happens off the voice event loop. This is an explicit
+worker output contract, not automatic discovery of files changed by shell tools;
+workers must emit the declaration for file deliverables.
+
+background_task/task_update now optionally carries artifact={content:{markdown},
+source_path}. The workspace stores that content and derives its title from the
+document, while the task result stays the concise completion summary. Task status
+and spoken-result notifications include only source_path metadata, not the full
+document. Inline text answers without a declaration keep their existing rendering.
+An invalid/unreadable declared document produces artifact_error, shown in the task
+panel, and no misleading summary artifact; it does not undo the completed task.
+Standalone workspace workers use the same materializer. Artifact creation does
+not change the active presentation; Realtime/manual selection still owns that.
+
+Regression coverage exercises file creation through TaskCenter and AgentRuntime,
+exact document snapshots, title extraction, concise voice notifications, preserved
+selection, duplicate completion, and invalid/out-of-scope files. Browser inspection
+of the reported existing artifact verified the actual Markdown heading, sections
+and table after repairing its stored content. This is document pipeline validation,
+not new live-model or Zoom acceptance.
+
+Validation: 306 Python tests, 34 frontend tests, frontend build, primitive.sh and
+demo.sh passed for this document-content change.

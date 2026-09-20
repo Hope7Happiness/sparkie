@@ -168,22 +168,27 @@ class AgentRuntime:
             return
         instruction = fields.get("instruction") or fields.get("request")
         error = fields.get("error") or fields.get("error_type")
+        if fields.get("artifact_error"):
+            error = "Document preview unavailable: " + str(fields["artifact_error"])
         self.store.upsert_task(workspace_id, task_id, instruction,
                                fields["status"], result=fields.get("result"),
                                error=error)
         self.bus.publish(workspace_id, {
             "type": "task.updated", "task_id": task_id, "instruction": instruction,
             "status": fields["status"], "error_type": error,
-            "progress": fields.get("progress")})
+            "progress": fields.get("progress"), "artifact_error": fields.get("artifact_error")})
         result = fields.get("result")
         key = (workspace_id, self.store.generation(workspace_id), task_id)
-        if fields["status"] == "completed" and result and key not in self.mirrored_artifacts:
+        artifact = fields.get("artifact")
+        if (fields["status"] == "completed" and (result or artifact)
+                and not fields.get("artifact_error") and key not in self.mirrored_artifacts):
             self.mirrored_artifacts.add(key)
-            title, summary = artifact_meta(str(result))
+            content = artifact["content"] if artifact else {"markdown": str(result)}
+            title, summary = artifact_meta(content.get("markdown", ""))
             artifact_id = self.store.create_artifact(
                 workspace_id, task_id=task_id, type="report",
                 title=title, summary=summary,
-                content={"markdown": str(result)})
+                content=content)
             self.bus.publish(workspace_id, {
                 "type": "artifact.ready", "artifact_id": artifact_id,
                 "task_id": task_id, "title": title, "summary": summary})

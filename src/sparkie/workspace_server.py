@@ -158,15 +158,18 @@ async def workspace_session(args):
             worker = CodexTaskWorker(model=os.getenv("SPARKIE_CODEX_MODEL") or "gpt-5.6-terra",
                                      workspace=Path.cwd())
         async def task_worker(instruction, transcript):
-            # The deliverable belongs in the reply body — a file path alone
-            # would leave the artifact empty for anyone watching the workspace.
-            prompt = (instruction + "\n\nReply with the complete deliverable itself "
-                      "(the full text/document in Markdown), not just a description "
-                      "of it or a file path.")
+            from .task_artifacts import materialize_result
+            prompt = (instruction + "\n\nFor a file deliverable, use the sparkie-artifact "
+                      "declaration. Otherwise reply with the complete deliverable itself "
+                      "in Markdown, not just a description of it or a file path.")
             answer = await worker.run(prompt, transcript)
-            title, summary = artifact_meta(answer)
+            output = await asyncio.to_thread(materialize_result, answer, worker.workspace)
+            if output.get('artifact_error'):
+                raise ValueError(output['artifact_error'])
+            content = output.get('artifact', {}).get('content', {'markdown': output['result']})
+            title, summary = artifact_meta(content['markdown'])
             return {"type": "report", "title": title,
-                    "summary": summary, "content": {"markdown": answer}}
+                    "summary": summary, "content": content}
     else:
         async def task_worker(instruction, transcript):
             return {"type": "demo", "title": instruction[:80],

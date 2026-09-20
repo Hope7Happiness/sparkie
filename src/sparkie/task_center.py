@@ -7,6 +7,7 @@ import time
 from uuid import uuid4
 
 from .task_workers import CodexTaskWorker, DevinTaskWorker, configured_task_worker
+from .task_artifacts import materialize_result
 
 
 class TranscriptLedger:
@@ -153,11 +154,18 @@ class TaskCenter:
                 job['result'] = await self.worker.run_with_progress(job['request'], job['snapshot'], progress)
             else:
                 job['result'] = await self.worker.run(job['request'], job['snapshot'])
+            job.update(await asyncio.to_thread(materialize_result, job['result'],
+                                               getattr(self.worker, 'workspace', Path.cwd())))
             job['status'] = 'completed'
 
     def status(self, task_id):
         job = self.jobs.get(task_id)
-        return json.loads(json.dumps({k: v for k, v in job.items() if k != 'snapshot'})) if job else {'error': 'unknown_task'}
+        if not job:
+            return {'error': 'unknown_task'}
+        status = {k: v for k, v in job.items() if k not in ('snapshot', 'artifact')}
+        if job.get('artifact'):
+            status['artifact'] = {'source_path': job['artifact']['source_path']}
+        return json.loads(json.dumps(status))
 
     def update(self, task_id, request):
         job = self.jobs.get(task_id)
