@@ -14,7 +14,7 @@
 </head>
 <body>
 <div class="shell">
-<header class="masthead"><div class="brand"><span>✳</span> sparkie / 演示讲稿</div><p>EN 台词 · 中文提示 · 建议稿 v4</p></header>
+<header class="masthead"><div class="brand"><span>✳</span> sparkie / 演示讲稿</div><p>EN 台词 · 中文提示 · 建议稿 v5</p></header>
 <div class="toolbar">
 <nav class="tabs" aria-label="讲稿视图"><a href="#overview/0" data-role="overview">所有人并列</a><a href="#hope/0" data-role="hope">@Hope7Happiness</a><a href="#yifan/0" data-role="yifan">@YIFANK</a><a href="#bowen/0" data-role="bowen">@bowenyu066</a></nav>
 <div class="tools"><label id="compact-control" hidden><input type="checkbox" id="compact">精简队友</label><button id="focus" aria-pressed="false">大字</button><span id="clock" class="timer">00:00</span><button id="timer-toggle">开始计时</button><button id="timer-reset">归零</button><button id="copy-script">复制</button><button id="print">打印</button><button id="download">下载 HTML</button></div>
@@ -22,7 +22,7 @@
 <section class="intro"><div><h1 id="view-title">一场会议，一起把 Demo 做出来。</h1><p id="view-subtitle">所有台词连续展开。按编号从上往下读，Sparkie 说完再接话。</p></div><select class="jump" id="jump" aria-label="跳到讲稿段落"></select></section>
 <div class="columns" id="columns" aria-label="发言人列"></div>
 <main id="script-board"></main>
-<details class="prep"><summary>彩排准备与展示提示 <span id="checked-count"></span></summary><div class="prep-grid"><div><div id="checklist" class="checklist"></div><button id="reset-checks">清空勾选</button></div><div><strong>最后展示同一份完整提纲</strong><p>讨论分工时展示真实 Tasks 进度；完成后展示 artifact 提纲。确认分工后追加到同一文件，再展示更新进度与最新完整 artifact。</p><p>等前台说完再接话；后台执行时继续讨论。文件完成后再展示，如有失败按现场情况处理。</p><p>先确认 Workspace 与本轮会话相连。artifact 来自任务返回正文，不会自动读取文件；生成与修改都要返回完整 Markdown。show us 展示最近就绪的结果，需核对版本。语音未触发时点 Present。双麦克风页不能代替完整会议链路。</p><p>计时仅用于彩排记录，不自动翻页。页面不连接模型或会议；各设备独立滚动。</p></div></div></details>
+<details class="prep"><summary>彩排准备与展示提示 <span id="checked-count"></span></summary><div class="prep-grid"><div><div id="checklist" class="checklist"></div><button id="reset-checks">清空勾选</button></div><div><strong>最后展示同一份完整提纲</strong><p>讨论分工时展示真实 Tasks 进度；完成后展示 artifact 提纲。确认分工后追加到同一文件，再展示更新进度与最新完整 artifact。</p><p>等前台说完再接话；后台执行时继续讨论。文件完成后再展示，如有失败按现场情况处理。</p><p>先确认 Workspace 与本轮会话相连。artifact 来自任务返回正文，不会自动读取文件；生成与修改都要返回完整 Markdown。show us 展示最近就绪的结果，需核对版本。语音未触发时点 Present。双麦克风页不能代替完整会议链路。</p><p>计时仅用于彩排，不自动翻页。拍摄完整原始过程，再为正式演讲选取约 60 秒的真实片段；剪短等待标注 Wait shortened。现场请求到首段可听回应、后台任务耗时、完成到远端听到汇报分别记录。页面不连接模型或会议。</p></div></div></details>
 <div id="status" class="status" role="status" aria-live="polite"></div>
 <div id="print-content" class="print-only"></div>
 <footer class="footer">角色和分工为建议，录制前由本人确认。Agent 表达示例供接话参考，现场以真实回答与产物为准；勾选不是运行证据。下载后可直接用浏览器打开。</footer>
@@ -58,22 +58,22 @@ const sceneData = [
     "title": "一起计划这支 Demo",
     "short": "开场",
     "budget": "约 12 秒",
-    "purpose": "一句话说清楚场景，把 Sparkie 留在会议画面中。",
+    "purpose": "先让观众进入一场真实讨论，再由这场讨论自然带出产品价值。",
     "cue": "会议与音频已就绪，录制开始；不要把 SDK 启动等待放进开场。",
     "lines": [
       [
         "hope",
-        "Okay, let’s figure out how to show Sparkie. It’s in the meeting with us, so let’s plan the demo together.",
-        "我们来想想怎么展示 Sparkie。它也在会议里，就一起把 demo 计划出来。",
-        "保持 Zoom 三人 + Sparkie 画面，不在这里介绍技术栈。"
+        "Okay, we still need a demo video. What do we actually put in it?",
+        "好，我们还差个 demo 视频。到底拍什么？",
+        "像平常开会一样开始；Zoom 里能看见 Sparkie，不用先向观众介绍整套产品。"
       ]
     ],
     "expect": [
-      "此段是面对观众的介绍，Sparkie 应保持安静，不插入无关回应。",
+      "此段是队友之间的普通讨论，还没有向 Sparkie 提问；它应保持安静。",
       "画面中的 Sparkie 必须是本轮真实参会者。"
     ],
     "screen": "Zoom 会议画面，能看见三位成员及 Sparkie。",
-    "gate": "观众知道“这场会议正在制作自己的 demo”，进入真实讨论。",
+    "gate": "开场的问题自然交给队友，接着讨论架构开场还是先看实际使用。",
     "wait": "开场前就完成入会、准入、音频权限与一次唤醒检查。若未就绪，暂停录制，不带着连接问题往下讲。"
   },
   {
@@ -82,18 +82,18 @@ const sceneData = [
     "short": "两种观点",
     "budget": "约 20 秒",
     "purpose": "讨论怎么开场，让第一次接触产品的观众也能看懂。",
-    "cue": "@Hope7Happiness 的开场结束后，按顺序接话，不重叠。",
+    "cue": "顺着开场问题接话，有一点真实思考即可，不用演争执。保留“观众第一次接触产品”的背景。",
     "lines": [
       [
         "yifan",
-        "I’d start with the architecture, so people understand how it works.",
+        "We could start with the architecture, so people understand how it works.",
         "我想先讲架构，让观众理解系统怎么工作。",
         "提出第一种观点，不叫 Sparkie。"
       ],
       [
         "bowen",
-        "I’d rather open on a real meeting. Let people see it do something useful.",
-        "我想从真实会议和有用的结果开始，更容易看出价值。",
+        "I’d rather see it do something first. Otherwise it’s just boxes and arrows.",
+        "我更想先看它做点实际工作，不然就是一堆框和箭头。",
         "明确表达另一种观点。"
       ],
       [
@@ -135,7 +135,7 @@ const sceneData = [
     "example": "I’d open with the meeting. Seeing a task get done makes the value clear before you explain how it works.",
     "screen": "会议画面；保留助手完整的实际回复。",
     "gate": "回复能自然接上刚才的讨论，理由与观众背景相关即可，不要求背诵上下文。",
-    "wait": "先留 3–5 秒自然停顿作为主持节奏。若持续无回应，检查是否收到唤醒转写；确认没有在回复后才重问一次，不连续催问。"
+    "wait": "根据实际回答接话：赞同会议开场可以接“Yeah, let’s try that.”；若它建议架构先行，先回应理由，再表达自己的取舍：“Maybe a quick slide later. I’d still like to start here, in the meeting.”；没理解就问“Do you mean start with this call?”。只在需要时使用这些分支，不全部照读。无回应时留足彩排测得的等待窗口，确认没在播音后只重问一次完整请求。"
   },
   {
     "id": "delegate",
@@ -153,15 +153,15 @@ const sceneData = [
       ],
       [
         "bowen",
-        "So we need someone to walk viewers through it, someone to record the meeting and the task, and someone to show the result and edit the video.",
-        "需要有人讲解、有人录会议与任务画面、有人展示结果并剪成视频。",
+        "This call could be the video. We need narration, a recording of the meeting and task, and someone to show the result and edit it.",
+        "这通电话本身就可以当视频。需要讲解、会议和任务录制，以及成果展示和剪辑。",
         "先把整组工作讲清楚；等提纲在后台执行时，再认领各自的部分。"
       ],
       [
         "yifan",
         "Sparkie, make that a video outline as a simple shot list: what we say and what’s on screen. Save it as demo-outline.md and return the full outline too.",
         "做成一份简单的分镜提纲：说什么、屏幕展示什么。保存到 demo-outline.md，同时返回完整提纲。",
-        "任务结果需要包含完整正文，artifact 才能直接展示；此时先不分配个人职责。"
+        "任务结果需要包含完整正文，artifact 才能直接展示；此时先不分配个人职责。 文件名可读作“demo dash outline dot M D”；先完成一份提纲，再补入后来的决定。"
       ]
     ],
     "expect": [
@@ -197,8 +197,8 @@ const sceneData = [
       ],
       [
         "bowen",
-        "Then I’ll show the finished result and edit everything together.",
-        "那我来展示最后的成果，再把视频剪到一起。",
+        "Yep. Send me the recording after. I’ll show the result and cut it together.",
+        "好，录完发我。我来展示成果，再把视频剪到一起。",
         "认领成果展示和剪辑；三人都说完后，再请 Sparkie 一起核对。"
       ]
     ],
@@ -210,7 +210,7 @@ const sceneData = [
     ],
     "screen": "主画面保留三人会议与 Tasks 卡片。观众一边听分工，一边看到实际运行状态、动作文字和运行中动画。这里没有完成百分比、预计剩余时间或逐段生成预览；不制作模拟进度条。",
     "gate": "三人已明确认领；等本轮任务实际 Done 且 artifact 正文就绪，再展示提纲。任务若提前完成，听完汇报后仍把分工说完整。",
-    "wait": "如果提纲先完成，让 Sparkie 说完，再接回尚未说完的分工。分工聊完仍在执行时，可以讨论录制交接；不要重复创建提纲。 若任务仍 Running 但没有新动作文字，保持实际状态，不把停顿解释成某个未经确认的执行阶段。",
+    "wait": "如果提纲先完成，让 Sparkie 说完，再接回尚未说完的分工。分工聊完仍在执行时，可以讨论录制交接；不要重复创建提纲。 若任务仍 Running 但没有新动作文字，保持实际状态，不把停顿解释成某个未经确认的执行阶段。 若它提前完成，可自然接“Oh, that was quick. Let’s finish the recording plan, then look.”，不假装任务还在跑；也不用闲聊填满它的回复。",
     "filler": [
       "yifan",
       "Let’s keep the task panel on screen until the result is ready, so the handoff is easy to follow."
@@ -246,7 +246,7 @@ const sceneData = [
     "example": "Here’s the outline.",
     "screen": "从会议 + Tasks 转到 artifact 展示区，放大本轮提纲。独立页可点 Present 全屏；若使用嵌入面板，保留已显示的结果。看清提纲后继续围绕它讨论分工。",
     "gate": "观众实际看到本轮完整提纲，且方向与讨论一致，再进入角色核对。",
-    "wait": "语音展示未触发时点对应 artifact 的 Present。若正文只有“已保存”或路径，请后台返回完整提纲后再展示；仍无法展示时打开真实文件，并如实说明展示方式。不把手动打开说成语音触发成功。"
+    "wait": "语音展示未触发时点对应 artifact 的 Present。若正文只有“已保存”或路径，请后台返回完整提纲后再展示；仍无法展示时打开真实文件，并如实说明展示方式。不把手动打开说成语音触发成功。 看到实际内容再接话：若有不准备演示的功能，可说“Let’s leave that part out. We’re only filming what we did in this call.”，并明确要求修改；不照念肯定句掩盖缺项。"
   },
   {
     "id": "roles_review",
@@ -316,16 +316,16 @@ const sceneData = [
     "example": "I’ll add the agreed roles to the end of the outline.",
     "screen": "退出全屏，保留旧提纲与本轮更新任务的 Tasks 卡片，让观众看到真实 Running / 动作提示 → Done。若嵌入视图自动展示新 artifact，核对它确实包含最新分工；否则下一步展示最新结果。",
     "gate": "同一文件更新成功，最新 artifact 中也有完整提纲和确认后的分工，才能展示完成结果。",
-    "wait": "等待更新时留自然停顿，或核对已有提纲的镜头顺序。若更新失败，修正实际问题再重试；不要先结束会议，以免取消尚未保存的任务。 若只返回了“修改完成”而没有正文，先要求返回完整更新版，不用旧 artifact 代替新结果。",
+    "wait": "等待更新时留自然停顿，或核对已有提纲的镜头顺序。若更新失败，修正实际问题再重试；不要先结束会议，以免取消尚未保存的任务。 若只返回了“修改完成”而没有正文，先要求返回完整更新版，不用旧 artifact 代替新结果。 若姓名或职责混淆，由本人说清自己的姓名与工作，再要求修正；不预先替它编造正确的结果。",
     "recovery": "Sparkie, has the outline been updated?"
   },
   {
     "id": "closing",
-    "title": "展示更新后的计划，自然收尾",
+    "title": "看完完整计划，发现已经拍完了",
     "short": "展示计划并收尾",
     "budget": "约 15 秒 + 等展示",
     "purpose": "最终画面停在同一份提纲和确认分工上，这场会议已经把录制计划准备好。",
-    "cue": "更新任务实际完成且新 artifact 就绪后，展示最新版，从提纲正文滚到末尾分工。若已经自动显示正确版本，跳过展示请求，直接接最后两句。",
+    "cue": "最新 artifact 已就绪，展示并核对。已自动显示时跳过展示请求。确认本轮确实一直在录制，再使用最后的轻收尾；否则直接说“Great. Let’s record it.”。",
     "lines": [
       [
         "yifan",
@@ -334,25 +334,37 @@ const sceneData = [
         "先确认最新就绪的 artifact 属于这次更新。语音未触发时点正确卡片的 Present；已自动显示就跳过这句。"
       ],
       [
-        "bowen",
-        "There we go. What we’re filming, and who’s doing each part.",
-        "好了，拍什么、各自负责哪一块，都在这里了。",
-        "看到最新 artifact 确实包含原提纲与正确分工后说；让观众看清两部分在同一份计划里。"
+        "yifan",
+        "The outline and the roles. Yep, that’s us.",
+        "提纲和分工。对，就是我们的安排。",
+        "核对真实最新版的内容后再说；让观众看清最后的角色与职责。"
       ],
       [
         "hope",
-        "Great. Let’s record it.",
-        "好，那就开录吧。",
-        "自然结束这场计划会议；留几秒产物画面，再停止 demo 录制和结束会议。"
+        "Okay. Now we just need to shoot it.",
+        "好，现在就差拍了。",
+        "仅在本轮录制已经真实开始时使用这一组轻收尾；不夸张表演。"
+      ],
+      [
+        "bowen",
+        "…we’ve been recording.",
+        "……我们一直在录啊。",
+        "必须确实一直在录制才能说。若没有录制，跳过这个包袱。"
+      ],
+      [
+        "hope",
+        "Oh. Right.",
+        "哦。也是。",
+        "轻轻接住即可。若没有录制，改用“Great. Let’s record it.”，结束在已完成的计划上。"
       ]
     ],
     "expect": [
       "展示本轮更新结果：原有拍摄提纲 + 实际确认的角色分工，内容与更新后的 demo-outline.md 一致。",
       "这次展示无需新建内容生成任务；如果刚汇报完成，等 Sparkie 说完再接最后两句。"
     ],
-    "screen": "最新版 artifact 展示区停在分工部分，留几秒让观众看清；随后回到会议画面自然结束。主线是任务进度 → 首版提纲 → 讨论分工 → 更新进度 → 完整计划。",
+    "screen": "最新 artifact 的真实分工停留几秒，再回到三人会议。最后一句后留短暂停顿；片尾可用“Sparkie — work, in the room.”，不追加未演示的能力。",
     "gate": "文件和最新 artifact 都已核对，完成台词说完、成果展示结束后，再停止录制并结束会议。",
-    "wait": "如果角色补充还没保存，停留在上一步。只有一份初稿时不能使用“who’s doing each part”的完成台词。",
+    "wait": "如果角色补充还没保存，停留在上一步。只有一份初稿时不能使用“who’s doing each part”的完成台词。 收尾台词取决于实际录制状态；未录制就不用“we’ve been recording”。",
     "example": "Here’s the updated outline, with everyone’s roles at the end."
   }
 ];
@@ -383,7 +395,11 @@ const preflight = [
   ],
   [
     "capture",
-    "讲稿放副屏；录制会议与真实 Tasks 进度，成果就绪后切 artifact。预先试好全屏 / Esc / Present，不录入提词页面。"
+    "讲稿放副屏；录制会议与真实 Tasks 进度，成果就绪后切 artifact。预先试好全屏 / Esc / Present，不录入提词页面。 录制开始后再用“一直在录”的结尾；保留原声，剪短等待时标注 Wait shortened。"
+  ],
+  [
+    "remote_view",
+    "在同一场 Zoom 彩排中，从另一位参会者确认任务与 artifact 画面确实可见；本机展示成功不等于远端已经看到。"
   ]
 ];
 
@@ -410,11 +426,18 @@ function sceneHTML(index) {
   const question = s.lines.findIndex(line => line[1].startsWith('Sparkie,'));
   const responseAfter = question < 0 ? s.lines.length - 1 : question;
   const order = s.lines.flatMap((line,i) => [roles[line[0]].name, ...(i === question ? ['Sparkie'] : [])]).join(' → ');
-  const agent = '<div class="agent" style="grid-row:' + 2 + '"><div><h3>SPARKIE · 预期结果</h3><p>' + s.expect.map(escape).join('<br>') + '</p></div><div>' +
+  let row = 1, used = new Set(), agentRow = 2;
+  const rows = s.lines.map((line,i) => {
+    if (used.has(line[0])) {row += 1; used.clear();}
+    const current = row; used.add(line[0]);
+    if (i === responseAfter) {agentRow = row + 1; row += 2; used.clear();}
+    return current;
+  });
+  const agent = '<div class="agent" style="grid-row:' + agentRow + '"><div><h3>SPARKIE · 预期结果</h3><p>' + s.expect.map(escape).join('<br>') + '</p></div><div>' +
     (s.example ? '<small>可能的回应 · 以现场为准</small><p class="sample" lang="en">' + escape(s.example) + '</p>' : '<small>接话节奏</small><p>' + escape(s.wait) + '</p>') + '</div></div>';
   return '<section class="scene" id="scene-' + index + '" data-scene="' + index + '">' +
     '<header class="scene-head"><span class="scene-number">' + String(index + 1).padStart(2,'0') + '</span><h2>' + s.title + '</h2><small>' + s.budget + ' · 彩排参考</small></header>' +
-    '<p class="stage-cue">' + s.cue + '<br><span class="turn-order">接话顺序：' + order + '</span></p><div class="dialogue">' + s.lines.map((l,i) => lineHTML(l,index,i,i <= responseAfter ? 1 : 3) + (i === responseAfter ? agent : '')).join('') + '</div>' +
+    '<p class="stage-cue">' + s.cue + '<br><span class="turn-order">接话顺序：' + order + '</span></p><div class="dialogue">' + s.lines.map((l,i) => lineHTML(l,index,i,rows[i]) + (i === responseAfter ? agent : '')).join('') + '</div>' +
     '<div class="stage-notes"><p><b>画面</b> · ' + s.screen + '</p><p><b>再往下接</b> · ' + s.gate + '</p></div>' +
     '<div class="waiting">' + (s.filler ? '<p>还在执行时，' + roles[s.filler[0]].name + ' 可以接：</p><p class="filler" lang="en">' + escape(s.filler[1]) + '</p>' : '') +
     '<details><summary>等待与异常时的提示</summary><p>' + s.wait + '</p>' + (s.recovery ? '<p lang="en">' + escape(s.recovery) + '</p>' : '') + '</details></div></section>';

@@ -1,0 +1,83 @@
+{
+  "retrieved": "2026-09-20",
+  "products": [
+    {
+      "name": "granola",
+      "page": "https://www.granola.ai/",
+      "assets": [
+        {
+          "kind": "product",
+          "source": "https://www.granola.ai/og-image.png",
+          "file": "presentation/assets/market/granola-product.png",
+          "mime": "image/png",
+          "bytes": 120827
+        },
+        {
+          "kind": "icon",
+          "source": "https://www.granola.ai/favicon/favicon.ico",
+          "file": "presentation/assets/market/granola-icon.ico",
+          "mime": "image/vnd.microsoft.icon",
+          "bytes": 15086
+        }
+      ],
+      "website_capture": {
+        "file": "granola-website.jpg",
+        "source": "https://www.granola.ai/",
+        "viewport": "1440x960",
+        "method": "Chrome website screenshot; not an independently tested product session"
+      }
+    },
+    {
+      "name": "vapi",
+      "page": "https://vapi.ai/",
+      "assets": [
+        {
+          "kind": "product",
+          "source": "https://vapi.ai/opengraph-image.png?opengraph-image.0dryxzls5gf-2.png",
+          "file": "presentation/assets/market/vapi-product.png",
+          "mime": "image/png",
+          "bytes": 15312
+        },
+        {
+          "kind": "icon",
+          "source": "https://vapi.ai/favicon.ico?favicon.0j.1kaa1kzypv.ico",
+          "file": "presentation/assets/market/vapi-icon.ico",
+          "mime": "image/vnd.microsoft.icon",
+          "bytes": 3586
+        }
+      ],
+      "website_capture": {
+        "file": "vapi-website.jpg",
+        "source": "https://vapi.ai/",
+        "viewport": "1440x960",
+        "method": "Chrome website screenshot; not an independently tested product session"
+      }
+    },
+    {
+      "name": "zoom",
+      "page": "https://www.zoom.com/en/products/ai-assistant/",
+      "assets": [
+        {
+          "kind": "product",
+          "source": "https://media.zoom.com/images/assets/Overview+social+share.jpg/Zz1lNTBiYTEyZTViNTUxMWYxYWU2MTFhMDAwNjRmOTM1OA==",
+          "file": "presentation/assets/market/zoom-product.jpg",
+          "mime": "image/jpeg",
+          "bytes": 171202
+        },
+        {
+          "kind": "icon",
+          "source": "https://www.zoom.com/favicon.ico",
+          "file": "presentation/assets/market/zoom-icon.ico",
+          "mime": "image/x-icon",
+          "bytes": 4286
+        }
+      ],
+      "website_capture": {
+        "file": "zoom-website.jpg",
+        "source": "https://www.zoom.com/en/products/ai-assistant/",
+        "viewport": "1440x960",
+        "method": "Chrome website screenshot; not an independently tested product session"
+      }
+    }
+  ]
+}
