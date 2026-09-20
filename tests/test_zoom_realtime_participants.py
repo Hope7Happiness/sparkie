@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from sparkie import realtime_session
-from sparkie.contracts import TranscriptEvent
+from sparkie.contracts import TranscriptEvent, SpeechActivity
 from sparkie.zoom_audio import ZoomMacAudioMeeting
 from sparkie.providers import ProviderError
 from test_zoom_audio import packet
@@ -20,7 +20,7 @@ from test_zoom_audio import packet
 
 class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
     async def exercise(self, provider_failure=False):
-        sessions, received, snapshots, human_turns = [], [], [], []
+        sessions, received, snapshots, human_turns, activity, degraded = [], [], [], [], [], []
         class Meeting(ZoomMacAudioMeeting):
             async def join(self):
                 self.reader = asyncio.StreamReader()
@@ -44,12 +44,15 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             async def notify_tasks(self): await asyncio.Event().wait()
             async def append(self, frame): received.append(frame)
             async def human_transcript(self, record): human_turns.append(record)
+            async def participant_speech(self, event): activity.append(event)
+            async def participant_input_failed(self): degraded.append(True)
         class Ears:
             def __init__(self, *a, **kw):
                 self.rate = kw['rate']; self.model = kw['model']; self.language = kw['language']
             async def transcribe(self, frames):
                 self.on_ready()
                 if provider_failure: raise ProviderError('synthetic STT failure')
+                yield SpeechActivity('started')
                 packets = []
                 sessions.append((self.rate, packets))
                 async for frame in frames: packets.append(frame.pcm)
@@ -82,11 +85,14 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config['input_mode'], 'per_participant')
         self.assertEqual(config['sample_rate'], 32000)
         if provider_failure:
+            self.assertEqual(degraded, [True])
             self.assertTrue(any(e['type']=='transcript_degraded' for e in events))
             self.assertTrue(any(r.get('reason')=='deepgram_unavailable' for r in snapshots[0].records))
         else:
             self.assertEqual({r['speaker_id'] for r in human_turns}, {'zoom:10', 'zoom:20'})
             self.assertEqual(len(sessions), 2)
+            self.assertEqual([(e.speaker_id, e.phase) for e in activity].count(('zoom:10', 'started')), 1)
+            self.assertEqual([(e.speaker_id, e.phase) for e in activity].count(('zoom:20', 'stopped')), 1)
             self.assertEqual({rate for rate, _ in sessions}, {32000})
             records = report['transcript']
             self.assertEqual({r['speaker_id'] for r in records}, {'zoom:10','zoom:20'})

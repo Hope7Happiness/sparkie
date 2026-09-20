@@ -393,8 +393,9 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     [config removeObjectForKey:@"token"];
     self.config = config;
     ZoomSDKAudioSetting *settings = [[[ZoomSDK sharedSDK] getSettingService] getAudioSetting];
-    // Voice mode must not join muted: the SDK would re-mute the virtual mic once VoIP connects.
-    ZoomSDKError mute = [settings enableMuteMicJoinVoip:!self.voice];
+    // Join muted so installing the external source precedes the unmute transition.
+    // Joining already unmuted can initialize the source without onMicStartSend.
+    ZoomSDKError mute = [settings enableMuteMicJoinVoip:YES];
     printf("MUTE_ON_JOIN result=%d\n", mute);
     if (!settings || mute != ZoomSDKError_Success) { self.exitCode = 1; [self shutdown]; return; }
     [settings enableAutoJoinVoip:YES];
@@ -423,8 +424,6 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         printf("In Meeting Now...\n");
         ZoomSDKMeetingActionController *actions = [[[ZoomSDK sharedSDK] getMeetingService] getMeetingActionController];
         if (self.voice) {
-            // Partial delegate: only onUserAudioStatusChange is implemented.
-            actions.delegate = (id<ZoomSDKMeetingActionControllerDelegate>)self;
             // Install the virtual microphone before unmuting; the physical mic is never opened.
             ZoomSDKRawDataAudioSourceController *source = nil;
             ZoomSDKError helper = [[[ZoomSDK sharedSDK] getRawDataController] getRawDataAudioSourceHelper:&source];
@@ -635,7 +634,6 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     ZoomSDKMeetingService *meeting = [[ZoomSDK sharedSDK] getMeetingService];
     if (self.recording) [meeting.getRecordController stopRawRecording];
     meeting.delegate = nil;
-    meeting.getMeetingActionController.delegate = nil;
     meeting.getRecordController.delegate = nil;
     [meeting leaveMeetingWithCmd:LeaveMeetingCmd_Leave];
     [[ZoomSDK sharedSDK] unInitSDK];

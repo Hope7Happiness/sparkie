@@ -52,8 +52,8 @@ class ZoomAudioMeeting:
         self._cancel_waiter = None
         self.cancel_timeout = 5.0
         self.meeting_ended = False
-        self.input_live = False
-        self.join_dropped_frames = 0
+        self._joining = False
+        self.startup_frames_discarded = 0
 
     def meeting_end_observed(self):
         """Sanitized fields if the SDK reported the meeting ended; else None."""
@@ -127,6 +127,7 @@ class ZoomAudioMeeting:
                 await asyncio.sleep(.5)
 
     async def join(self):
+        self._joining = True
         joining = asyncio.create_task(self._join())
         succeeded = False
         try:
@@ -160,6 +161,7 @@ class ZoomAudioMeeting:
                     await self.leave()
                 except Exception as exc:
                     self.on_event('zoom_cleanup_failed', error_type=type(exc).__name__)
+            self._joining = False
         self.on_event('zoom_audio_ready', sample_rate=32000, channels=1)
 
     async def _join(self):
@@ -198,16 +200,7 @@ class ZoomAudioMeeting:
         return False
 
     def enqueue_frame(self, frame):
-        try:
-            self.queue.put_nowait(frame)
-        except asyncio.QueueFull:
-            if self.input_live:
-                raise
-            # Frames can arrive while join() is still waiting for microphone
-            # readiness; no consumer exists yet, so keep the newest audio.
-            self.queue.get_nowait()
-            self.queue.put_nowait(frame)
-            self.join_dropped_frames += 1
+        self.queue.put_nowait(frame)
 
     async def receive(self):
         try:
@@ -230,7 +223,18 @@ class ZoomAudioMeeting:
                     if kind == b'A':
                         gated = self.input_gate()
                         frame = AudioFrame(frame.sequence, bytes(len(data)) if gated else data, gated=gated)
-                    self.enqueue_frame(frame)
+                    if self._joining:
+                        # No capture/playback consumer exists until join returns.
+                        # Discard pre-ready input on BOTH paths: buffering here
+                        # overflows, while transcribing U can authorize unheard replies.
+                        self.startup_frames_discarded += 1
+                        if self.startup_frames_discarded == 1:
+                            self.on_event('zoom_startup_audio_discarded',
+                                          reason='waiting_for_audio_and_microphone',
+                                          audio_ready=self.audio_ready.is_set(),
+                                          microphone_ready=self.mic_ready.is_set())
+                    else:
+                        self.enqueue_frame(frame)
                     self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
                     if self.frames_received % 32 == 0:
                         # StreamReader may return buffered packets without suspending.
@@ -299,22 +303,6 @@ class ZoomAudioMeeting:
             self.on_event('audio_failed', **failure_details(exc))
 
     async def audio(self):
-        self.input_live = True
-        # Frames buffered before the consumer existed are stale; forwarding them
-        # would flood the bounded realtime input queue with old audio.
-        stale = 0
-        while True:
-            try:
-                self.queue.get_nowait()
-                stale += 1
-            except asyncio.QueueEmpty:
-                break
-        if stale:
-            self.join_dropped_frames += stale
-            self.on_event('zoom_input_flushed', dropped_frames=stale)
-        if self._backlogged:
-            self._backlogged = False
-            self.on_event('zoom_input_recovered')
         started = time.monotonic()
         while not self.stopped.is_set() and time.monotonic() - started < self.max_seconds:
             try:
@@ -429,8 +417,9 @@ class ZoomAudioMeeting:
 
     def diagnostics(self):
         return {'frames_received': self.frames_received, 'bytes_received': self.bytes_received,
+                'startup_frames_discarded': self.startup_frames_discarded,
                 'frames_consumed': self.frames_consumed, 'max_queued_frames': self.max_queued_frames,
-                'join_dropped_frames': self.join_dropped_frames, 'meeting_ended': self.meeting_ended,
+                'meeting_ended': self.meeting_ended,
                 'max_receive_gap_ms': self.max_receive_gap_ms, 'raw_audio_saved': False, 'echo_mode': 'silence_during_playback_plus_350ms',
                 'remote_audible_latency_measured': False}
 

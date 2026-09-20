@@ -14,6 +14,15 @@ class TranscriptEvent:
     speaker_id: str | None = None
 
 
+@dataclass(frozen=True)
+class SpeechActivity:
+    """Candidate VAD or text-confirmed speech, ordered with final transcripts."""
+    phase: Literal["candidate", "started", "stopped"]
+    timestamp_ms: int = 0
+    speaker_id: str | None = None
+    stream_id: str | None = None
+
+
 @dataclass
 class Task:
     task_id: str

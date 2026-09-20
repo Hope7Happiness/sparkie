@@ -63,6 +63,7 @@ class RealtimeZoomAudio:
         self.failure = None
         self.stopped = False
         self.interrupting = False
+        self.paused_for_candidate = False
         self._stop_lock = asyncio.Lock()
         self.captured_samples = 0
         self.audio_origin = None
@@ -195,11 +196,21 @@ class RealtimeZoomAudio:
             output.finished = True
             self.changed.set()
 
+    def pause_speaking(self):
+        # Hold unsent PCM at the next 100ms packet boundary. An SDK packet already
+        # in flight must finish so resuming cannot repeat or skip unknown samples.
+        self.paused_for_candidate = True
+        self.changed.set()
+
+    def resume_speaking(self):
+        self.paused_for_candidate = False
+        self.changed.set()
+
     async def pump(self):
         try:
             while not self.stopped:
                 self.changed.clear()
-                if self.interrupting:
+                if self.interrupting or self.paused_for_candidate:
                     await self.changed.wait()
                     continue
                 if self.output is None or self.output.cancelled.is_set() or self.output.drained:
@@ -274,6 +285,7 @@ class RealtimeZoomAudio:
             await self._stop_speaking()
 
     async def _stop_speaking(self):
+        self.paused_for_candidate = False
         active = self.play_task is not None or any(
             not o.cancelled.is_set() and not o.drained for o in self.outputs.values())
         if not active:
@@ -324,6 +336,7 @@ class RealtimeZoomAudio:
                 'transcription_echo_mode': 'exclude_sdk_self_track' if self.participant_transcription else 'foreground_gate',
                 'playback_buffer_limit_bytes': self.MAX_BUFFER_BYTES,
                 'response_limit_seconds': None,
+                'paused_for_candidate': self.paused_for_candidate,
                 'gated_samples': self.gated_samples,
                 'gate_basis': 'bridge_receive_before_queue; native packet gate also active',
                 'realtime_sample_rate': 24000, 'playback_packet_ms': 100,

@@ -21,7 +21,7 @@ from .zoom_audio import ZoomMacAudioMeeting
 def validate_config(config):
     if not isinstance(config, dict) or config.get('action') != 'start':
         raise ValueError('invalid_config')
-    if config.get('language') not in ('en', 'zh-CN'):
+    if config.get('language') not in ('en-US', 'en', 'zh-CN'):
         raise ValueError('invalid_config')
     tracks = config.get('tracks')
     if not isinstance(tracks, list) or not 2 <= len(tracks) <= 4:

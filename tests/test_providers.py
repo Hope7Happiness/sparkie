@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import httpx
 from sparkie.audio import AudioFrame
+from sparkie.contracts import SpeechActivity, TranscriptEvent
 from sparkie.providers import DeepgramEars, DeepgramMouth, ElevenLabs, OpenAIBrain, ProviderError, Utterances, deepgram_url
 
 
@@ -74,6 +75,35 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         final = [event.text async for event in ears.transcribe(frames())]
         self.assertEqual(partials, ['wrong word', 'Hello', 'Hello world', ''])
         self.assertEqual(final, ['Hello world'])
+
+    async def test_vad_boundaries_precede_final_text_and_ignore_replayed_finals(self):
+        class Socket:
+            def __init__(self): self.queue = asyncio.Queue()
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def send(self, payload):
+                if isinstance(payload, bytes):
+                    events = [{'type': 'SpeechStarted', 'timestamp': 0, 'channel': [0]},
+                              message('Sparkie, hello'), message('Sparkie, hello'),
+                              message('Sparkie, hello', final=False, end=False),
+                              {'type': 'SpeechStarted', 'timestamp': 0, 'channel': [0]},
+                              {'type': 'SpeechStarted', 'timestamp': 2, 'channel': [0]},
+                              {'type': 'UtteranceEnd', 'channel': [0, 1]}]
+                    for event in events: await self.queue.put(json.dumps(event))
+                else: await self.queue.put(None)
+            def __aiter__(self): return self
+            async def __anext__(self):
+                event = await self.queue.get()
+                if event is None: raise StopAsyncIteration
+                return event
+        async def frames(): yield AudioFrame(0, bytes(1280))
+        socket = Socket()
+        ears = DeepgramEars('unused', 'm', connector=lambda *args: socket, speech_events=True)
+        events = [e async for e in ears.transcribe(frames())]
+        self.assertEqual([e.phase if isinstance(e, SpeechActivity) else e.text for e in events],
+                         ['candidate', 'started', 'Sparkie, hello', 'stopped', 'candidate', 'stopped'])
+        self.assertIsInstance(events[2], TranscriptEvent)
+        self.assertIn('vad_events=true', deepgram_url(32000, 'nova-3', 'en'))
 
     async def test_deepgram_tts_headerless_pcm_request(self):
         def handle(request):

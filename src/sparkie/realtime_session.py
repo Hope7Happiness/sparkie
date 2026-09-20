@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from .local_session import device_id
+from .contracts import SpeechActivity
 from .providers import DeepgramEars, ProviderError, failure_details
 from .realtime import RealtimeAgent
 from .realtime_audio import RealtimeLocalAudio
@@ -76,15 +77,15 @@ async def run(args):
                                   echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit)
     worker = configured_task_worker()
     center = TaskCenter(ledger, worker, emit)
-    # Mirror the session into a meeting workspace when the server is reachable;
-    # every client failure degrades to a no-op so the meeting is unaffected.
-    from .workspace_client import WorkspaceClient
-    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     output_policy = None
     if transport_name == 'zoom':
         from .zoom_output import ZoomOutputPolicy
         # EventOutput is initialized below before any asynchronous session work.
         output_policy = ZoomOutputPolicy(audio, lambda *a, **k: None)
+    # Mirror the session into a meeting workspace when the server is reachable;
+    # every client failure degrades to a no-op so the meeting is unaffected.
+    from .workspace_client import WorkspaceClient
+    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
                           output_policy=output_policy)
@@ -101,7 +102,8 @@ async def run(args):
             lambda: DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
                                 model=model, language=args.language),
             speaker_name=audio.meeting.speaker_name, is_self=audio.meeting.is_self,
-            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit)
+            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit,
+            speech_events=True)
         ears.on_ready = dg_ready.set  # Router readiness; connections open when a participant speaks.
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
@@ -121,19 +123,30 @@ async def run(args):
         try:
             source = audio.participant_audio() if participant_stt else frames(queues[1])
             async for record in ears.transcribe(source):
+                if isinstance(record, SpeechActivity):
+                    handling_transcript = True
+                    await agent.participant_speech(record)
+                    handling_transcript = False
+                    continue
                 ledger.append(record)
                 emit('transcript', **asdict(record))
-                if record.is_final:
-                    await workspace.utterance(record.text, record.speaker, 'human')
                 if output_policy is not None:
                     handling_transcript = True
                     await agent.human_transcript(asdict(record))
                     handling_transcript = False
+                if record.is_final:
+                    await workspace.utterance(record.text, record.speaker, 'human')
         except Exception as exc:
             if handling_transcript:
                 stop.set()
                 raise  # Agent/native failures are not degraded Deepgram coverage.
             dg_active = False
+            if participant_stt:
+                try:
+                    await agent.participant_input_failed()
+                except Exception:
+                    stop.set()
+                    raise
             record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
                       'timestamp_ms': round(audio.captured_samples / 24)}
             ledger.append(record)
@@ -226,7 +239,9 @@ async def run(args):
         center.start()
         emit('transcription_config', provider='deepgram', model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
              language=args.language, sample_rate=32000 if participant_stt else 24000,
-             input_mode='per_participant' if participant_stt else 'mixed')
+             input_mode='per_participant' if participant_stt else 'mixed',
+             foreground_input='participant_final_text' if participant_stt else 'mixed_audio',
+             barge_in='participant_interim_text' if participant_stt else 'mixed_input')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())
         running.extend([rt, dg])
@@ -337,7 +352,7 @@ def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument('--transport', choices=['local', 'browser', 'zoom'], default='local')
-    parser.add_argument('--language', choices=['en', 'zh-CN'], default='en')
+    parser.add_argument('--language', choices=['en-US', 'en', 'zh-CN'], default='en-US')
     parser.add_argument('--seconds', type=int, default=120)
     parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')
     parser.add_argument('--input-device')
