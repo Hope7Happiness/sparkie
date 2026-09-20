@@ -48,12 +48,18 @@ main{flex:1;overflow:auto;padding:34px 46px}
 .body pre code{background:none;padding:0;color:inherit}
 .body blockquote{border-left:3px solid #c9d0be;padding-left:14px;color:#69756b;margin:12px 0}
 .body hr{border:none;border-top:1px solid #dfe2d6;margin:20px 0}
-.body img{max-width:100%;border-radius:8px}
+.body img{max-width:100%;max-height:72vh;object-fit:contain;border-radius:8px}
 .body iframe{width:100%;height:72vh;border:1px solid #dfe2d6;border-radius:8px;background:#fff}
+.generating{margin:14px 46px 0;padding:14px 18px;border:1px solid #d8dcd0;border-radius:12px;background:#fff}
+.generating p{font-size:13px;color:#69756b;margin-top:5px}
+.shimmer{height:5px;margin-top:10px;border-radius:4px;background:linear-gradient(90deg,#eceee5,#c9d9bd,#eceee5);background-size:200% 100%;animation:shimmer 1.5s linear infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.shimmer{animation:none}}
 </style>
 </head>
 <body>
 <div class="bar"><div class="brand"><span>✳</span> sparkie</div><span id="meeting"></span><span id="status" class="badge">connecting…</span></div>
+<aside id="generation" aria-live="polite" hidden></aside>
 <main id="stage"><div class="empty"><div class="big">✳</div><p>Waiting for artifacts…</p></div></main>
 <script>
 const WS_ID = "__WS_ID__";
@@ -64,6 +70,9 @@ const stage = document.getElementById('stage');
 const statusEl = document.getElementById('status');
 const meetingEl = document.getElementById('meeting');
 let active = null;
+let revision = 0, snapshotRequest = 0, eventBuffer = null;
+const tasks = new Map();
+const generationEl = document.getElementById('generation');
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const inline = s => esc(s)
@@ -119,18 +128,27 @@ function markdown(src) {
   return html;
 }
 
+function safeMedia(raw, kind) {
+  const url = String(raw || '').trim();
+  if (/^https?:\\/\\//i.test(url) || /^\\/(?!\\/)/.test(url)) return url;
+  if (kind === 'image' && /^data:image\\/(png|jpeg|webp|gif);base64,/i.test(url)) return url;
+  if (kind === 'pdf' && /^data:application\\/pdf;base64,/i.test(url)) return url;
+  return '';
+}
+
 function render(artifact) {
   const c = artifact.content || {};
   const head = '<div class="art-head"><h1>' + esc(artifact.title || 'Artifact') + '</h1>' +
     '<span class="type">' + esc(artifact.type || 'report') + '</span>' +
     (artifact.summary ? '<p class="sum">' + esc(artifact.summary) + '</p>' : '') + '</div>';
   let body = '';
-  if (c.markdown) body = '<div class="body">' + markdown(c.markdown) + '</div>';
-  else if (c.image) body = '<div class="body"><img src="' + esc(c.image) + '"></div>';
-  else if (c.pdf) body = '<div class="body"><iframe src="' + esc(c.pdf) + '"></iframe></div>';
-  else if (c.url) body = '<div class="body"><iframe src="' + esc(c.url) + '"></iframe></div>';
+  const text = typeof c === 'string' ? c : (c.markdown || c.answer);
+  if (text) body = '<div class="body">' + markdown(text) + '</div>';
+  else if (c.image && safeMedia(c.image, 'image')) body = '<div class="body"><img alt="' + esc(artifact.title || 'Artifact image') + '" src="' + esc(safeMedia(c.image, 'image')) + '"></div>';
+  else if (c.pdf && safeMedia(c.pdf, 'pdf')) body = '<div class="body"><iframe src="' + esc(safeMedia(c.pdf, 'pdf')) + '"></iframe></div>';
+  else if (c.url && safeMedia(c.url)) body = '<div class="body"><iframe sandbox="allow-scripts" src="' + esc(safeMedia(c.url)) + '"></iframe></div>';
   else body = '<div class="body"><pre><code>' + esc(JSON.stringify(c, null, 2)) + '</code></pre></div>';
-  stage.innerHTML = head + body;
+  stage.innerHTML = (text ? '' : head) + body;
 }
 
 async function hydrate(id) {
@@ -140,29 +158,83 @@ async function hydrate(id) {
 }
 
 async function present(id) {
-  const artifact = await hydrate(id);
-  if (artifact) { active = id; render(artifact); }
+  const version = ++revision;
+  try {
+    const artifact = await hydrate(id);
+    if (version === revision && artifact) { active = id; render(artifact); }
+  } catch { /* Reconnect refresh restores authoritative selection. */ }
+}
+
+function clearPresentation() {
+  revision++;
+  active = null;
+  stage.innerHTML = '<div class="empty"><div class="big">✳</div><p>No artifact selected</p></div>';
+}
+
+function renderGeneration() {
+  const pending = [...tasks.values()].filter(t => ['queued', 'running'].includes(t.status));
+  generationEl.hidden = !pending.length;
+  generationEl.innerHTML = pending.map(t => '<div class="generating"><strong>' +
+    esc(t.artifact_title || 'Task output') + '</strong><p>' +
+    (t.status === 'running' ? 'Generating…' : 'Queued') + '</p>' +
+    (t.status === 'running' ? '<div class="shimmer" aria-hidden="true"></div>' : '') + '</div>').join('');
+}
+
+function handle(msg) {
+  if (msg.type === 'artifact.present' && msg.artifact_id) present(msg.artifact_id);
+  else if (msg.type === 'artifact.cleared') clearPresentation();
+  else if (msg.type.startsWith('task.') && msg.task_id) {
+    const statuses = {'task.started':'running', 'task.completed':'completed', 'task.failed':'failed', 'task.cancelled':'cancelled'};
+    tasks.set(msg.task_id, {...tasks.get(msg.task_id), ...msg, status:msg.status || statuses[msg.type]});
+    renderGeneration();
+  }
+  // artifact.ready is catalog-only; only explicit selection changes the screen.
+}
+
+async function syncSnapshot() {
+  const request = ++snapshotRequest;
+  revision++;
+  eventBuffer = [];
+  try {
+    const response = await fetch(httpBase + '/api/workspaces/' + WS_ID);
+    if (!response.ok) throw new Error('workspace_unavailable');
+    const snap = await response.json();
+    if (request !== snapshotRequest) return;
+    const pending = eventBuffer;
+    eventBuffer = null;
+    meetingEl.textContent = snap.workspace?.title || WS_ID;
+    tasks.clear();
+    for (const task of snap.tasks || []) tasks.set(task.task_id, task);
+    renderGeneration();
+    const activeId = snap.state?.active_artifact_id;
+    if (activeId) present(activeId); else clearPresentation();
+    for (const event of pending) if (event.seq > snap.seq) handle(event);
+  } catch {
+    if (request !== snapshotRequest) return;
+    eventBuffer = null;
+    statusEl.textContent = 'workspace unavailable';
+    statusEl.className = 'badge';
+  }
 }
 
 function connect() {
   const socket = new WebSocket(wsUrl);
-  socket.onopen = () => { statusEl.textContent = 'live'; statusEl.className = 'badge live'; };
-  socket.onclose = () => { statusEl.textContent = 'reconnecting…'; statusEl.className = 'badge'; setTimeout(connect, 2000); };
+  socket.onopen = () => {
+    statusEl.textContent = 'live'; statusEl.className = 'badge live'; syncSnapshot();
+  };
+  socket.onclose = () => {
+    revision++; snapshotRequest++; eventBuffer = null;
+    statusEl.textContent = 'reconnecting…'; statusEl.className = 'badge'; setTimeout(connect, 2000);
+  };
   socket.onmessage = e => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
-    if (msg.type === 'artifact.present' && msg.artifact_id) present(msg.artifact_id);
-    else if (msg.type === 'artifact.ready' && !active && msg.artifact_id) present(msg.artifact_id);
-    else if (msg.type === 'workspace.reset') location.reload();
+    if (msg.type === 'workspace.reset') { clearPresentation(); tasks.clear(); renderGeneration(); syncSnapshot(); }
+    else if (eventBuffer !== null) eventBuffer.push(msg);
+    else handle(msg);
   };
 }
 
-fetch(httpBase + '/api/workspaces/' + WS_ID).then(r => r.json()).then(snap => {
-  meetingEl.textContent = snap.title || WS_ID;
-  const activeId = (snap.meeting_state || {}).active_artifact_id;
-  if (activeId) present(activeId);
-  else if (snap.artifacts && snap.artifacts.length) present(snap.artifacts[snap.artifacts.length - 1].artifact_id);
-}).catch(() => {});
 connect();
 </script>
 </body>

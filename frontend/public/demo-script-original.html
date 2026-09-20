@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Sparkie · 原版 Demo 对话稿</title>
+<style>
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#29352e;background:#f5f3ed;--line:#dce0d4;--green:#50664c;--muted:#737a70;--toolbar-height:100px;--columns-height:58px}*{box-sizing:border-box}body{margin:0}button,select,input{font:inherit}button,a,select,input{touch-action:manipulation}a{color:inherit}button,select{border:1px solid var(--line);background:#fffefa;border-radius:7px;padding:8px 11px;color:inherit;font-size:12px}button{cursor:pointer}button:hover{background:#e9efdf}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #bd8657;outline-offset:3px}.shell{max-width:1480px;margin:auto;padding:0 30px 40px}.masthead{display:flex;align-items:baseline;justify-content:space-between;gap:20px;padding:24px 0 18px}.brand{font-size:23px;font-weight:750}.brand span{color:#bb5c3d}.masthead p{font-size:12px;color:var(--muted);margin:0}.toolbar{position:sticky;top:0;z-index:10;background:#f5f3ed;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.tabs,.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.tabs a{text-decoration:none;border-radius:8px;font-size:13px;padding:10px 12px}.tabs a[aria-current=page]{background:#29352e;color:white}.tools label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}.timer{font-variant-numeric:tabular-nums;font-size:16px;min-width:48px}.intro{padding:22px 0 16px;display:flex;justify-content:space-between;gap:20px;align-items:center}h1{font-size:25px;letter-spacing:-.6px;margin:0 0 8px}.intro p{margin:0;font-size:13px;color:var(--muted);line-height:1.7}.jump{max-width:220px}.columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));position:sticky;top:var(--toolbar-height);z-index:9;background:#f5f3ed;border-bottom:2px solid #b4beaa;gap:14px;padding:14px 16px}.column-title{font-size:14px;font-weight:650;overflow-wrap:anywhere}.column-title small{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:4px}.scene{scroll-margin-top:calc(var(--toolbar-height) + var(--columns-height) + 12px);margin:0 0 22px;background:#fffefa;border:1px solid var(--line);border-radius:0 0 12px 12px;overflow:hidden}.scene-head{display:flex;align-items:baseline;gap:12px;background:#efeee6;padding:12px 16px}.scene-head h2{font-size:16px;margin:0;font-weight:600}.scene-number{font-size:12px;color:#ad6041;font-variant-numeric:tabular-nums}.scene-head small{font-size:11px;color:var(--muted);margin-left:auto}.turn-order{font-size:10px;color:#87917e}.stage-cue{font-size:12px;color:#6d7468;line-height:1.65;padding:10px 16px;margin:0;border-bottom:1px solid #eeeee6}.dialogue{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 14px;padding:8px 16px;background:linear-gradient(to right,transparent calc(33.333% - 1px),#f0f0e9 33.333%,transparent calc(33.333% + 1px),transparent calc(66.666% - 1px),#f0f0e9 66.666%,transparent calc(66.666% + 1px))}.line{min-width:0;padding:13px 12px;margin:3px 0;border:1px solid transparent;border-radius:9px;grid-column:var(--speaker-column);grid-row:var(--turn)}.line.mine{background:#edf3e3;border-color:#c8d7b8}.line.other{color:#899084;background:#fafaf6}.line-label{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:10px;color:#747e6c;margin-bottom:7px}.line-label b{font-size:11px}.turn{font-variant-numeric:tabular-nums}.spoken{font-family:Georgia,"Times New Roman",serif;font-size:22px;line-height:1.45;margin:0;overflow-wrap:anywhere}.translation,.action{font-size:11px;line-height:1.7;margin:8px 0 0;color:#757d6d}.action{color:#656d5c}.line.other .translation,.line.other .action{color:#92988c}.compact .line.other .spoken,.compact .line.other .action{display:none}.compact .line.other .translation{margin:0;font-size:12px}.compact .line.other{padding-top:8px;padding-bottom:8px}.tag{font-size:9px;color:#ab5e3a;background:#f6e6dc;border-radius:4px;padding:3px 5px}.agent{grid-column:1/-1;margin:8px 0 12px;padding:12px 15px;border-left:3px solid #b58c60;background:#f6f1e7;display:grid;grid-template-columns:1fr 1fr;gap:16px}.agent h3{font-size:11px;letter-spacing:.3px;color:#9b653f;margin:0 0 6px}.agent p{font-size:12px;line-height:1.7;margin:0}.agent .sample{font-family:Georgia,serif;font-size:18px;line-height:1.5}.agent small{font-size:10px;color:#8c8172;display:block;margin-bottom:5px}.stage-notes{margin:0 16px 14px;display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:11px;color:#757d6d;line-height:1.7}.stage-notes p{margin:0}.stage-notes b{color:#50664c}.waiting{margin:0 16px 15px;border-top:1px dashed var(--line);padding-top:10px;font-size:12px;line-height:1.7;color:var(--muted)}.waiting p{margin:5px 0}.waiting .filler{font-family:Georgia,serif;font-size:17px;color:#69745f}.waiting summary{cursor:pointer;font-size:11px}.prep{margin-top:32px;border:1px solid var(--line);padding:18px;border-radius:10px;font-size:12px;line-height:1.8}.prep summary{cursor:pointer;font-size:14px;font-weight:600}.prep-grid{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:16px}.checklist{display:grid;gap:8px}.checklist label{display:flex;gap:8px;align-items:start}.checklist input{margin-top:5px;accent-color:var(--green)}.prep select{max-width:100%}.footer{font-size:11px;color:var(--muted);line-height:1.8;margin-top:18px}.status{font-size:12px;color:var(--green);min-height:20px}.teleprompter .spoken{font-size:29px}.teleprompter .line.other .spoken{font-size:22px}.column-title.other{color:#969d91}.column-title.mine{color:#3d6035}.print-only{display:none}[hidden]{display:none!important}
+@media(max-width:850px){.shell{padding:0 14px 25px}.masthead{padding:16px 0}.masthead p{display:none}.tabs a{font-size:11px;padding:8px}.intro{display:block}.intro .jump{margin-top:12px}.columns{gap:8px;padding:10px 6px}.column-title{font-size:11px}.column-title small{font-size:10px}.dialogue{gap:0 8px;padding:6px}.line{padding:9px 6px}.spoken{font-size:18px}.teleprompter .spoken{font-size:23px}.scene-head small{display:none}.agent{grid-template-columns:1fr}.prep-grid{grid-template-columns:1fr}}
+@media(max-width:600px){.columns{position:static;grid-template-columns:1fr;gap:5px}.column-title small{display:inline;margin-left:8px}.dialogue{display:flex;flex-direction:column;background:none}.line{padding:12px}.spoken{font-size:23px}.line.other .spoken{font-size:18px}.scene{scroll-margin-top:calc(var(--toolbar-height) + 10px)}.stage-notes{grid-template-columns:1fr;gap:5px}.scene-head{align-items:center}.intro h1{font-size:23px}.tools{gap:5px}.agent .sample{font-size:17px}}
+@media print{body{background:white;color:black}.shell{max-width:none;padding:0}.masthead,.toolbar,.intro,.columns,#script-board,.prep,.footer,.status{display:none!important}.print-only{display:block}.print-scene{break-inside:avoid;border-top:1px solid #aaa;padding:12px 0}.print-scene h2{font-size:16px}.print-scene p{font-size:11px;line-height:1.6}.print-scene .print-spoken{font-size:15px}.print-scene small{font-size:10px}}
+</style>
+</head>
+<body>
+<div class="shell">
+<header class="masthead"><div class="brand"><span>✳</span> sparkie / 原版 Demo 对话稿</div><p>原文保留 · 七场对话 · 并列展示</p></header>
+<div class="toolbar">
+<nav class="tabs" aria-label="讲稿视图"><a href="#overview/0" data-role="overview">所有人并列</a><a href="#hope/0" data-role="hope">@Hope7Happiness</a><a href="#yifan/0" data-role="yifan">@YIFANK</a><a href="#bowen/0" data-role="bowen">@bowenyu066</a></nav>
+<div class="tools"><label id="compact-control" hidden><input type="checkbox" id="compact">精简队友</label><button id="focus" aria-pressed="false">大字</button><span id="clock" class="timer">00:00</span><button id="timer-toggle">开始计时</button><button id="timer-reset">归零</button><button id="copy-script">复制</button><button id="print">打印</button><button id="download">下载 HTML</button></div>
+</div>
+<section class="intro"><div><h1 id="view-title">他们原来的 Demo 对话稿。</h1><p id="view-subtitle">所有台词连续展开。按编号从上往下读，Sparkie 说完再接话。</p></div><select class="jump" id="jump" aria-label="跳到讲稿段落"></select></section>
+<div class="columns" id="columns" aria-label="发言人列"></div>
+<main id="script-board"></main>
+<details class="prep"><summary>原稿彩排准备 <span id="checked-count"></span></summary><div class="prep-grid"><div><div id="checklist" class="checklist"></div><button id="reset-checks">清空勾选</button></div><div>原稿对照版 · 来源：远端 docs/sparkie-demo-script.html（文件提交 940a299）。英文对白、中文翻译、场景顺序与现场提示保留原文；仅使用我们的并列与个人高亮布局。原稿采用手动共享文件，未加入后来的 Tasks / artifact 改写。</div></div></details><details class="prep"><summary>原稿说明与现场提示</summary><p>英文对白 · 中文排练提示 · 目标成片约 2–3 分钟</p><p>时间是剪辑参考，不是系统响应承诺。建议完整录一遍，再按真实事件剪辑；原始素材允许更长。下面的人类对白是可改写的台词，Sparkie 的输出全部现场产生。</p><p>核心镜头：它听过讨论 → 接得上话 → 接下任务 → 大家继续开会 → 文件真实生成 → 补上后来的决定。所有成果镜头使用普通编辑器，由队员手动共享。</p><h3>延迟与剪辑：按事件走，不按秒表催</h3><p>本机 2026-09-20 会话 20260920T005152-6199194b 的任务记录：提纲生成约 9.4 秒；两次编辑约 5.9 秒、5.1 秒。这些是 started_at 到 finished_at 的后台耗时，不包括语义断句、路由、前台生成与播放，也不代表当前配置的普遍速度。medium 断句设置有使用者的正向反馈，但没有完整端到端延迟统计。</p><p>彩排记录三项：真人请求结束 → 第一段可听回应；委派 → 文件保存；任务完成 → 远端听到汇报。分别记录，不把转写时间戳或任务耗时当作首字延迟。</p><p>录制时保留完整原始声音。成片可缩短长等待，并标注 “等待片段已缩短 / Wait shortened”；不拼接无关轮次的成功结果，不把 AI 回复配音改成理想答案。至少保留一次自然等待，让交互速度可感知。</p><h3>现场不顺时：具体怎么接</h3><ul><li>没回应：先留足本次彩排测得的等待窗口，确认没有在播音；然后只重说一次完整请求，别连续喊名字。</li><li>回复太长：优先等它说完再剪辑；若需要现场收束，说 “Sparkie, just the short version, please.”，把这当成新一轮交互，不保证立即续上原句。</li><li>产物缺内容：指明真实缺项并要求修改。不要照念 “That’s perfect.”。</li><li>名字错了：本人明确更正姓名和职责，再要求保存；同一麦克风的多人不视为已精准分人。</li><li>任务失败：接 “Looks like that didn’t save. Let’s try that once more.”，确认原因后重试；失败未修复就不拍完成结尾。</li><li>文件还未更新：停在第 06 场，不提前退出会议。</li></ul></details>
+<div id="status" class="status" role="status" aria-live="polite"></div>
+<div id="print-content" class="print-only"></div>
+<footer class="footer">原稿对照版。人类对白与提示来自远端原文，不代表实际会议转写。原稿中的时间与实测记录保留作历史说明；没有重新验证或扩展其能力声明。我们的修改版另存于 sparkie-demo-script.html。</footer>
+</div>
+<script>
+'use strict';
+const roles = {
+  "hope": {
+    "name": "@Hope7Happiness",
+    "job": "开场与委派"
+  },
+  "yifan": {
+    "name": "@YIFANK",
+    "job": "录制与共享"
+  },
+  "bowen": {
+    "name": "@bowenyu066",
+    "job": "建议与剪辑"
+  }
+};
+const sceneData = [
+  {
+    "id": "s01",
+    "title": "先开会，别先讲产品",
+    "short": "先开会，别先讲产品",
+    "budget": "00:00–00:18",
+    "purpose": "",
+    "cue": "留一点真实思考，不表演夸张争执。说 couple of minutes 是片中讨论视频长度，不是宣称比赛时限。",
+    "lines": [
+      [
+        "hope",
+        "Okay, we still need a demo video. What do we actually put in it?",
+        "好，我们还差个 demo 视频。到底拍什么？",
+        ""
+      ],
+      [
+        "yifan",
+        "I have the architecture slide. We could start there?",
+        "我有架构图。要不从那个开始？",
+        ""
+      ],
+      [
+        "bowen",
+        "Mm… I’d rather see it do something first. Otherwise it’s just boxes and arrows.",
+        "嗯……我更想先看它干点什么，不然就是一堆框和箭头。",
+        ""
+      ],
+      [
+        "hope",
+        "Fair. But we have, what, a couple of minutes?",
+        "也是。不过我们也就……几分钟？",
+        ""
+      ]
+    ],
+    "expect": [
+      "普通讨论。这里没人向 Sparkie 提问，它应保持安静。"
+    ],
+    "screen": "Zoom gallery，三个人和 Sparkie 同时在画面里。开头留半秒房间声，不上架构图。",
+    "gate": "最后一句说完再进入下一场，不把三人的话压在一起。",
+    "wait": "留一点真实思考，不表演夸张争执。说 couple of minutes 是片中讨论视频长度，不是宣称比赛时限。"
+  },
+  {
+    "id": "s02",
+    "title": "让它接上刚才的话",
+    "short": "让它接上刚才的话",
+    "budget": "00:18–00:45，含可变等待",
+    "purpose": "",
+    "cue": "如果建议先展示实际使用：接 “Yeah, let’s try that.”；若建议架构先行：接 “Maybe a quick slide later. I still want to start here, in the meeting.”；若不清楚它指什么：问 “You mean start with this call?”",
+    "lines": [
+      [
+        "hope",
+        "Sparkie, what would you open with? Keep it short.",
+        "Sparkie，你会怎么开头？简单说说。",
+        ""
+      ]
+    ],
+    "expect": [
+      "应理解是在比较架构开场和真实会议开场，给出基于刚才讨论的建议。无需固定选某一边；不预录或代配它的回答。"
+    ],
+    "screen": "保持 gallery；问完后切到提问者与 Sparkie，保留真实等待和声音。",
+    "gate": "等它说完再回应。等待时保持看屏幕和思考，别用名字填空、反复叫醒。",
+    "wait": "如果建议先展示实际使用：接 “Yeah, let’s try that.”；若建议架构先行：接 “Maybe a quick slide later. I still want to start here, in the meeting.”；若不清楚它指什么：问 “You mean start with this call?”"
+  },
+  {
+    "id": "s03",
+    "title": "把工作交给第四位参会者",
+    "short": "把工作交给第四位参会者",
+    "budget": "00:45–01:05，含确认",
+    "purpose": "",
+    "cue": "不在第一条指令塞进三人分工、自动共享或复杂排版。后台使用委派时的转写快照；稍后的决定要再明确让它补进去。",
+    "lines": [
+      [
+        "bowen",
+        "Actually… this call could be the video. Us trying to figure out the video.",
+        "其实……这通电话就能当视频。我们在这儿讨论怎么拍视频。",
+        ""
+      ],
+      [
+        "yifan",
+        "Okay, that’s a little weird. I like it.",
+        "行，有点怪。我喜欢。",
+        ""
+      ],
+      [
+        "hope",
+        "Sparkie, make us a short outline from that. What we say, what we show. Save it as demo-outline.md in this project. Just the outline for now.",
+        "Sparkie，把这个整理成一个简短提纲：说什么、画面拍什么。存到项目里的 demo-outline.md。先只写提纲。",
+        ""
+      ]
+    ],
+    "expect": [
+      "简短确认后委派真实文件任务。确认不代表完成。文件名提前练熟，读作 “demo dash outline dot M D”。"
+    ],
+    "screen": "Zoom 画面不变。可加一条简短字幕 “Write the outline”，不用任何未完成的产品界面。",
+    "gate": "听完确认即可继续讨论。若它马上汇报完成，直接承认收到，仍继续讨论分工。",
+    "wait": "不在第一条指令塞进三人分工、自动共享或复杂排版。后台使用委派时的转写快照；稍后的决定要再明确让它补进去。"
+  },
+  {
+    "id": "s04",
+    "title": "它干活，我们继续聊",
+    "short": "它干活，我们继续聊",
+    "budget": "01:05–01:30，可与完成汇报交错",
+    "purpose": "",
+    "cue": "提前完成：停下来听，接 “Oh, that was quick. Let’s finish the recording plan, then look.”，别假装还在跑。较慢：把分工聊完后安静等，或讨论真实的录音检查，不无限加段子。",
+    "lines": [
+      [
+        "yifan",
+        "I can record the call. Everyone’s on headphones, right?",
+        "我来录这通电话。你们都戴耳机了吧？",
+        ""
+      ],
+      [
+        "bowen",
+        "Yep. Send me the recording after. I’ll cut it together.",
+        "戴了。录完发我，我来剪。",
+        ""
+      ],
+      [
+        "hope",
+        "I’ll do the intro. One sentence, I promise.",
+        "我来讲开头。就一句，我保证。",
+        ""
+      ],
+      [
+        "bowen",
+        "I’m holding you to that.",
+        "这可是你说的。",
+        ""
+      ]
+    ],
+    "expect": [
+      "后台工作期间继续收到会议内容。以上是建议的拍摄分工，录制前由三位本人确认；临场改了就按新版本走。"
+    ],
+    "screen": "保持三人对话。需要证据镜头时拍真实终端任务事件，裁去凭证、会议号及无关输出；不必专门展示任务界面。",
+    "gate": "Sparkie 开始说话时先让它说完。真人说话会触发打断，所以不要用背景闲聊填满每一个空隙。",
+    "wait": "提前完成：停下来听，接 “Oh, that was quick. Let’s finish the recording plan, then look.”，别假装还在跑。较慢：把分工聊完后安静等，或讨论真实的录音检查，不无限加段子。"
+  },
+  {
+    "id": "s05",
+    "title": "打开文件，看它到底写了什么",
+    "short": "打开文件，看它到底写了什么",
+    "budget": "01:30–02:00，按实际长度调整",
+    "purpose": "",
+    "cue": "读到真实内容再接话。如果确实以会议开场： “Yeah, starting right here makes sense.”；若它放进不准备演示的功能： “Let’s leave that part out. We’re only filming what we did in this call.” 并明确让它修改。",
+    "lines": [
+      [
+        "yifan",
+        "Okay, I’ve got the file. Give me a second… sharing it now.",
+        "好，文件在这儿。等我一下……我共享一下。",
+        ""
+      ],
+      [
+        "bowen",
+        "Let’s see what it gave us.",
+        "看看它写了什么。",
+        ""
+      ]
+    ],
+    "expect": [
+      "看真实生成文件。此前若没有完成汇报，先问 “Sparkie, is the outline ready?”，得到结果并确认文件存在后才说上面的台词。"
+    ],
+    "screen": "@YIFANK 手动共享已打开的本轮 demo-outline.md；编辑器放大到至少 20px。先看开头与镜头顺序，再回到会议。",
+    "gate": "文件存在、内容可读且符合范围才继续。不能仅凭任务完成状态或口头承诺拍成功收尾。不要把别轮文件拿来充当本轮结果。",
+    "wait": "读到真实内容再接话。如果确实以会议开场： “Yeah, starting right here makes sense.”；若它放进不准备演示的功能： “Let’s leave that part out. We’re only filming what we did in this call.” 并明确让它修改。"
+  },
+  {
+    "id": "s06",
+    "title": "把刚才的决定补进去",
+    "short": "把刚才的决定补进去",
+    "budget": "02:00–02:30，含更新等待",
+    "purpose": "",
+    "cue": "若名字混淆，由本人更正，不给它编造正确姓名的空间。可说 “That’s me, [自己的姓名]. I’m recording.”，再要求修正；大家的 Zoom 显示名需彼此不同。",
+    "lines": [
+      [
+        "hope",
+        "Sparkie, add the jobs we just agreed on to the end of that file. Who’s recording, who’s editing, and who’s doing the intro.",
+        "Sparkie，把我们刚定的分工加到同一个文件末尾：谁录、谁剪、谁讲开头。",
+        ""
+      ]
+    ],
+    "expect": [
+      "根据最新可用转写更新同一份文件，并保留原提纲。已完成的任务通过后续委派继续修改，不要求初始任务自动知道后来的对话。"
+    ],
+    "screen": "共享文件保持可见；先停在正文，再在真实更新完成后刷新并滚到末尾。",
+    "gate": "更新完后逐条核对。没听清就澄清，没保存就等，职责未确认不加截止日期。等待时无需重复问进度。",
+    "wait": "若名字混淆，由本人更正，不给它编造正确姓名的空间。可说 “That’s me, [自己的姓名]. I’m recording.”，再要求修正；大家的 Zoom 显示名需彼此不同。"
+  },
+  {
+    "id": "s07",
+    "title": "发现刚才已经拍完了",
+    "short": "发现刚才已经拍完了",
+    "budget": "02:30–02:45",
+    "purpose": "",
+    "cue": "最后的笑点轻轻带过，不演成广告。片尾一句可用 “Sparkie — an AI secretary in your meeting.”，不列还没展示的功能。",
+    "lines": [
+      [
+        "yifan",
+        "Recording, editing, intro. Yep, that’s us.",
+        "录制、剪辑、开头。对，分好了。",
+        ""
+      ],
+      [
+        "hope",
+        "Okay. Now we just need to shoot it.",
+        "好，现在就差拍了。",
+        ""
+      ],
+      [
+        "bowen",
+        "…we’ve been recording.",
+        "……我们一直在录啊。",
+        ""
+      ],
+      [
+        "hope",
+        "Oh. Right.",
+        "哦。也是。",
+        ""
+      ]
+    ],
+    "expect": [
+      "不需要额外唤醒或自动总结。收尾依赖真实文件包含正确分工；若未满足，回到上一场。"
+    ],
+    "screen": "文件最后的真实分工停留 3–5 秒，再切回 gallery。最后一句后留 1 秒停顿，切片尾 Sparkie 名称。",
+    "gate": "本轮任务完成、文件核对后才结束会话，避免结束时取消尚未完成的工作。",
+    "wait": "最后的笑点轻轻带过，不演成广告。片尾一句可用 “Sparkie — an AI secretary in your meeting.”，不列还没展示的功能。"
+  }
+];
+const preflight = [
+  [
+    "original_0",
+    "三位队友确认片中职责和台词；Zoom 显示名彼此不同。建议映射：@Hope7Happiness 讲开头，@YIFANK 录制，@bowenyu066 剪辑。它们是拍摄建议，不是固定开发分工。"
+  ],
+  [
+    "original_1",
+    "用本轮配置完成一次真实入会、唤醒、简短回答、生成测试文件和修改测试文件。看到 listening_ready 后才开始说话。全员耳机，检查远端实际能听见。"
+  ],
+  [
+    "original_2",
+    "提前备份重要同名文件。正式录制用新的 demo-outline.md；提词本是 docs/sparkie-demo-script.html，不让 agent 覆盖提词本。"
+  ],
+  [
+    "original_3",
+    "准备好编辑器与手动共享入口；只共享目标窗口。关闭私人通知，隐藏密钥和会议凭据。取得参会者对录制的同意。"
+  ],
+  [
+    "original_4",
+    "问完留白。别在它回答时附和 “yeah, yeah”：真人语音可能把回复打断。若确需打断，在自然句尾说出完整修正。"
+  ]
+];
+
+const $ = selector => document.querySelector(selector);
+const escape = text => String(text).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const originalHTML = '<!doctype html>\n' + document.documentElement.outerHTML;
+const roleIds = Object.keys(roles);
+let role = 'overview', step = 0, elapsed = 0, started = null, checks = {};
+try {
+  checks = JSON.parse(localStorage.getItem('sparkie-original-demo-checks-v1') || '{}');
+  if (!checks || typeof checks !== 'object') checks = {};
+} catch {}
+function announce(text) { $('#status').textContent = text; }
+function activeScene(index) { return sceneData[index]; }
+function lineHTML(line, sceneIndex, index, row) {
+  const [id, en, cn, action] = line;
+  const emphasis = role === 'overview' ? '' : id === role ? ' mine' : ' other';
+  return '<div class="line' + emphasis + '" data-speaker="' + id + '" style="--speaker-column:' + (roleIds.indexOf(id) + 1) + ';--turn:' + row + '">' +
+    '<div class="line-label"><span class="turn">' + (sceneIndex + 1) + '.' + (index + 1) + '</span><b>' + roles[id].name + '</b>' + (en.startsWith('Sparkie,') ? '<span class="tag">问 Sparkie</span>' : '') + '</div>' +
+    '<p class="spoken" lang="en">' + escape(en) + '</p><p class="translation">' + escape(cn) + '</p><p class="action">' + escape(action) + '</p></div>';
+}
+function sceneHTML(index) {
+  const s = activeScene(index);
+  const question = s.lines.findIndex(line => line[1].startsWith('Sparkie,'));
+  const responseAfter = question < 0 ? s.lines.length - 1 : question;
+  const order = s.lines.flatMap((line,i) => [roles[line[0]].name, ...(i === question ? ['Sparkie'] : [])]).join(' → ');
+  let row = 1, used = new Set(), agentRow = 2;
+  const rows = s.lines.map((line,i) => {
+    if (used.has(line[0])) {row += 1; used.clear();}
+    const current = row; used.add(line[0]);
+    if (i === responseAfter) {agentRow = row + 1; row += 2; used.clear();}
+    return current;
+  });
+  const agent = '<div class="agent" style="grid-row:' + agentRow + '"><div><h3>SPARKIE · 预期结果</h3><p>' + s.expect.map(escape).join('<br>') + '</p></div><div>' +
+    (s.example ? '<small>可能的回应 · 以现场为准</small><p class="sample" lang="en">' + escape(s.example) + '</p>' : '<small>接话节奏</small><p>' + escape(s.wait) + '</p>') + '</div></div>';
+  return '<section class="scene" id="scene-' + index + '" data-scene="' + index + '">' +
+    '<header class="scene-head"><span class="scene-number">' + String(index + 1).padStart(2,'0') + '</span><h2>' + s.title + '</h2><small>' + s.budget + ' · 彩排参考</small></header>' +
+    '<p class="stage-cue">' + s.cue + '<br><span class="turn-order">接话顺序：' + order + '</span></p><div class="dialogue">' + s.lines.map((l,i) => lineHTML(l,index,i,rows[i]) + (i === responseAfter ? agent : '')).join('') + '</div>' +
+    '<div class="stage-notes"><p><b>画面</b> · ' + s.screen + '</p><p><b>再往下接</b> · ' + s.gate + '</p></div>' +
+    '<div class="waiting">' + (s.filler ? '<p>还在执行时，' + roles[s.filler[0]].name + ' 可以接：</p><p class="filler" lang="en">' + escape(s.filler[1]) + '</p>' : '') +
+    '<details><summary>等待与异常时的提示</summary><p>' + s.wait + '</p>' + (s.recovery ? '<p lang="en">' + escape(s.recovery) + '</p>' : '') + '</details></div></section>';
+}
+function scriptText() {
+  return 'Sparkie 原版 Demo · ' + (role === 'overview' ? '所有人' : roles[role].name) + '\n预期不是实际结果；按现场情况接话。\n' + sceneData.map((_,i) => {
+    const s = activeScene(i);
+    return '\n' + (i+1) + '. ' + s.title + '\n' + s.cue + '\n' + s.lines.map(l => roles[l[0]].name + (role !== 'overview' && l[0] !== role ? '（接话提示）：' + l[2] : ': ' + l[1] + '\n操作：' + l[3])).join('\n') +
+      '\n画面：' + s.screen + '\nAgent expected：' + s.expect.join('；') + '\n继续条件：' + s.gate + '\n等待时：' + s.wait + (s.filler ? '\n备用台词 ' + roles[s.filler[0]].name + ': ' + s.filler[1] : '');
+  }).join('\n');
+}
+function printHTML() {
+  return '<h1>Sparkie · ' + (role === 'overview' ? '所有人讲稿' : roles[role].name) + '</h1><p>按序接话；Agent 为预期，以实际结果为准。</p>' + sceneData.map((_,i) => {
+    const s = activeScene(i);
+    return '<section class="print-scene"><h2>' + (i+1) + '. ' + s.title + '</h2><p>' + s.cue + '</p>' + s.lines.map(l => '<p><b>' + roles[l[0]].name + '</b></p>' +
+      (role === 'overview' || l[0] === role ? '<p class="print-spoken">' + escape(l[1]) + '</p><small>' + escape(l[3]) + '</small>' : '<small>接话提示：' + escape(l[2]) + '</small>')).join('') +
+      '<p>画面：' + s.screen + '</p><p>Agent expected：' + s.expect.join('；') + '</p><p>继续条件：' + s.gate + '</p><p>等待时：' + s.wait + '</p>' + (s.filler ? '<p>备用台词 ' + roles[s.filler[0]].name + ': ' + escape(s.filler[1]) + '</p>' : '') + '</section>';
+  }).join('');
+}
+function updateMetrics() {
+  document.documentElement.style.setProperty('--toolbar-height', $('.toolbar').offsetHeight + 'px');
+  document.documentElement.style.setProperty('--columns-height', $('#columns').offsetHeight + 'px');
+}
+function position() {
+  const top = $('.toolbar').offsetHeight + (innerWidth > 600 ? $('#columns').offsetHeight : 0) + 12;
+  const scenes = [...document.querySelectorAll('.scene')];
+  const current = scenes.find(el => el.getBoundingClientRect().bottom > top) || scenes.at(-1);
+  return current ? {index: Number(current.dataset.scene), offset: current.getBoundingClientRect().top} : null;
+}
+function jumpTo(index) {
+  step = Math.max(0,Math.min(sceneData.length - 1,index));
+  $('#scene-' + step).scrollIntoView({block:'start'});
+  updateLinks();
+}
+function updateLinks() {
+  document.querySelectorAll('[data-role]').forEach(a => a.href = '#' + a.dataset.role + '/' + step);
+  $('#jump').value = String(step);
+}
+function render(anchor = null) {
+  $('#view-title').textContent = role === 'overview' ? '他们原来的 Demo 对话稿。' : roles[role].name + ' 的讲稿';
+  $('#view-subtitle').textContent = role === 'overview' ? '远端原稿的七场对话与提示全部保留；按编号接话，向下滚动阅读。' : '绿色是你的台词，浅色是队友。整场连续展开，也可勾选“精简队友”只看接话提示。';
+  $('#compact-control').hidden = role === 'overview';
+  document.body.classList.toggle('compact', role !== 'overview' && $('#compact').checked);
+  document.querySelectorAll('[data-role]').forEach(a => { if(a.dataset.role === role) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+  $('#columns').innerHTML = roleIds.map(id => '<div class="column-title ' + (role === 'overview' ? '' : role === id ? 'mine' : 'other') + '">' + roles[id].name + '<small>' + roles[id].job + '</small></div>').join('');
+  $('#script-board').innerHTML = sceneData.map((_,i) => sceneHTML(i)).join('');
+  $('#print-content').innerHTML = printHTML();
+  updateLinks(); updateMetrics();
+  if (anchor) { const current = $('#scene-' + anchor.index); scrollBy(0,current.getBoundingClientRect().top - anchor.offset); }
+}
+function parseHash(initial = false) {
+  const [r,n] = location.hash.slice(1).split('/');
+  const nextRole = roles[r] ? r : 'overview';
+  const anchor = !initial && nextRole !== role ? position() : null;
+  role = nextRole;
+  const value = Number(n); step = Number.isInteger(value) && value >= 0 && value < sceneData.length ? value : 0;
+  render(anchor);
+  if (!anchor && (step > 0 || !initial)) jumpTo(step);
+}
+$('#jump').innerHTML = sceneData.map((s,i) => '<option value="' + i + '">' + (i+1) + ' · ' + s.title + '</option>').join('');
+$('#jump').onchange = e => jumpTo(Number(e.target.value));
+$('#compact').onchange = () => render(position());
+$('#checklist').innerHTML = preflight.map(([key,text]) => '<label><input type="checkbox" data-check="' + key + '" ' + (checks[key] ? 'checked' : '') + '><span>' + text + '</span></label>').join('');
+function countChecks() { $('#checked-count').textContent = ' · ' + preflight.filter(([k]) => checks[k]).length + ' / ' + preflight.length; }
+function saveChecks() { try {localStorage.setItem('sparkie-original-demo-checks-v1',JSON.stringify(checks));} catch {} countChecks(); }
+document.querySelectorAll('[data-check]').forEach(el => el.onchange = () => {checks[el.dataset.check] = el.checked; saveChecks();});
+$('#reset-checks').onclick = () => {checks = {}; document.querySelectorAll('[data-check]').forEach(el => el.checked = false); saveChecks();};
+function paintClock() {
+  const seconds = Math.floor((elapsed + (started === null ? 0 : performance.now() - started)) / 1000);
+  $('#clock').textContent = String(Math.floor(seconds/60)).padStart(2,'0') + ':' + String(seconds%60).padStart(2,'0');
+  $('#timer-toggle').textContent = started === null ? '开始计时' : '暂停计时';
+}
+function toggleTimer() { if (started === null) started = performance.now(); else {elapsed += performance.now() - started; started = null;} paintClock(); }
+$('#timer-toggle').onclick = toggleTimer;
+$('#timer-reset').onclick = () => {elapsed = 0; started = null; paintClock();};
+setInterval(paintClock,250);
+$('#focus').onclick = () => {const anchor = position();const enabled = document.body.classList.toggle('teleprompter'); $('#focus').setAttribute('aria-pressed',String(enabled)); $('#focus').textContent = enabled ? '退出大字' : '大字'; render(anchor);};
+$('#print').onclick = () => window.print();
+$('#copy-script').onclick = async () => {
+  try {await navigator.clipboard.writeText(scriptText()); announce('已复制整份讲稿。');}
+  catch {const area = document.createElement('textarea'); area.value = scriptText(); area.style.position = 'fixed'; area.style.opacity = '0'; document.body.append(area); area.select(); let ok = false; try {ok = document.execCommand('copy');} catch {} area.remove(); announce(ok ? '已复制整份讲稿。' : '浏览器不允许复制，可下载或打印。');}
+};
+$('#download').onclick = () => {const url = URL.createObjectURL(new Blob([originalHTML],{type:'text/html;charset=utf-8'})); const a = document.createElement('a');a.href = url; a.download = 'sparkie-original-demo-script.html'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); announce('已下载，可直接用浏览器打开。');};
+let scrollQueued = false;
+window.addEventListener('scroll',() => {if (scrollQueued) return; scrollQueued = true; requestAnimationFrame(() => {scrollQueued = false; const current = position(); if (current) {step = current.index; updateLinks();}});},{passive:true});
+window.addEventListener('hashchange',() => parseHash());
+window.addEventListener('keydown',e => {if(e.altKey || e.ctrlKey || e.metaKey || /INPUT|TEXTAREA|SELECT|BUTTON|A|SUMMARY/.test(e.target.tagName) || e.target.isContentEditable) return; if(e.key === 'ArrowRight') {e.preventDefault(); jumpTo(step+1);} if(e.key === 'ArrowLeft') {e.preventDefault(); jumpTo(step-1);}});
+new ResizeObserver(updateMetrics).observe($('.toolbar'));
+countChecks(); parseHash(true); paintClock();
+</script>
+</body>
+</html>

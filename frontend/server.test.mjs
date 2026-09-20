@@ -188,3 +188,17 @@ test('repeated cancelled replies show a temporary hint without stopping the sess
   assert.equal(controller.state.voiceHint, undefined);
   child.emit('close', 0);
 });
+
+test('linked voice workspace survives event rollover and end, but not a new session', () => {
+  const { controller, child } = harness();
+  controller.start({ ...options, responseMode: 'realtime', transport: 'browser', outputDevice: '' });
+  child.stdout.write(JSON.stringify({ type: 'workspace_linked', workspace_id: 'ws_abcd' }) + '\n');
+  for (let i = 0; i < 2001; i++) child.stdout.write('{"type":"fixture"}\n');
+  assert.equal(controller.snapshot().workspaceId, 'ws_abcd');
+  assert.ok(!controller.state.events.some(e => e.type === 'workspace_linked'));
+  child.emit('close', 0);
+  assert.equal(controller.snapshot().workspaceId, 'ws_abcd');
+  controller.start(options);
+  assert.equal(controller.snapshot().workspaceId, undefined);
+  child.emit('close', 0);
+});

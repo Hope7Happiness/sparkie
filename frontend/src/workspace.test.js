@@ -67,15 +67,12 @@ function harness({ fetch = async () => { throw new Error('offline'); }, search =
   };
   const source = readFileSync(new URL('./workspace.js', import.meta.url), 'utf8')
     .replace(/^import '\.\/[\w-]+\.css';$/gm, '')
-    + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
-  class WebSocket {
-    static OPEN = 1;
-    constructor(url) { this.url = url; }
-    close() {}
-  }
+    + '\nglobalThis.downloads=[];saveBlob=(filename,text,mime)=>downloads.push({filename,text,mime});globalThis.api={downloads,downloadArtifact,loadSnapshot,state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay,connectWorkspace,serverBases};';
+  document.getElementById('artifact-overlay').hidden = true;
   const context = vm.createContext({
-    document, WebSocket, fetch, location: { search },
+    document, WebSocket: class { static OPEN = 1; constructor(url) { this.url = url; } close() {} }, fetch,
     URL, URLSearchParams, Blob, FormData, console,
+    location: { search, origin: 'http://localhost:5178' },
   });
   vm.runInContext(source, context);
   return { api: context.api, document, root };
@@ -86,22 +83,22 @@ const stage = document => document.getElementById('stage');
 test('shared workspace entry hydrates the exact workspace without resolving or resetting a meeting', async () => {
   const calls = [];
   const { api, document } = harness({
-    search: '?workspace_id=ws_shared&server=localhost%3A8791&meeting=wrong',
+    search: '?workspace_id=ws_abcd&server=localhost%3A8791&meeting=wrong',
     fetch: async url => {
       calls.push(url);
       return { ok: true, json: async () => ({
-        workspace: { workspace_id: 'ws_shared', generation: 7 }, state: {},
+        workspace: { workspace_id: 'ws_abcd', generation: 7 }, state: {},
         transcript: [{ speaker: 'Tester', text: 'Shared transcript' }],
-        tasks: [{ task_id: 'task_1', instruction: 'Test task', status: 'running' }],
+        tasks: [{ task_id: 'task_1', instruction: 'Execute test', artifact_title: 'Test task', status: 'running' }],
         artifacts: [],
       }) };
     },
   });
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(calls, ['http://localhost:8791/api/workspaces/ws_shared']);
-  assert.equal(api.state.workspaceId, 'ws_shared');
+  assert.deepEqual(calls, ['http://localhost:8791/api/workspaces/ws_abcd']);
+  assert.equal(api.state.workspaceId, 'ws_abcd');
   assert.equal(api.state.generation, 7);
-  assert.equal(api.state.socket.url, 'ws://localhost:8791/workspaces/ws_shared/events?generation=7');
+  assert.equal(api.state.socket.url, 'ws://localhost:8791/workspaces/ws_abcd/events?generation=7');
   assert.equal(document.getElementById('workspace').hidden, false);
   assert.match(document.getElementById('transcript').textContent, /Shared transcript/);
   assert.match(document.getElementById('tasks').textContent, /Test task/);
@@ -109,9 +106,9 @@ test('shared workspace entry hydrates the exact workspace without resolving or r
 
 test('shared workspace receives artifact updates and presents the selected artifact', async () => {
   const { api, document } = harness({
-    search: '?workspace_id=ws_shared',
+    search: '?workspace_id=ws_abcd',
     fetch: async () => ({ ok: true, json: async () => ({
-      workspace: { workspace_id: 'ws_shared', generation: 1 }, state: {},
+      workspace: { workspace_id: 'ws_abcd', generation: 1 }, state: {},
       transcript: [], tasks: [], artifacts: [],
     }) }),
   });
@@ -129,7 +126,7 @@ test('shared workspace receives artifact updates and presents the selected artif
 
 test('shared workspace entry reports missing workspace instead of opening an unrelated one', async () => {
   const { api, document } = harness({
-    search: '?workspace_id=ws_missing',
+    search: '?workspace_id=ws_dead',
     fetch: async () => ({ ok: false, status: 404 }),
   });
   await new Promise(resolve => setImmediate(resolve));
@@ -269,14 +266,15 @@ test('task.updated mirrors a live session task in place', () => {
   const { api, document } = harness();
   const card = () => document.querySelector('[data-task="job_9"]');
 
-  api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', status: 'queued' });
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', artifact_title: 'Research X', status: 'queued' });
   assert.equal(card().dataset.status, 'queued');
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X',
                    status: 'running', progress: 'fetching data' });
   assert.equal(card().querySelector('small').textContent, 'Running… · fetching data');
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X', status: 'completed' });
   assert.equal(card().dataset.status, 'completed');
-  assert.equal(card().querySelector('h3').textContent, 'dig into X');
+  assert.equal(card().querySelector('h3').textContent, 'Research X');
+  assert.ok(!card().textContent.includes('dig into X'));
   assert.equal(document.getElementById('task-count').textContent, '1');
 });
 
@@ -330,7 +328,8 @@ test('fullscreen overlay shows the artifact and offers a way back', () => {
                     content: { markdown: '## 概览\n\n- 要点一' } });
   assert.equal(overlay.hidden, false);
   const card = document.getElementById('overlay-card');
-  assert.equal(card.querySelector('h2').textContent, '季度报告');
+  assert.equal(card.querySelector('h2').textContent, '概览');
+  assert.equal(card.querySelector('.stage-summary'), null);
   assert.ok(card.textContent.includes('要点一'), 'markdown rendered inside the overlay');
 
   api.closeOverlay();
@@ -352,4 +351,104 @@ test('artifact list cards get a type badge matching their content', () => {
   api.upsertArtifact({ artifact_id: 'art_2', content: { pdf: 'https://example.com/a.pdf' } });
   assert.equal(document.querySelector('[data-artifact="art_2"]').querySelector('.type-badge').dataset.kind, 'pdf');
   assert.equal(api.artifactKind({ type: 'artifact.ready', content: { url: 'https://x.dev' } }), 'url');
+});
+
+test('embedded voice board only changes presentation on explicit controls', async () => {
+  const { api, document } = harness({ search: '?embedded=1', fetch: async () => ({
+    ok: true, json: async () => ({ artifact_id: 'art_voice', title: 'Voice result',
+      content: { markdown: '# Task complete\n\n| Item | Result |\n| --- | --- |\n| A | Done |' } }),
+  }) });
+  api.state.server = 'http://localhost:5178/workspace-api';
+  api.onEvent({ type: 'artifact.ready', artifact_id: 'art_voice', title: 'Voice result' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(stage(document).querySelector('table'), null);
+  assert.notEqual(document.getElementById('artifact-overlay').hidden, false);
+  api.onEvent({ type: 'artifact.present', artifact_id: 'art_voice' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(api.state.activeArtifact, 'art_voice');
+  assert.ok(stage(document).querySelector('table'));
+  assert.notEqual(document.getElementById('artifact-overlay').hidden, false);
+  api.onEvent({ type: 'artifact.cleared' });
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(stage(document).textContent, '');
+  assert.equal(api.state.artifacts.size, 1);
+  api.clearWorkspaceUI();
+  assert.ok(stage(document).textContent.includes('告诉 Sparkie'));
+  assert.equal(api.state.artifacts.size, 0);
+});
+
+test('voice workspace opens by ID through same-origin proxy without resolving a Zoom meeting', async () => {
+  const requests = [];
+  const { api } = harness({ fetch: async url => {
+    requests.push(url);
+    return { ok: true, json: async () => ({ workspace: { workspace_id: 'ws_abc', generation: 3 },
+      seq: 0, tasks: [], transcript: [], artifacts: [] }) };
+  } });
+  await api.connectWorkspace(api.serverBases('/workspace-api'), { workspaceId: 'ws_abc' });
+  assert.deepEqual(requests, ['http://localhost:5178/workspace-api/api/workspaces/ws_abc']);
+  assert.equal(api.state.socket.url, 'ws://localhost:5178/workspace-api/workspaces/ws_abc/events?generation=3');
+  assert.equal(api.state.generation, 3);
+  const count = requests.length;
+  await api.connectWorkspace(api.serverBases('/workspace-api'), { workspaceId: '../../other' });
+  assert.equal(requests.length, count, 'invalid IDs cannot become request paths');
+});
+
+test('generation animation tracks real task lifecycle and preserves current presentation', () => {
+  const { api, document } = harness({ search: '?embedded=1' });
+  api.renderStage({ artifact_id: 'art_existing', title: 'Keep reading', content: { markdown: 'Current document' } });
+  const progress = document.getElementById('artifact-generating');
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'queued',
+                instruction: 'Private execution prompt with detailed instructions', artifact_title: 'Weather report' });
+  assert.equal(progress.hidden, false);
+  assert.ok(progress.textContent.includes('等待生成'));
+  assert.ok(progress.textContent.includes('Weather report'));
+  assert.ok(!progress.textContent.includes('Private execution prompt'));
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'running', instruction: 'Weather report' });
+  assert.ok(progress.textContent.includes('正在生成'));
+  assert.ok(progress.querySelector('.document-loader'));
+  assert.ok(progress.querySelector('.generation-lines'));
+  assert.ok(stage(document).textContent.includes('Current document'));
+  api.onEvent({ type: 'task.updated', task_id: 'second', status: 'running', instruction: 'Another report' });
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'completed' });
+  assert.equal(progress.hidden, false);
+  assert.ok(!progress.textContent.includes('Weather report'));
+  api.onEvent({ type: 'task.updated', task_id: 'second', status: 'failed' });
+  assert.equal(progress.hidden, true);
+  api.onEvent({ type: 'task.updated', task_id: 'third', status: 'running' });
+  api.onEvent({ type: 'task.cancelled', task_id: 'third' });
+  assert.equal(progress.hidden, true);
+  api.onEvent({ type: 'task.updated', task_id: 'fourth', status: 'running' });
+  api.clearWorkspaceUI();
+  assert.equal(progress.hidden, true);
+});
+
+
+test('Markdown preview, fullscreen and download contain the document without metadata wrappers', () => {
+  const { api, document } = harness();
+  const markdown = '# Boston weather report\n\nActual report body.';
+  const artifact = { artifact_id: 'report', title: 'Boston weather report', summary: 'Completion wrapper',
+                     content: { markdown } };
+  api.renderStage(artifact);
+  assert.equal(stage(document).querySelectorAll('h1').length, 1);
+  assert.equal(stage(document).querySelector('h3'), null);
+  assert.equal(stage(document).querySelector('.stage-summary'), null);
+  assert.ok(!stage(document).textContent.includes('Completion wrapper'));
+  api.openOverlay(artifact);
+  assert.equal(document.getElementById('overlay-card').querySelectorAll('h1').length, 1);
+  assert.ok(!document.getElementById('overlay-card').textContent.includes('Completion wrapper'));
+  api.downloadArtifact(artifact);
+  assert.equal(api.downloads[0].text, markdown);
+});
+
+test('refresh keeps the short output name and never exposes a legacy execution prompt while waiting', () => {
+  const { api, document } = harness({ search: '?embedded=1' });
+  api.loadSnapshot({ workspace: { generation: 1 }, tasks: [
+    { task_id: 'named', status: 'running', artifact_title: 'Boston chart', instruction: 'Verbose execution prompt' },
+    { task_id: 'old', status: 'queued', instruction: 'Legacy execution prompt' },
+  ] });
+  const progress = document.getElementById('artifact-generating');
+  assert.ok(progress.textContent.includes('Boston chart'));
+  assert.ok(progress.textContent.includes('任务成果'));
+  assert.ok(!progress.textContent.includes('execution prompt'));
 });

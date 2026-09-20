@@ -20,6 +20,16 @@ def safe_error_code(code):
 
 
 TOOLS = [
+    {'type': 'function', 'name': 'list_artifacts',
+     'description': 'List up to 50 recent artifacts with task IDs, titles, summaries and readiness, plus the selected artifact. Match these to the current conversation to decide whether and which report to present; never invent an ID.',
+     'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
+    {'type': 'function', 'name': 'present_artifact',
+     'description': 'Select a ready artifact on the shared board, replacing the current selection. Use an artifact_id returned by list_artifacts. Returns server acknowledgement, not proof a viewer rendered it.',
+     'parameters': {'type': 'object', 'properties': {'artifact_id': {'type': 'string'}},
+                    'required': ['artifact_id'], 'additionalProperties': False}},
+    {'type': 'function', 'name': 'hide_artifact',
+     'description': 'Clear the current board presentation without deleting any documents or cancelling tasks.',
+     'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
     {'type': 'function', 'name': 'update_task',
      'description': 'Send the complete revised request when the user adds details or corrects an existing task. '
                     'Preserves its task ID. Queued tasks are updated in place. Running Devin tasks are interrupted '
@@ -35,8 +45,11 @@ TOOLS = [
                     'Include the user objective and only details you clearly heard. Have the worker consult the user transcript '
                     'for other details; never add guessed alternatives or speculative ambiguity. Returns immediately. '
                     'The worker can browse, use shell commands, read/write files, execute code and use its configured integrations.',
-     'parameters': {'type': 'object', 'properties': {'request': {'type': 'string'}},
-                    'required': ['request'], 'additionalProperties': False}},
+     'parameters': {'type': 'object', 'properties': {
+         'request': {'type': 'string'},
+         'artifact_title': {'type': 'string', 'minLength': 1, 'maxLength': 80,
+                            'description': 'A short name for the expected output, in the user language, e.g. Boston weather report or Boston temperature chart. Shown immediately while waiting; never copy the task prompt.'}},
+                    'required': ['request', 'artifact_title'], 'additionalProperties': False}},
     *[{'type': 'function', 'name': name, 'description': description,
        'parameters': {'type': 'object', 'properties': {'task_id': {'type': 'string'}},
                       'required': ['task_id'], 'additionalProperties': False}}
@@ -56,11 +69,39 @@ def session_config(model):
             'Speak naturally in the user\'s language. '
             'Keep ordinary replies to one or two short sentences. '
             'When delegating a task, acknowledge it in one short sentence. '
+            'Before calling delegate_task, name the expected artifact in artifact_title using a brief, specific '
+            'noun phrase in the user language (roughly 3–8 words, at most 80 characters). '
+            'This name appears immediately on its waiting card and remains its catalog title. '
+            'Put execution details only in request, never in the title. For example: Boston weather report; '
+            'Boston temperature and rainfall chart. Choose the name yourself without asking the user. '
             'When a task finishes, state the main result first, in at most three short sentences. '
             'Leave supporting details in the task panel. Only elaborate when the user asks. '
+            'You control artifact presentation. The background agent produces documents; you decide when and which '
+            'artifact to show, switch, or hide using list_artifacts, present_artifact and hide_artifact. '
+            'On a user turn or task-result notification, consider the current topic, the user objective, the result '
+            'being discussed, and what is already on screen. Decide whether a report would help now. '
+            'Proactively show a relevant ready report when explaining its findings, reviewing a document, comparing '
+            'results, or delivering a report the user is waiting for; do not require a separate request or permission '
+            'to display it. A brief acknowledgement, status check, simple answer, or unrelated completion does not '
+            'by itself need a report or a board change. '
+            'When a report would help, call list_artifacts and match task_id, title and summary to the current '
+            'discussion. Choose the best matching ready report, including an older one, rather than the newest '
+            'artifact by default. The catalog contains summaries, not full report contents; do not invent details '
+            'you have not received. If the correct report is already selected, leave it in place without presenting '
+            'it again. Preserve a report still being discussed when an unrelated task finishes. '
+            'Examples: when reviewing research A, show report A; if task B finishes while discussing A, keep A; '
+            'when the user moves on to B, show B if it supports that discussion. If the user asks for voice only '
+            'or to clear the board, use hide_artifact and respect that preference until they change it. '
+            'If no matching report is ready, keep the current view and accurately state its availability only when '
+            'relevant; a completed task is not proof its artifact is ready. Resolve references from context and '
+            'the catalog first; ask one short clarification only if multiple reports remain equally plausible. '
+            'Never delegate a presentation-only request '
+            'or regenerate a completed document just to show it. New or revised content still goes to delegate_task. '
+            'Do not claim presentation succeeded when the tool reports an error or unknown outcome. '
             'Answer simple requests directly. For complex reasoning, analysis, '
             'planning or drafting use delegate_task promptly. For ANY request needing web search, current facts, files, '
-            'code execution, or external tools, CALL delegate_task instead of saying you cannot do it or giving '
+            'code execution, or external tools, CALL delegate_task, except for presenting existing artifacts with '
+            'your presentation tools. Do not say you cannot do it or give '
             'the user instructions to do it themselves. Delegate the objective, not just a request for advice. '
             'Examples: find current news, research a product, create a desktop file, open a website or local report, run code, inspect this project. '
             'After delegation, keep conversing normally while the job runs. '
@@ -68,8 +109,8 @@ def session_config(model):
             'When the user clarifies a queued or running task, use update_task with its existing ID and the complete revised request; '
             'do not create a duplicate task. Check the result: running Devin tasks accept asynchronous updates, '
             'other running backends may reject them. Pending delivery is not proof an action has changed or been undone. '
-            'Devin keeps the same agent conversation throughout this voice session. For follow-up requests after a task '
-            'finishes, use delegate_task and explicitly describe the prior result being referenced. '
+            'Devin keeps the same agent conversation throughout this voice session. For follow-up requests needing '
+            'new work after a task finishes, use delegate_task and explicitly describe the prior result being referenced. '
             'Ask for a missing website URL instead of inventing a default site to open. '
             'Background completion and failure notifications automatically wake you with the result. Decide whether to speak '
             'based on the conversation: normally promptly summarize a requested result or explain a blocker, especially '
@@ -100,9 +141,10 @@ def session_config(model):
 class RealtimeAgent:
     BARGE_IN_CONFIRM_SECONDS = .350
 
-    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None, wake_router=None):
+    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None, wake_router=None, workspace=None):
         self.key, self.audio, self.tasks, self.emit = key, audio, tasks, emit
         self.model, self.connector = model, connector
+        self.workspace = workspace
         self.ready = asyncio.Event()
         self.ws = None
         self.response_id = None
@@ -741,8 +783,15 @@ class RealtimeAgent:
                 if name == 'remain_silent':
                     result = {'acknowledged': True}
                     self.emit('realtime_silent')
+                elif name in ('list_artifacts', 'present_artifact', 'hide_artifact'):
+                    action = {'list_artifacts': 'list', 'present_artifact': 'present', 'hide_artifact': 'clear'}[name]
+                    result = (await self.workspace.artifact_control(action, arguments.get('artifact_id'))
+                              if self.workspace is not None else {'ok': False, 'error': 'workspace_unavailable'})
+                    self.emit('artifact_control', action=action, ok=result.get('ok', False),
+                              artifact_id=result.get('active_artifact_id'), error=result.get('error'))
                 elif name == 'delegate_task':
-                    result = self.tasks.submit(arguments.get('request'))
+                    result = (self.tasks.submit(arguments.get('request'), artifact_title=arguments['artifact_title'])
+                              if 'artifact_title' in arguments else self.tasks.submit(arguments.get('request')))
                 elif name == 'task_status':
                     result = self.tasks.status(arguments.get('task_id'))
                 elif name == 'update_task':

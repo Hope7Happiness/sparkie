@@ -70,6 +70,9 @@ async def run(args):
                     workspace.utterance(fields['text'], fields.get('source') or 'human', 'human'))
         elif kind == 'background_task':
             asyncio.get_running_loop().create_task(workspace.task_update(fields))
+            # Media belongs on the workspace channel, never the voice/audio pipe.
+            if fields.get('artifact'):
+                event['artifact'] = {k: v for k, v in fields['artifact'].items() if k != 'content'}
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')
@@ -113,7 +116,7 @@ async def run(args):
     workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
-                          output_policy=output_policy, wake_router=wake_router)
+                          output_policy=output_policy, wake_router=wake_router, workspace=workspace)
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',

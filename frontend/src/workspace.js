@@ -1,5 +1,8 @@
 import './realtime.css';
 import './workspace.css';
+const entryParams = new URLSearchParams(globalThis.location?.search || '');
+const embedded = entryParams.get('embedded') === '1';
+if (embedded) document.body?.classList.add('embedded-artifacts');
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -8,7 +11,7 @@ const state = {
   generation: null, viewVersion: 0, snapshotEvents: null,
 };
 
-const setState = text => { $('state').textContent = text; };
+const setState = text => { $('state').textContent = embedded ? text.split(' · ')[0] : text; };
 const fail = message => { $('error').textContent = message; setState('Connection failed'); };
 
 const bump = id => { $(id).textContent = String(Number($(id).textContent) + 1); };
@@ -271,7 +274,17 @@ function saveBlob(filename, text, mime) {
 }
 
 function downloadArtifact(artifact) {
-  const markdown = `# ${artifact.title || 'artifact'}\n\n${artifact.summary || ''}\n\n${markdownBody(artifact)}\n`;
+  const content = artifactContent(artifact);
+  if (contentShape(content) === 'image') {
+    const url = safeUrl(content.image, 'image/');
+    if (!url) return;
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = content.filename || artifact.artifact_id;
+    anchor.click();
+    return;
+  }
+  const markdown = markdownBody(artifact);
   saveBlob(`${artifact.artifact_id}.md`, markdown, 'text/markdown');
 }
 
@@ -456,7 +469,10 @@ function renderStage(artifact) {
   summary.className = 'stage-summary';
   summary.textContent = artifact.summary || '';
 
-  card.append(title, head, summary);
+  // Markdown is already a complete document; metadata belongs in the catalog.
+  const documentContent = ['markdown', 'markdown_url'].includes(contentShape(artifactContent(artifact)));
+  if (documentContent) card.append(head);
+  else card.append(title, head, summary);
 
   const body = document.createElement('div');
   body.className = 'stage-content';
@@ -469,7 +485,8 @@ function renderStage(artifact) {
   full.type = 'button'; full.className = 'secondary'; full.textContent = 'Present';
   full.onclick = () => openOverlay(artifact);
   const download = document.createElement('button');
-  download.type = 'button'; download.className = 'secondary'; download.textContent = 'Download .md';
+  download.type = 'button'; download.className = 'secondary';
+  download.textContent = shape === 'image' ? 'Download image' : 'Download .md';
   download.onclick = () => downloadArtifact(artifact);
   actions.append(full, download);
   if (shape && shape !== 'markdown') {
@@ -502,7 +519,8 @@ function renderOverlay(artifact) {
   const body = document.createElement('div');
   body.className = 'overlay-content';
   renderContent(artifact, body);
-  card.append(title, summary, body);
+  if (['markdown', 'markdown_url'].includes(contentShape(artifactContent(artifact)))) card.append(body);
+  else card.append(title, summary, body);
 }
 
 function openOverlay(artifact) {
@@ -584,7 +602,7 @@ function upsertArtifact(event) {
     row.append(badge, meta);
     const open = document.createElement('button');
     open.type = 'button'; open.className = 'secondary'; open.textContent = 'Present';
-    open.onclick = () => presentArtifact(id, { overlay: true });
+    open.onclick = () => requestPresentation(id);
     card.append(title, row, open);
     $('artifacts').querySelector('.empty')?.remove();
     $('artifacts').append(card);
@@ -602,6 +620,48 @@ const STATUS_FROM_EVENT = {
   'task.cancelled': 'cancelled',
 };
 const STATUS_LABEL = { queued: 'Queued', running: 'Running…', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' };
+let generationView = '';
+
+function requestPresentation(artifactId) {
+  if (state.socket?.readyState !== WebSocket.OPEN) {
+    fail('Not connected — reconnect the board to select a document.');
+    return;
+  }
+  state.socket.send(JSON.stringify({ type: 'artifact.control', action: 'present',
+    artifact_id: artifactId, request_id: `board-${Date.now()}`, generation: state.generation }));
+}
+
+function renderGeneration() {
+  const active = [...state.tasks.values()].filter(task => ['queued', 'running'].includes(task.status));
+  const signature = JSON.stringify(active.map(task => [task.task_id, task.status, task.instruction]));
+  if (signature === generationView) return;
+  generationView = signature;
+  const area = $('artifact-generating');
+  area.textContent = '';
+  area.hidden = active.length === 0;
+  for (const task of active) {
+    const card = document.createElement('div');
+    card.className = 'artifact-generating';
+    card.dataset.taskStatus = task.status;
+    const icon = document.createElement('span');
+    icon.className = 'document-loader';
+    icon.setAttribute('aria-hidden', 'true');
+    const body = document.createElement('div');
+    const label = document.createElement('strong');
+    label.textContent = task.status === 'running'
+      ? (embedded ? '正在生成' : 'Generating')
+      : (embedded ? '等待生成' : 'Queued');
+    const title = document.createElement('p');
+    title.textContent = task.artifact_title || (embedded ? '任务成果' : 'Task output');
+    const lines = document.createElement('div');
+    lines.className = 'generation-lines';
+    lines.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i++) lines.append(document.createElement('span'));
+    body.append(label, title, lines);
+    card.append(icon, body);
+    area.append(card);
+  }
+}
 
 function taskStatus(event) {
   if (event.status && STATUS_LABEL[event.status]) return event.status;
@@ -613,6 +673,7 @@ function upsertTask(event) {
   const status = taskStatus(event);
   const task = { ...(state.tasks.get(id) || {}), ...event, status };
   state.tasks.set(id, task);
+  renderGeneration();
   let card = document.querySelector(`[data-task="${id}"]`);
   if (!card) {
     card = document.createElement('div');
@@ -628,7 +689,7 @@ function upsertTask(event) {
   }
   card.dataset.status = status;
   card.className = `task status-${status}`;
-  card.querySelector('h3').textContent = task.instruction || task.title || id;
+  card.querySelector('h3').textContent = task.artifact_title || task.title || (embedded ? '任务成果' : 'Task output');
   const reason = task.error_type || task.error;
   card.querySelector('small').textContent =
     status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || 'unknown error'}`
@@ -656,6 +717,7 @@ function loadSnapshot(snapshot) {
   for (const task of snapshot.tasks || []) {
     upsertTask({
       task_id: task.task_id, instruction: task.instruction,
+      artifact_title: task.artifact_title,
       status: task.status, error_type: task.error,
     });
   }
@@ -683,7 +745,17 @@ function onEvent(event) {
       upsertArtifact(event);
       break;
     case 'artifact.present':
-      presentArtifact(event.artifact_id, { overlay: true });
+      presentArtifact(event.artifact_id, { overlay: !embedded });
+      break;
+    case 'artifact.cleared':
+      state.activeArtifact = null;
+      renderStage(null);
+      closeOverlay();
+      document.querySelectorAll('.artifact').forEach(el => el.classList.remove('active'));
+      break;
+    case 'artifact.control.result':
+      if (!event.ok) fail(`Cannot present document: ${event.error || 'unavailable'}`);
+      else $('error').textContent = '';
       break;
     case 'meeting.ended':
       setState(`Ended · ${state.workspaceId || ''}`);
@@ -701,7 +773,14 @@ function clearWorkspaceUI() {
     const node = $(id);
     if (node) node.textContent = '';
   }
+  if (embedded) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = '告诉 Sparkie 想展示哪份成果，也可以从列表中选择。';
+    $('stage').append(empty);
+  }
   state.tasks.clear();
+  renderGeneration();
   state.artifacts.clear();
   state.utterances = 0;
   $('utterance-count').textContent = '0';
@@ -738,19 +817,24 @@ async function reloadSnapshot() {
 // Accepts bare host:port (local dev) or a full https:// URL (tunnel/proxy) —
 // WS always uses the matching ws/wss scheme so pages served over TLS work.
 function serverBases(raw) {
+  if (String(raw).startsWith('/') && !String(raw).startsWith('//')) {
+    const url = new URL(raw, globalThis.location.origin);
+    return { http: url.href.replace(/\/+$/, ''),
+             ws: url.href.replace(/^http/, 'ws').replace(/\/+$/, '') };
+  }
   const secure = /^(https|wss):/i.test(raw);
   const host = String(raw).replace(/^(https?|wss?):\/\//i, '').replace(/\/+$/, '');
   return { http: `${secure ? 'https' : 'http'}://${host}`,
            ws: `${secure ? 'wss' : 'ws'}://${host}` };
 }
 
-async function connectWorkspace(server, { workspaceId, external, title = '' } = {}) {
-  const base = serverBases(server);
+async function connectWorkspace(base, { workspaceId, external, title = '' }) {
   state.socket?.close();
   state.socket = null;
   clearWorkspaceUI();
   const version = state.viewVersion;
   try {
+    if (workspaceId && !/^ws_[a-f0-9]+$/.test(workspaceId)) throw new Error('Invalid workspace');
     if (!workspaceId) {
       const response = await fetch(`${base.http}/api/meetings/resolve?` +
         new URLSearchParams({ kind: 'zoom_uuid', external_id: external, title }));
@@ -768,7 +852,8 @@ async function connectWorkspace(server, { workspaceId, external, title = '' } = 
     loadSnapshot(snapshot);
     const socket = new WebSocket(`${base.ws}/workspaces/${encodeURIComponent(workspaceId)}/events?generation=${state.generation}`);
     socket.onmessage = ({ data }) => { if (state.socket === socket) onEvent(JSON.parse(data)); };
-    socket.onopen = () => setState(`Connected · ${workspaceId}`);
+    // Refresh after subscribing so updates between fetch and socket open aren't lost.
+    socket.onopen = () => { if (state.socket === socket) reloadSnapshot(); };
     socket.onclose = () => { if (state.socket === socket) setState('Disconnected'); };
     socket.onerror = () => fail('Event stream connection failed — is sparkie workspace running?');
     state.socket = socket;
@@ -780,10 +865,10 @@ async function connectWorkspace(server, { workspaceId, external, title = '' } = 
   }
 }
 
-$('join').onsubmit = async event => {
+$('join').onsubmit = event => {
   event.preventDefault();
   const form = new FormData(event.target);
-  await connectWorkspace(form.get('server'), {
+  return connectWorkspace(serverBases(form.get('server')), {
     external: form.get('external_id'), title: form.get('title') || '',
   });
 };
@@ -807,12 +892,11 @@ document.addEventListener?.('keydown', event => {
 
 // Shareable entry: /workspace.html?meeting=<zoom id> joins straight in.
 try {
-  const params = new URLSearchParams(globalThis.location?.search || '');
-  const meeting = params.get('meeting');
-  const workspaceId = params.get('workspace_id');
-  const server = params.get('server');
+  const workspaceId = entryParams.get('workspace_id') || entryParams.get('workspace');
+  const meeting = entryParams.get('meeting');
+  const server = entryParams.get('server');
   if (workspaceId) {
-    connectWorkspace(server || '127.0.0.1:8790', { workspaceId });
+    connectWorkspace(serverBases(server || '/workspace-api'), { workspaceId });
   } else if (meeting) {
     const form = document.querySelector('#join');
     form.external_id.value = meeting;

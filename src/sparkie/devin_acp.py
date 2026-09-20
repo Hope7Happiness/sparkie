@@ -158,6 +158,7 @@ class DevinTaskWorker:
                            last_action_status=update.get('status', 'in_progress'))
 
     def _prompt_text(self, request, transcript, revised=False):
+        from .task_artifacts import ARTIFACT_INSTRUCTIONS
         # Retain snapshots for this session: later turns may refer to earlier paths.
         path = Path(self._directory.name) / (uuid4().hex + '.json')
         path.write_text(json.dumps(transcript, ensure_ascii=False))
@@ -173,7 +174,7 @@ class DevinTaskWorker:
                 "The user revised the active task. The prior turn has stopped; some actions may already have "
                 "taken effect. Follow this complete revised request, inspect existing state as needed and avoid "
                 "duplicating completed actions. Cancellation does not roll back changes. ")
-        return instructions + '\n' + json.dumps(
+        return instructions + ARTIFACT_INSTRUCTIONS + '\n' + json.dumps(
             {'request': request, 'complete_transcript_file': str(path)}, ensure_ascii=False)
 
     async def _cancel_turn(self, turn):
