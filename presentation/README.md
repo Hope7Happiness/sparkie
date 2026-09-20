@@ -2,12 +2,12 @@
 
 Two standalone English experiences with the same forest-green, warm-paper and amber visual language:
 
-- **[index.html](index.html)** — ten interactive slides, paced for **6:10**, including a 60-second real-demo slot.
+- **[index.html](index.html)** — ten interactive slides and 24 item states: motivation, competition, product evidence, architecture, limitations and outlook.
 - **[home.html](home.html)** — the project homepage, with a scroll-driven meeting-to-artifact sequence, interactive scenarios, a demo slot and repository/setup links.
-- **[speaker-notes.md](speaker-notes.md)** — the English speaking outline, per-slide timing, demo cues and Q&A boundaries.
+- **[speaker-notes.md](speaker-notes.md)** — the English speaking outline, demo cues and implementation boundaries.
 - **[research.md](research.md)** — official market sources, fair competitor positioning, code evidence, scenario boundaries and motion references.
 
-The revised slides use sourced scene photographs, official product icons and website captures, realistic staged dialogue, and progressively illuminated system diagrams. The projected slides keep large, essential text. Supporting explanations live in the separate speaker view and documents. Circles, the Sparkie mark and artifact panels move between scenes using shared-element View Transitions. The homepage has ordinary scrolling with a sticky illustration that changes state as the story progresses.
+The revised slides use sourced scene photographs, official product icons and website captures, real product captures, illustrative Gemini routing examples, and progressively illuminated system diagrams. The projected slides keep large, essential text. Supporting explanations live in the separate speaker view and documents. Circles, the Sparkie mark and artifact panels move between scenes using shared-element View Transitions. The homepage pairs text and screenshots vertically on phones, with a sticky screenshot sequence on larger screens.
 
 ## Open locally
 
@@ -46,9 +46,24 @@ Open http://localhost:8088/ for the slides or http://localhost:8088/home.html fo
 
 Arrow controls and toolbar buttons have accessible names and tooltips. Dialogs close with Escape. Controls keep their normal keyboard activation behavior. Slides never advance automatically.
 
-Open speaker view from P or the split-panel toolbar icon, then share only the audience window. The speaker window shows an audience-layout preview, the English script, cues, time allocation and next slide. Both slide and item navigation synchronize in both directions. A URL such as index.html#04/5 opens slide 4 at item 5. Browser Back/Forward also restores that item. Its rehearsal timer is independent of the optional audience-window timer. If pop-ups are blocked, allow the speaker window, or open index.html?presenter=1 for a standalone rehearsal view.
+Open speaker view from P or the split-panel toolbar icon, then share only the audience window. The speaker window shows an audience-layout preview, the English script, cues, time allocation and next slide. Both slide and item navigation synchronize in both directions. A URL such as index.html#04/4 opens slide 4 at item 4. Browser Back/Forward also restores that item. Its rehearsal timer is independent of the optional audience-window timer. If pop-ups are blocked, allow the speaker window, or open index.html?presenter=1 for a standalone rehearsal view.
 
-The interactive scenarios and waveforms are **illustrations**; clicking them does not run an agent, join a meeting, record audio or call a model. The homepage retains six inspiration choices. The slide deck now separates two contextual inspiration dialogues from three practical playbooks, with documented versus worked-scenario status visible. The landscape shows overlapping focuses; it does not imply that competitors cannot execute work.
+The interactive scenarios and waveforms are **illustrations**; clicking them does not run an agent, join a meeting, record audio or call a model. The homepage retains six inspiration choices. The slide deck shows four real frontend views, then the supplied video. Its architecture section separates the system overview, Gemini participation decisions, and asynchronous task execution. The landscape shows overlapping focuses; it does not imply that competitors cannot execute work.
+
+## Narrative order
+
+1. The goal: a teammate with meeting context.
+2. Motivation: act on the discussion while the team keeps talking.
+3. Competitive context, immediately after motivation.
+4. What we built: workspace, transcript, tasks and artifacts.
+5. Supplied Zoom demo video.
+6. Architecture overview: audio → words / turn completion → router → voice / worker.
+7. Main challenge: Gemini decides whether the current turn invites a response.
+8. Separate voice and background task execution.
+9. Current limitations, including setup that is not one click.
+10. Outlook: guided setup, conversation evaluation and recovery, clearer task updates.
+
+On slide 7, Active and Quiet describe the decision for each turn. The router sees the current utterance, speaker identity and up to eight recent conversation entries. It does not grant permanent speaking permission. Illustrative cases cover a third-person mention, a contextual follow-up without a name, and an ambiguous recipient. Speech completion and interruption are separate mechanisms. Speaker notes cite the relevant implementation files.
 
 ## Demo media and product captures
 
@@ -82,9 +97,9 @@ Aim for a 60-second excerpt showing: **delegation → real Tasks activity during
 
 - index.html: projected content and slide structure.
 - deck-data.js: shared homepage scenarios and official sources.
-- story-data.js: current presentation notes, product tradeoffs, dialogues, playbooks and per-slide item counts.
+- story-data.js: current presentation notes, product tradeoffs, product captures, routing examples and per-slide item counts.
 - deck.js: navigation, shared-element transitions, speaker view and local media.
-- styles.css, stage.css and story.css: base layout and the minimal projection layer.
+- styles.css, stage.css, story.css and narrative.css: base layout, diagrams and the current narrative pages.
 - home.html, home.css and home.js: homepage layout, scroll choreography and interactions.
 - assets/: official product assets, sourced Pexels photographs, original placeholders and the repository's Sparkie icon. See assets/CREDITS.md for provenance. No image-generation API was called.
 
@@ -92,7 +107,7 @@ The notes in story-data.js power the current speaker view. Keep speaker-notes.md
 
 ## Verification and limits
 
-Validated in installed Chrome through Playwright, over HTTP and offline file URLs. Checks cover all ten slides and all 28 item states forward/backward, bounds and rapid navigation, deep links and browser history, dialogs, direct scene controls, product-image loading, speaker-window item synchronization and reduced motion. Local video loading, playback and error recovery are also checked. Homepage checks cover scenario controls, all three scroll states and disclosure content. All item layouts were checked at 1920×1080, 1440×900, 1280×720 and 390×844. Diagram node spacing was also checked at 768×1024; homepage mobile overflow was checked at 390×900.
+The current deck was checked in Chrome at 1440×900, 1280×720, 768×1024 and 390×844. Checks cover all ten slides and 24 item states, product screenshot loading and enlargement, all three Gemini examples, speaker notes and two-way speaker navigation, and video removal on slide exit. Desktop layouts fit without vertical scrolling; phone slides can scroll. Offline checks confirm that product assets remain local; inserting the requested YouTube embed is checked without claiming successful network playback.
 
 View Transitions require browser support; other browsers fall back to ordinary slide transitions. Reduced-motion preferences disable the animated choreography. Mobile slides can scroll vertically when needed. Chrome is the tested browser; Safari and Firefox have not been separately verified. The presentation does not establish new backend or real-Zoom behavior, and no core runtime files are changed.
 

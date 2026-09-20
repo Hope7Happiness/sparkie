@@ -1,48 +1,233 @@
-/* Detailed presentation narrative. Dialogue and artifact sketches are illustrative unless explicitly stated. */
+/* Talk narrative. Captures are real local-session data; routing examples and diagrams are illustrative. */
 window.SPARKIE_STORY = {
-  counts: [1, 1, 4, 6, 1, 4, 3, 4, 3, 1],
-  market: [
-    {name:'Granola', url:'https://www.granola.ai/', icon:'assets/market/granola-icon.ico', image:'assets/market/granola-website.jpg', fallback:'assets/market/granola-product.png', strength:'Meeting memory without a bot.', tradeoff:'No speaking teammate in the call.', focus:'Sparkie joins, answers, and takes on the work.', label:'Meeting intelligence'},
-    {name:'Vapi', url:'https://vapi.ai/', icon:'assets/market/vapi-icon.ico', image:'assets/market/vapi-website.jpg', fallback:'assets/market/vapi-product.png', strength:'Voice agents connected to tools.', tradeoff:'The shared-meeting workflow is still yours to build.', focus:'Sparkie connects Zoom, team context, and execution.', label:'Voice infrastructure'},
-    {name:'ZoomMate', url:'https://www.zoom.com/en/products/ai-assistant/', icon:'assets/market/zoom-icon.ico', image:'assets/market/zoom-website.jpg', fallback:'assets/market/zoom-product.jpg', strength:'Meeting context → connected workflows.', tradeoff:'Your local CLI workspace is another integration.', focus:'Sparkie puts the agent directly in your project.', label:'Workplace execution'},
-    {name:'Sparkie', url:'https://github.com/Hope7Happiness/sparkie', icon:'assets/sparkie-mark.svg', image:'assets/product/workspace.webp', fallback:'assets/product/workspace.webp', strength:'Shared context. Spoken delegation. Project execution.', tradeoff:'Keep discussing. Inspect the file. Ask for the next edit.', focus:'The conversation becomes work—in the same room.', solvesLabel:'We connect', gapLabel:'Your team can', focusLabel:'The result', label:'Local voice workspace'}
+  "counts": [
+    1,
+    1,
+    4,
+    4,
+    1,
+    4,
+    3,
+    4,
+    1,
+    1
   ],
-  inspiration: [
-    {title:'A product fork.',scene:'The launch is close. The team has two ways to onboard new users.',image:'assets/scenes/planning.jpg',roles:['Product lead','Engineer','Product lead → Sparkie'],lines:['“A guided setup could help people finish the first project.”','“But a checklist is cheaper to ship. We need to compare the tradeoffs.”','“Sparkie, turn those two options into a brief, including effort and risks.”'],result:'The discussion becomes a decision brief.'},
-    {title:'A customer call.',scene:'The customer has changed the priority in the middle of the call.',image:'assets/scenes/meeting.jpg',roles:['Customer','Account lead','Account lead → Sparkie'],lines:['“The dashboard can wait. We need a reliable export every Friday.”','“Understood. Let’s make reporting the first milestone.”','“Sparkie, draft a follow-up around that priority. Leave dates for us to confirm.”'],result:'A tailored draft, ready for human review.'}
+  "market": [
+    {
+      "name": "Granola",
+      "url": "https://www.granola.ai/",
+      "icon": "assets/market/granola-icon.ico",
+      "image": "assets/market/granola-website.jpg",
+      "fallback": "assets/market/granola-product.png",
+      "strength": "Meeting memory without a bot.",
+      "tradeoff": "A speaking participant is a different experience.",
+      "focus": "Sparkie joins, answers, and takes on the work.",
+      "label": "Meeting intelligence"
+    },
+    {
+      "name": "Vapi",
+      "url": "https://vapi.ai/",
+      "icon": "assets/market/vapi-icon.ico",
+      "image": "assets/market/vapi-website.jpg",
+      "fallback": "assets/market/vapi-product.png",
+      "strength": "Voice agents connected to tools.",
+      "tradeoff": "The shared-meeting workflow is still yours to build.",
+      "focus": "Sparkie connects Zoom, team context, and execution.",
+      "label": "Voice infrastructure"
+    },
+    {
+      "name": "ZoomMate",
+      "url": "https://www.zoom.com/en/products/ai-assistant/",
+      "icon": "assets/market/zoom-icon.ico",
+      "image": "assets/market/zoom-website.jpg",
+      "fallback": "assets/market/zoom-product.jpg",
+      "strength": "Meeting context → connected workflows.",
+      "tradeoff": "A project-local CLI requires another bridge.",
+      "focus": "Sparkie puts the agent directly in your project.",
+      "label": "Workplace execution"
+    },
+    {
+      "name": "Sparkie",
+      "url": "https://github.com/Hope7Happiness/sparkie",
+      "icon": "assets/sparkie-mark.svg",
+      "image": "assets/product/workspace.webp",
+      "fallback": "assets/product/workspace.webp",
+      "strength": "Shared context. Spoken delegation. Project execution.",
+      "tradeoff": "Keep discussing. Inspect the file. Ask for the next edit.",
+      "focus": "The conversation becomes work—in the same room.",
+      "solvesLabel": "We connect",
+      "gapLabel": "Your team can",
+      "focusLabel": "The result",
+      "label": "Local voice workspace"
+    }
   ],
-  rhythm: [
-    {title:'Delegate a piece of the work.',detail:'“Sparkie, write an outline from that discussion.”',voice:'Acknowledge',worker:'Context snapshot'},
-    {title:'The conversation keeps moving.',detail:'The team agrees recording roles while real task events report activity.',voice:'Available',worker:'Tools + project files'},
-    {title:'Human speech gets the floor.',detail:'A confirmed interruption stops the voice; the task can keep running.',voice:'Yield to the room',worker:'Still working'},
-    {title:'Return with something to inspect.',detail:'The result can be reported aloud and inspected in the artifact view.',voice:'Report the result',worker:'Saved artifact'}
+  "rhythm": [
+    {
+      "title": "Delegate a piece of the work.",
+      "detail": "“Sparkie, write an outline from that discussion.”",
+      "voice": "Acknowledge",
+      "worker": "Context snapshot"
+    },
+    {
+      "title": "The conversation keeps moving.",
+      "detail": "The team agrees recording roles while real task events report activity.",
+      "voice": "Available",
+      "worker": "Tools + project files"
+    },
+    {
+      "title": "Human speech gets the floor.",
+      "detail": "A confirmed interruption stops the voice; the task can keep running.",
+      "voice": "Yield to the room",
+      "worker": "Still working"
+    },
+    {
+      "title": "Return with something to inspect.",
+      "detail": "The result can be reported aloud and inspected in the artifact view.",
+      "voice": "Report the result",
+      "worker": "Saved artifact"
+    }
   ],
-  conversation: [
-    {title:'Follow the discussion.',role:'Teammate',line:'“Sparkie could help with the comparison later.”',response:'Keep listening.',detail:'A mention is context, not automatically a request.'},
-    {title:'Wait for the complete request.',role:'Teammate → Sparkie',line:'“Sparkie, compare the options … including the setup costs.”',response:'Now respond.',detail:'Words + semantic completion → one full turn.'},
-    {title:'Take the correction.',role:'Teammate → Sparkie',line:'“Wait—just the setup costs. Keep it short.”',response:'Yield, then follow the new request.',detail:'Fast speech confirmation gives the floor back.'}
+  "architecture": [
+    {
+      "title": "Separate people before interpretation.",
+      "detail": "Zoom human tracks feed words and semantic completion in parallel."
+    },
+    {
+      "title": "Route a complete thought.",
+      "detail": "Align the final words. Gemini decides whether Sparkie was addressed."
+    },
+    {
+      "title": "Speak, with human priority.",
+      "detail": "Realtime voices the answer. Confirmed human speech takes priority over playback."
+    },
+    {
+      "title": "Delegate, execute, report.",
+      "detail": "A transcript snapshot reaches Devin; task results return to the voice."
+    }
   ],
-  architecture: [
-    {title:'Separate people before interpretation.',detail:'Zoom human tracks feed words and semantic completion in parallel.'},
-    {title:'Route a complete thought.',detail:'Align the final words. Gemini decides whether Sparkie was addressed.'},
-    {title:'Speak, with human priority.',detail:'Realtime voices the answer. Confirmed human speech takes priority over playback.'},
-    {title:'Delegate, execute, report.',detail:'A transcript snapshot reaches Devin; task results return to the voice.'}
+  "product": [
+    {
+      "title": "One workspace for the meeting.",
+      "image": "assets/product/workspace.webp",
+      "alt": "Actual Sparkie local voice workspace with transcript, tasks and the generated report.",
+      "detail": "The conversation, delegated work and saved results stay together.",
+      "label": "Workspace"
+    },
+    {
+      "title": "The discussion stays in view.",
+      "image": "assets/product/transcript.webp",
+      "alt": "Saved transcript of a report request and Sparkie responses from a local voice session.",
+      "detail": "Inspect the transcript behind a request. Keep the shared context visible.",
+      "label": "Transcript"
+    },
+    {
+      "title": "See what the worker is doing.",
+      "image": "assets/product/tasks.webp",
+      "alt": "Completed tasks and artifact catalog from a local voice session.",
+      "detail": "Task status and tool events show activity. This capture shows completed work.",
+      "label": "Tasks"
+    },
+    {
+      "title": "Open the actual result.",
+      "image": "assets/product/report.webp",
+      "alt": "The generated About Sparkie report in the workspace artifact view.",
+      "detail": "Read the artifact, then ask for an explicit follow-up edit.",
+      "label": "Artifact"
+    }
   ],
-  cases: [
-    {name:'Demo film',status:'Documented Zoom workflow',image:'assets/scenes/collaboration.jpg',context:'Three teammates are planning Sparkie’s own demo film.',request:'“Write the outline. Then add the recording roles we agreed on.”',filename:'demo-outline.md',lines:['Opening scene','Task activity while roles are discussed','Present the real outline','+ Confirmed roles in the latest result'],review:'Inspect the latest artifact and verify the saved follow-up edit.',artifactLabel:'Illustrative structure',evidence:'https://github.com/Hope7Happiness/sparkie#what-works-today'},
-    {name:'Bug triage',status:'Worked scenario',image:'assets/scenes/planning.jpg',context:'Audio arrives, but the mixed queue grows while participant STT keeps running.',request:'“Trace the unused queue, propose a fix, and add a regression check.”',filename:'A patch + a focused regression test',lines:['Reproduce the failing path','Trace producer → consumer','Patch the routing boundary','Verify the original failure'],review:'Inspect the diff and the regression result.',artifactLabel:'Expected deliverable',evidence:'research.md#practical-worked-scenarios'},
-    {name:'Customer follow-up',status:'Worked scenario',image:'assets/scenes/meeting.jpg',context:'Reporting became the priority; a delivery date was not agreed.',request:'“Draft the follow-up around exports. Keep the date explicitly open.”',filename:'customer-follow-up.md',lines:['Priority: reliable exports','Dashboard: later discussion','Delivery date: to confirm','Next step: review together'],review:'Check the facts. A human approves sending.',artifactLabel:'Illustrative draft',evidence:'research.md#practical-worked-scenarios'}
+  "routing": [
+    {
+      "context": "The team is discussing a possible use for the assistant.",
+      "utterance": "“Sparkie could help with this later.”",
+      "decision": "quiet",
+      "label": "Quiet · keep listening",
+      "reason": "A third-person mention does not invite a reply."
+    },
+    {
+      "context": "Sparkie has just compared two approaches for the team.",
+      "utterance": "“Which one would you choose?”",
+      "decision": "active",
+      "label": "Active · respond to this turn",
+      "reason": "The recent exchange makes this a follow-up, even without the name."
+    },
+    {
+      "context": "Two teammates are speaking to each other; the recipient is unclear.",
+      "utterance": "“Can you take care of that?”",
+      "decision": "quiet",
+      "label": "Quiet · keep listening",
+      "reason": "Being able to help is not enough. An unclear recipient means no reply."
+    }
   ]
 };
-Object.assign(window.SPARKIE_DECK, {slides:[
-  {title:'Meet your fourth teammate.',chapter:'THE INVITATION',seconds:20,notes:'Picture a teammate who joins the Zoom call and understands the discussion already in progress. Sparkie can answer aloud, take on a task in your project, and return with a result. Our question is simple: can the work start before everyone leaves the meeting?',cue:'Open on the photograph. It illustrates collaboration, not a real Sparkie session.'},
-  {title:'Can someone take this forward?',chapter:'THE HANDOFF',seconds:20,notes:'The team has chosen a direction. Someone now has to reconstruct the discussion, compare the options, and make the actual file. That handoff is the moment we are trying to shorten: the intention is already shared, so why lose the context before the work begins?',cue:'Pause on the question; keep this short.'},
-  {title:'We close the handoff gap.',chapter:'WHY SPARKIE',seconds:60,notes:'Granola gives us meeting memory. What is missing from that notepad experience is a speaking teammate who can take the task right there in the call. Sparkie adds that participant. Vapi gives developers voice agents and tools. But the shared-meeting workflow still has to be built: who is speaking, when the agent should join in, and how the work reaches the project. Sparkie connects that loop. ZoomMate already turns meeting context into connected workflows. For our team, the last mile is our own CLI workspace: the repository, commands and files. Sparkie connects the meeting directly to that workbench. We close the handoff gap: the team keeps discussing, the agent does the work, and everyone can refine the result in the same room.',cue:'Four beats, about 15 seconds each. For each competitor: what they deliver → the specific gap in this experience → what Sparkie adds. Land on the Sparkie result, not a list of caveats. The Zoom gap is the extra bridge to a project-local CLI workflow; do not broaden it into a claim that Zoom cannot execute tasks or integrate developer tools. Supporting scope and prototype limitations remain in research.md and Q&A.'},
-  {title:'Imagine the room.',chapter:'INSPIRATION',seconds:45,notes:'Here is a product review. One person favors guided onboarding, another a simpler checklist. Now the instruction to Sparkie has meaning: compare those options using the discussion as context. Change the room to a customer call. The customer moves reporting ahead of the dashboard. The follow-up should reflect that shift, without inventing a deadline. These are illustrative conversations. The point is that a useful request grows out of the shared discussion, rather than starting as a blank chat prompt.',cue:'Six beats: three dialogue turns in each of two scenes. Read only the key line from each beat. Names identify roles, not real people. Use the next slide for the supplied demo recording and a separate real local-session report.'},
-  {title:'Watch the work happen.',chapter:'THE REAL DEMO',seconds:60,notes:"The team is preparing a demo video. They greet each other, admit Sparkie from the Zoom waiting room, then discuss what to demonstrate: responding when called, yielding to interruptions, using prior context, joining the discussion, and working on files while people talk. Sparkie drafts the outline while the team agrees roles. They inspect the artifact, confirm the division of work, and request the update. Watch the real task events and inspect the actual result.",cue:"Play the supplied YouTube demo. The adjacent About Sparkie report is from a separate local voice session; click it to inspect the full capture. For an edited excerpt, select real moments from the longer rehearsal: waiting-room admission, feature discussion, addressed response, task activity, artifact review, and updated roles. The 60-second slot is an edited excerpt, not an execution-time promise. Show an interruption only if it actually occurs while the agent is speaking and succeeds. Label shortened waits and manual fallbacks. The final reveal is undecided; do not introduce it during the discussion or the clip setup."},
-  {title:'Two rhythms. One teammate.',chapter:'THE EXECUTION LOOP',seconds:35,notes:"An acknowledgement belongs to the voice loop. Execution belongs to a separate worker. It starts with the finalized transcript available at delegation while the team keeps talking. Actual task events can show whether it is queued, running, or done, and which tool action is underway. Human interruption yields the voice without automatically cancelling the task. The completed result can be reported aloud and inspected as an artifact. Later decisions need an explicit follow-up.",cue:"Four beats: delegate, work while talking, human interruption, result. Slide routes and the illustrated progress bar are conceptual, not live telemetry or measured timing. Real Tasks activity is shown in the recording: status and tool actions, without a completion percentage or time estimate. Task cancellation is explicit."},
-  {title:'Read the room.',chapter:'CONVERSATIONAL JUDGMENT',seconds:25,notes:'The same assistant needs judgment about participation. Mentioning Sparkie in discussion is not always an invitation. A pause inside a request should not throw away the rest of the thought. And when a person corrects the request, the voice should yield. We handle these as different signals in the same conversation, rather than one mute switch.',cue:'Three beats: indirect mention, complete request with a pause, explicit correction. This is a scripted illustration, not a model benchmark. If asked: medium semantic VAD; a 350ms unconfirmed interruption candidate can resume buffered audio. Confirmed speech cancels the reply.'},
-  {title:'Inside the loop.',chapter:'SYSTEM DESIGN',seconds:45,notes:'Separate human tracks enter from Zoom. Two parallel adapters supply the words and semantic turn completion. After those agree on a complete turn, Gemini checks whether it addresses Sparkie. Realtime handles the voice. Fast speech confirmation also has a priority path to stop playback. When a task is delegated, a transcript snapshot reaches the Devin worker with project tools. Its result returns through the task center to the voice. The bot’s own SDK track is excluded, although physical speaker echo can still reenter a human microphone.',cue:'Four builds: input split, complete-turn routing, voice and interruption path, asynchronous worker return. Current worker is SWE 1.6 Fast; Codex is selectable. The foreground consumes assembled text in this mode; separate Realtime sessions perform semantic audio completion.'},
-  {title:'From request to review.',chapter:'PRACTICAL PLAYBOOKS',seconds:45,notes:"Here is what a useful handoff looks like at the artifact level. The demo plan asks for an outline, keeps real task activity visible while roles are discussed, then shows the result and adds the confirmed roles to the same document. Review the latest artifact against the saved file; a Done badge alone is not enough. For engineering, trace an audio queue failure, fix the boundary, and verify a regression. For a customer follow-up, preserve the priorities and leave unagreed dates open. The latter two are worked scenarios; the demo recording must supply the real-session evidence.",cue:"Three beats: demo film, bug triage, customer follow-up. Keep the illustrative or expected labels on these panels. The latest follow-up result can be a new artifact even though it updates the same file. Only the supplied real recording demonstrates which presentation and execution steps actually succeeded."},
-  {title:'Leave with work in hand.',chapter:'THE CLOSE',seconds:15,notes:'Sparkie brings the conversation and the work into the same room. Address it, delegate a concrete task, and refine the result together. That is the experience we want to build: useful progress before the call ends.',cue:'End here. The visible links lead to the project homepage and repository, not backwards to another slide.'}
+Object.assign(window.SPARKIE_DECK, {slides: [
+  {
+    "title": "A teammate with the meeting context.",
+    "chapter": "MOTIVATION",
+    "seconds": 15,
+    "notes": "We want an agent that is already part of the meeting. It follows the discussion, understands what a request refers to, and can handle work while the team keeps talking. Sparkie is our prototype of that teammate.",
+    "cue": "Open with the goal. The photo is an editorial illustration, not a Sparkie session."
+  },
+  {
+    "title": "Keep the context. Start the work.",
+    "chapter": "MOTIVATION",
+    "seconds": 35,
+    "notes": "In a meeting, the useful context is spread across the conversation: the options we considered, the constraints, and what we decided. A separate chat makes someone explain it all again. We want to ask for a comparison, a file, or an edit right there in the discussion. The agent should participate when invited and work in the background while people continue. That is what we mean by a meeting agent with shared context.",
+    "cue": "Emphasize shared conversation and work during the meeting. This is the product goal, not unlimited memory: the current system only receives the session input available after it joins; tasks receive a snapshot at delegation."
+  },
+  {
+    "title": "Where Sparkie fits.",
+    "chapter": "COMPETITIVE CONTEXT",
+    "seconds": 50,
+    "notes": "Granola focuses on meeting memory. We want a speaking participant as well. Vapi provides voice agents connected to tools; the shared-meeting behavior still needs to be built. ZoomMate already connects meeting context to workflows, so executing work is not unique to us. Our focus is the bridge from a shared meeting to an agent in our own project: its files, commands, and tools. The team keeps talking and can review the result together.",
+    "cue": "Place this directly after motivation. Four comparisons: existing value, the specific bridge we built, then Sparkie. Do not claim competitors cannot execute work. Official sources are available in the source drawer."
+  },
+  {
+    "title": "What we built.",
+    "chapter": "THE PRODUCT",
+    "seconds": 45,
+    "notes": "Here is the actual frontend. The workspace brings the conversation, task center and artifacts together. The transcript makes the request inspectable. The task panel shows status and backend tool activity while the voice remains available. When the worker finishes, the result opens as an artifact that we can read and refine. These screenshots come from a completed local voice session. Next, we will show the supplied Zoom demo video.",
+    "cue": "Four views: workspace, transcript, tasks, artifact. Click a capture to enlarge it. The task screenshot shows completed work; it is not a live progress feed. These captures are separate from the Zoom recording."
+  },
+  {
+    "title": "Watch it in the meeting.",
+    "chapter": "THE DEMO",
+    "seconds": 60,
+    "notes": "Now watch the meeting experience. Follow the spoken request, the background work, and the result the team can inspect. The important connection is that the discussion and the work happen in the same session.",
+    "cue": "Play the supplied YouTube demo. The player uses the full recording; 60 seconds is a suggested talk allowance, not an automatic trim or a measured task duration. Let the actual clip establish what happened. The adjacent About Sparkie report comes from a separate local voice session."
+  },
+  {
+    "title": "From conversation to action.",
+    "chapter": "ARCHITECTURE",
+    "seconds": 40,
+    "notes": "Zoom supplies separate human audio tracks. Deepgram gives us the words, and Realtime semantic turn detection estimates when the thought is complete. Gemini makes the participation decision. An accepted turn reaches the foreground Realtime voice agent, which can delegate work to a separate Devin or Codex worker. Results return through the task center. The difficult part is the decision in the middle: should the agent speak at all?",
+    "cue": "Four builds: input, routing, voice, worker. End on Gemini to introduce the dedicated next page. In this Zoom mode the foreground receives assembled text; separate Realtime sessions handle semantic audio completion."
+  },
+  {
+    "title": "When should Sparkie speak?",
+    "chapter": "THE MAIN CHALLENGE",
+    "seconds": 65,
+    "notes": "The hard part is deciding when to participate. A name match is not enough: people can talk about Sparkie without talking to it. The reverse also happens: “Which one would you choose?” can clearly be a follow-up without a name. We use Gemini as a dedicated, tool-free router. It sees the completed current utterance, the speaker identity, and up to eight recent human and assistant entries. It returns accept or reject. Accept lets the foreground voice respond to this turn. Reject keeps it quiet while listening continues. We reassess each turn; an earlier response is not permanent permission to talk. If the recipient is unclear, or routing fails, it stays quiet.",
+    "cue": "This is the central technical page. Click Mention, Follow-up, and Ambiguous. Examples illustrate the implemented policy; they are not new live classifier measurements. Gemini decides participation, not speech endpoints or playback interruption. Confirmed human speech has a separate priority path that stops playback. The eight-entry router window is distinct from meeting context and task snapshots."
+  },
+  {
+    "title": "Keep talking while work continues.",
+    "chapter": "ARCHITECTURE",
+    "seconds": 30,
+    "notes": "The voice loop and the task worker run separately. The worker starts with the transcript snapshot available when the task is delegated. People can keep discussing and interrupt the voice without automatically cancelling that task. The result returns for review when ready. If the discussion changes the requirements, an explicit update carries that change into the work.",
+    "cue": "Four beats: delegate, background work, voice interruption, result. The diagram explains control flow; its progress bar is not live telemetry or a latency measurement."
+  },
+  {
+    "title": "What still needs work.",
+    "chapter": "LIMITATIONS",
+    "seconds": 35,
+    "notes": "This is still a prototype. Setup is not one click: it needs the Zoom SDK, provider credentials, CLI login, and platform permissions. Our primary path is macOS Zoom with English speech. Wake decisions, turn boundaries and acoustic echo can still be wrong; latency varies across providers and tasks. Recovery after input failures is limited. And later decisions do not silently update a running task: we need an explicit follow-up.",
+    "cue": "Be concrete about what is missing. No latency numbers without measurements. The agent processes meeting audio; it does not inspect participants’ screens or video."
+  },
+  {
+    "title": "Make it easier to invite.",
+    "chapter": "OUTLOOK",
+    "seconds": 25,
+    "notes": "Next, we want to package setup so inviting Sparkie is much easier, improve recovery and measure the participation decisions, and make task updates easier to follow. The goal stays the same: a teammate with the meeting context, ready to help while the conversation is still happening.",
+    "cue": "These are directions, not completed features or promised dates. Close on the product goal, then take questions."
+  }
 ]});

@@ -1,0 +1,80 @@
+/* Motivation → evidence → architecture → limits and outlook. */
+.comparison-layout{height:calc(100% - 205px)}
+.demo-stage{height:calc(100% - 195px);max-height:500px}
+.talk-kicker{display:block;font:12px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.13em;color:var(--orange);margin-bottom:16px}
+.narrative-slide h2{font-size:clamp(45px,5.1vw,80px)}
+.talk-lead{font-size:clamp(23px,2.2vw,32px);line-height:1.35;max-width:950px;margin-top:26px;color:#61745b}
+.motivation-grid,.outlook-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;margin-top:42px}
+.motivation-grid article{border-top:1px solid #abbca0;padding-top:23px}
+.motivation-grid article>span,.limits-grid article>span{font-size:14px;color:#718168}
+.motivation-grid h3,.limits-grid h3,.outlook-grid h3{font:400 clamp(24px,2.3vw,34px)/1.15 var(--sans);letter-spacing:-.04em;margin:15px 0}
+.motivation-grid p,.limits-grid p,.outlook-grid p{font-size:21px;line-height:1.45;color:#63755d}
+.product-slide .story-heading h2{font-size:clamp(42px,4.6vw,72px)}
+.product-demo-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,.8fr);align-items:center;gap:40px;height:calc(100% - 210px);margin-top:26px}
+.product-capture{position:relative;height:100%;min-height:0;width:100%;padding:16px;border:1px solid #b0c0a7;border-radius:12px;background:#17232b;overflow:hidden;cursor:zoom-in}
+.product-capture img{width:100%;height:100%;object-fit:contain}
+.product-capture>span{position:absolute;bottom:15px;right:15px;background:#183b32ed;color:#f3f0e8;border:1px solid #b0c0a7;border-radius:30px;padding:10px 16px;font:13px var(--sans)}
+.capture-provenance{display:block;font:12px/1.5 var(--sans);text-transform:uppercase;letter-spacing:.06em;color:#73836c}
+.product-demo-copy h3{font-size:clamp(30px,3.1vw,45px);font-weight:400;line-height:1.15;letter-spacing:-.04em;margin:20px 0}
+.product-demo-copy p{font-size:23px;line-height:1.4;color:#61745b}
+.product-demo-copy small{display:block;font-size:13px;color:#73836c;margin-top:24px}
+.routing-slide h2{font-size:clamp(42px,4.5vw,65px)}
+.routing-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:50px;margin-top:26px}
+.routing-pipeline{text-align:center}
+.routing-input{padding:12px 20px;border:1px solid #b9c7ae;border-radius:10px;background:#e8edde}
+.routing-input>span{display:block;font-size:13px;color:#61745b}
+.routing-input strong{display:block;font-size:23px;font-weight:400;margin:5px 0}
+.routing-input small,.gemini-gate small{font-size:13px;line-height:1.4;display:block}
+.routing-arrow{display:block;font-size:24px;color:var(--orange);line-height:1.2}
+.gemini-gate{padding:17px 24px;border-radius:12px;background:#183b32;color:#f3f0e8;box-shadow:0 12px 25px #183b3220}
+.gemini-gate>span{display:block;font-size:16px;color:var(--amber);margin-bottom:8px}
+.gemini-gate strong{display:block;font:400 27px/1.13 var(--serif)}
+.gemini-gate small{margin-top:10px;color:#c4d1b9}
+.routing-outcomes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+.routing-outcomes>div{padding:12px;border:1px solid #bcc9b2;border-radius:10px;opacity:.42;transition:opacity .25s,background .25s}
+.routing-outcomes span,.routing-outcomes small{display:block;font-size:12px}
+.routing-outcomes strong{display:block;font-size:26px;font-weight:400;margin:3px 0}
+.routing-slide[data-decision=active] [data-route=active],.routing-slide[data-decision=quiet] [data-route=quiet]{opacity:1;background:#e1e9d6;border-color:#76906a}
+.routing-rule{font-size:13px;line-height:1.4;color:#63755d;margin-top:13px}
+.routing-example{align-self:center;border-left:1px solid #becab5;padding-left:35px}
+.routing-example .product-tabs{max-width:none;margin-bottom:23px;gap:22px}
+.routing-example .product-tabs button{font-size:18px}
+#routing-context{font-size:18px;line-height:1.4;color:#65785e;margin-top:13px}
+#routing-utterance{font:clamp(28px,2.6vw,40px)/1.2 var(--serif);letter-spacing:-.035em;margin:23px 0}
+#routing-decision{display:inline-block;padding:8px 14px;border-radius:6px;background:#dce6d1;font-size:18px;font-weight:400}
+#routing-reason{font-size:20px;line-height:1.35;margin-top:18px}
+.routing-footnote{font-size:14px;line-height:1.5;color:#65785e;border-top:1px solid #becab5;padding-top:16px;margin-top:23px}
+.limits-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px 50px;margin-top:32px}
+.limits-grid article{border-top:1px solid #abbca0;padding-top:17px}
+.outlook-slide .talk-kicker{color:var(--amber)}
+.outlook-slide h2 em{color:var(--amber)}
+.outlook-grid article{border-top:1px solid #91ab8170;padding-top:17px}
+.outlook-grid article>span{font-size:15px;color:var(--amber)}
+.outlook-grid p{color:#b6c7ac;font-size:20px}
+.outlook-goal{font:italic 28px/1.2 var(--serif);color:var(--amber);margin-top:32px}
+.outlook-links{display:flex;gap:30px;font-size:17px;margin-top:25px}
+.outlook-links a{border-bottom:1px solid #91ab8170;padding-bottom:5px}
+@media(max-height:800px) and (min-width:901px){
+ .system-board{height:315px}.routing-footnote{margin-top:10px!important;padding-top:9px!important}
+ .narrative-slide{overflow-y:auto}.talk-kicker{margin-bottom:10px;font-size:11px}.narrative-slide h2{font-size:58px}
+ .motivation-grid,.outlook-grid{margin-top:28px;gap:24px}.talk-lead{font-size:25px;margin-top:20px}
+ .motivation-grid p,.limits-grid p,.outlook-grid p{font-size:18px}.motivation-grid h3,.limits-grid h3,.outlook-grid h3{font-size:27px;margin:11px 0}
+ .routing-slide h2{font-size:48px}.routing-layout{margin-top:18px;gap:35px}.routing-input{padding:9px 16px}.gemini-gate{padding:12px 20px}.gemini-gate strong{font-size:23px}.routing-outcomes>div{padding:8px}.routing-footnote{margin-top:15px;padding-top:12px;font-size:12px}
+ .product-slide .story-heading h2{font-size:53px}.product-demo-layout{height:calc(100% - 163px);margin-top:18px}.product-demo-copy p{font-size:20px}
+ .limits-grid{margin-top:25px;gap:20px 40px}.outlook-goal{font-size:25px;margin-top:25px}.outlook-links{margin-top:18px}
+}
+@media(max-width:900px){
+ .narrative-slide{overflow-y:auto}.product-demo-layout{grid-template-columns:1.35fr 1fr;gap:24px}.product-demo-copy p{font-size:20px}
+ .routing-layout{gap:22px}.routing-example{padding-left:20px}.routing-example .product-tabs{gap:10px}.routing-example .product-tabs button{font-size:16px}
+ .motivation-grid,.outlook-grid{gap:20px}.motivation-grid p,.outlook-grid p{font-size:18px}
+}
+@media(max-width:700px){
+ .comparison-layout,.demo-stage{height:auto}
+ .narrative-slide h2,.product-slide .story-heading h2{font-size:45px}.talk-kicker{font-size:10px;margin-bottom:15px}.talk-lead{font-size:22px}
+ .motivation-grid,.limits-grid,.outlook-grid{grid-template-columns:1fr;gap:23px;margin-top:30px}.motivation-grid h3,.limits-grid h3,.outlook-grid h3{font-size:28px}.motivation-grid p,.limits-grid p,.outlook-grid p{font-size:20px}
+ .product-demo-layout{display:flex;flex-direction:column;gap:24px;height:auto}.product-capture{height:320px;flex:none;padding:10px}.product-demo-copy{width:100%}.product-demo-copy h3{font-size:30px;margin:14px 0}.product-demo-copy p{font-size:21px}.product-demo-copy small{margin-top:15px}
+ .routing-layout{grid-template-columns:1fr;gap:28px}.routing-example{border-left:0;border-top:1px solid #becab5;padding:22px 0 0}.routing-example .product-tabs{gap:22px}.routing-example .product-tabs button{font-size:18px;min-height:44px}
+ .routing-footnote{font-size:13px}.gemini-gate strong{font-size:26px}#routing-utterance{font-size:31px}
+ .outlook-goal{font-size:27px;margin-top:30px}.outlook-links{flex-wrap:wrap;gap:20px}
+}
+@media print{.narrative-slide{overflow:hidden}.routing-outcomes>div{opacity:1}.product-demo-layout{height:110mm}.routing-layout{gap:25px}.narrative-slide h2{font-size:40pt}}

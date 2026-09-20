@@ -1,125 +1,76 @@
-# Sparkie — English speaker outline
+# Sparkie — speaker notes
 
-Target: **6:10**. Ten slides, **28 presentation items**, including a 60-second real-demo window. English delivery for a mixed technical and nontechnical audience.
+Order: motivation → competitive context → product and video → architecture → limitations and outlook.
 
-## Delivery controls
+The Gemini participation router is the central technical page. Timing is a speaking guide, not a performance claim. The YouTube player does not trim the video.
 
-Press Right or Space to reveal the next item; only after the final item does it advance to the next slide. Left reverses that sequence. Page Down / Page Up skip whole slides. The on-screen arrows, touch swipes and speaker-view arrows follow the same item sequence. P opens a separate speaker view synchronized to the current slide and item.
+Use Right/Left to move through items, Page Down/Page Up to change slides, and P for the synchronized speaker view.
 
-Do not read all visible dialogue verbatim. Give the scene its premise, let the next line appear, then land the request. The photos are editorial scene illustrations; competitor captures are official websites; the Sparkie comparison shows the actual local voice workspace. Illustrative dialogue and artifact structures are not real-session evidence.
+## 01 — A teammate with the meeting context.
 
-## Run of show
+We want an agent that is already part of the meeting. It follows the discussion, understands what a request refers to, and can handle work while the team keeps talking. Sparkie is our prototype of that teammate.
 
-| Slide | Moment | Items | Time | Cumulative |
-| --- | --- | --- | --- | --- |
-| 1 | Meet your fourth teammate. | 1 | 20s | 0:20 |
-| 2 | Can someone take this forward? | 1 | 20s | 0:40 |
-| 3 | We close the handoff gap. | 4 | 60s | 1:40 |
-| 4 | Imagine the room. | 6 | 45s | 2:25 |
-| 5 | Watch the work happen. | 1 | 60s | 3:25 |
-| 6 | Two rhythms. One teammate. | 4 | 35s | 4:00 |
-| 7 | Read the room. | 3 | 25s | 4:25 |
-| 8 | Inside the loop. | 4 | 45s | 5:10 |
-| 9 | From request to review. | 3 | 45s | 5:55 |
-| 10 | Leave with work in hand. | 1 | 15s | 6:10 |
+**On stage:** Open with the goal. The photo is an editorial illustration, not a Sparkie session.
 
-## Demo preparation
+## 02 — Keep the context. Start the work.
 
-The supplied YouTube demo (https://youtu.be/-kOeUK9_kIs) is configured in media-config.js. Click Play to load it. Its cover is a real local voice workspace capture, not a frame from that video. The adjacent About Sparkie report is from a separate local voice session; click it to read the full capture. A local recording or a matching video still can also be configured. The longer session follows the [continuous three-person rehearsal script](demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
+In a meeting, the useful context is spread across the conversation: the options we considered, the constraints, and what we decided. A separate chat makes someone explain it all again. We want to ask for a comparison, a file, or an edit right there in the discussion. The agent should participate when invited and work in the background while people continue. That is what we mean by a meeting agent with shared context.
 
-- Rehearse the same Zoom session and workspace. Keep the actual Tasks panel visible during role discussion. Status and tool-action text are event-driven; do not add a fictional percentage, ETA, or streaming document preview.
-- Ask the worker to save demo-outline.md **and return the complete Markdown body**. Ask for the full body again after the role update. The live artifact contains the task result; a file path or “saved” message does not display the document.
-- After a ready result, say “Sparkie, show us the outline.” After the follow-up completes, say “Sparkie, show us the updated outline.” Verify that the selected artifact is the intended result; presentation selects the latest ready artifact. If the embedded board already shows it, skip the redundant request. If voice presentation fails, use Present on the correct card and describe the fallback accurately.
-- Browser artifact presentation and sharing that browser window into Zoom are distinct steps. Rehearse the actual sharing path and confirm that another participant sees the intended content. Do not infer remote visibility from the local panel.
-- Select the key moments for the 60-second excerpt; this is a playback budget, not an end-to-end performance claim. Label shortened waits and retain the actual agent voice. The player shows the supplied recording in full; it does not automatically trim it to 60 seconds.
-- Begin with human greetings and an audio check. Admit Sparkie from the real Zoom waiting room before discussing the features. Do not attribute pre-admission speech to its context.
-- Discuss name-based response, interruption, prior context, participation when invited, and background file work before requesting the outline. Keep turns short. An optional interruption is only a demonstration when the original reply is still audible and actually yields.
-- The closing reveal and punchline are undecided. The rehearsal currently stops after checking the updated plan; do not give away a self-referential reveal in dialogue or ask the agent to invent the ending.
+**On stage:** Emphasize shared conversation and work during the meeting. This is the product goal, not unlimited memory: the current system only receives the session input available after it joins; tasks receive a snapshot at delegation.
 
-## 01 — Meet your fourth teammate. (20s)
+## 03 — Where Sparkie fits.
 
-Picture a teammate who joins the Zoom call and understands the discussion already in progress. Sparkie can answer aloud, take on a task in your project, and return with a result. Our question is simple: can the work start before everyone leaves the meeting?
+Granola focuses on meeting memory. We want a speaking participant as well. Vapi provides voice agents connected to tools; the shared-meeting behavior still needs to be built. ZoomMate already connects meeting context to workflows, so executing work is not unique to us. Our focus is the bridge from a shared meeting to an agent in our own project: its files, commands, and tools. The team keeps talking and can review the result together.
 
-**On stage:** Open on the photograph. It illustrates collaboration, not a real Sparkie session.
+**On stage:** Place this directly after motivation. Four comparisons: existing value, the specific bridge we built, then Sparkie. Do not claim competitors cannot execute work. Official sources are available in the source drawer.
 
-## 02 — Can someone take this forward? (20s)
+## 04 — What we built.
 
-The team has chosen a direction. Someone now has to reconstruct the discussion, compare the options, and make the actual file. That handoff is the moment we are trying to shorten: the intention is already shared, so why lose the context before the work begins?
+Here is the actual frontend. The workspace brings the conversation, task center and artifacts together. The transcript makes the request inspectable. The task panel shows status and backend tool activity while the voice remains available. When the worker finishes, the result opens as an artifact that we can read and refine. These screenshots come from a completed local voice session. Next, we will show the supplied Zoom demo video.
 
-**On stage:** Pause on the question; keep this short.
+**On stage:** Four views: workspace, transcript, tasks, artifact. Click a capture to enlarge it. The task screenshot shows completed work; it is not a live progress feed. These captures are separate from the Zoom recording.
 
-## 03 — We close the handoff gap. (60s)
+## 05 — Watch it in the meeting.
 
-Granola gives us meeting memory. What is missing from that notepad experience is a speaking teammate who can take the task right there in the call. Sparkie adds that participant. Vapi gives developers voice agents and tools. But the shared-meeting workflow still has to be built: who is speaking, when the agent should join in, and how the work reaches the project. Sparkie connects that loop. ZoomMate already turns meeting context into connected workflows. For our team, the last mile is our own CLI workspace: the repository, commands and files. Sparkie connects the meeting directly to that workbench. We close the handoff gap: the team keeps discussing, the agent does the work, and everyone can refine the result in the same room.
+Now watch the meeting experience. Follow the spoken request, the background work, and the result the team can inspect. The important connection is that the discussion and the work happen in the same session.
 
-**On stage:** Four beats, about 15 seconds each. For each competitor: what they deliver → the specific gap in this experience → what Sparkie adds. Land on the Sparkie result, not a list of caveats. The Zoom gap is the extra bridge to a project-local CLI workflow; do not broaden it into a claim that Zoom cannot execute tasks or integrate developer tools. Supporting scope and prototype limitations remain in research.md and Q&A.
+**On stage:** Play the supplied YouTube demo. The player uses the full recording; 60 seconds is a suggested talk allowance, not an automatic trim or a measured task duration. Let the actual clip establish what happened. The adjacent About Sparkie report comes from a separate local voice session.
 
-## 04 — Imagine the room. (45s)
+## 06 — From conversation to action.
 
-Here is a product review. One person favors guided onboarding, another a simpler checklist. Now the instruction to Sparkie has meaning: compare those options using the discussion as context. Change the room to a customer call. The customer moves reporting ahead of the dashboard. The follow-up should reflect that shift, without inventing a deadline. These are illustrative conversations. The point is that a useful request grows out of the shared discussion, rather than starting as a blank chat prompt.
+Zoom supplies separate human audio tracks. Deepgram gives us the words, and Realtime semantic turn detection estimates when the thought is complete. Gemini makes the participation decision. An accepted turn reaches the foreground Realtime voice agent, which can delegate work to a separate Devin or Codex worker. Results return through the task center. The difficult part is the decision in the middle: should the agent speak at all?
 
-**On stage:** Six beats: three dialogue turns in each of two scenes. Read only the key line from each beat. Names identify roles, not real people. Use the next slide for the supplied demo recording and a separate real local-session report.
+**On stage:** Four builds: input, routing, voice, worker. End on Gemini to introduce the dedicated next page. In this Zoom mode the foreground receives assembled text; separate Realtime sessions handle semantic audio completion.
 
-## 05 — Watch the work happen. (60s)
+## 07 — When should Sparkie speak?
 
-The team is preparing a demo video. They greet each other, admit Sparkie from the Zoom waiting room, then discuss what to demonstrate: responding when called, yielding to interruptions, using prior context, joining the discussion, and working on files while people talk. Sparkie drafts the outline while the team agrees roles. They inspect the artifact, confirm the division of work, and request the update. Watch the real task events and inspect the actual result.
+The hard part is deciding when to participate. A name match is not enough: people can talk about Sparkie without talking to it. The reverse also happens: “Which one would you choose?” can clearly be a follow-up without a name. We use Gemini as a dedicated, tool-free router. It sees the completed current utterance, the speaker identity, and up to eight recent human and assistant entries. It returns accept or reject. Accept lets the foreground voice respond to this turn. Reject keeps it quiet while listening continues. We reassess each turn; an earlier response is not permanent permission to talk. If the recipient is unclear, or routing fails, it stays quiet.
 
-**On stage:** Play the supplied YouTube demo. The adjacent About Sparkie report is from a separate local voice session; click it to inspect the full capture. For an edited excerpt, select real moments from the longer rehearsal: waiting-room admission, feature discussion, addressed response, task activity, artifact review, and updated roles. The 60-second slot is an edited excerpt, not an execution-time promise. Show an interruption only if it actually occurs while the agent is speaking and succeeds. Label shortened waits and manual fallbacks. The final reveal is undecided; do not introduce it during the discussion or the clip setup.
+**On stage:** This is the central technical page. Click Mention, Follow-up, and Ambiguous. Examples illustrate the implemented policy; they are not new live classifier measurements. Gemini decides participation, not speech endpoints or playback interruption. Confirmed human speech has a separate priority path that stops playback. The eight-entry router window is distinct from meeting context and task snapshots.
 
-## 06 — Two rhythms. One teammate. (35s)
+## 08 — Keep talking while work continues.
 
-An acknowledgement belongs to the voice loop. Execution belongs to a separate worker. It starts with the finalized transcript available at delegation while the team keeps talking. Actual task events can show whether it is queued, running, or done, and which tool action is underway. Human interruption yields the voice without automatically cancelling the task. The completed result can be reported aloud and inspected as an artifact. Later decisions need an explicit follow-up.
+The voice loop and the task worker run separately. The worker starts with the transcript snapshot available when the task is delegated. People can keep discussing and interrupt the voice without automatically cancelling that task. The result returns for review when ready. If the discussion changes the requirements, an explicit update carries that change into the work.
 
-**On stage:** Four beats: delegate, work while talking, human interruption, result. Slide routes and the illustrated progress bar are conceptual, not live telemetry or measured timing. Real Tasks activity is shown in the recording: status and tool actions, without a completion percentage or time estimate. Task cancellation is explicit.
+**On stage:** Four beats: delegate, background work, voice interruption, result. The diagram explains control flow; its progress bar is not live telemetry or a latency measurement.
 
-## 07 — Read the room. (25s)
+## 09 — What still needs work.
 
-The same assistant needs judgment about participation. Mentioning Sparkie in discussion is not always an invitation. A pause inside a request should not throw away the rest of the thought. And when a person corrects the request, the voice should yield. We handle these as different signals in the same conversation, rather than one mute switch.
+This is still a prototype. Setup is not one click: it needs the Zoom SDK, provider credentials, CLI login, and platform permissions. Our primary path is macOS Zoom with English speech. Wake decisions, turn boundaries and acoustic echo can still be wrong; latency varies across providers and tasks. Recovery after input failures is limited. And later decisions do not silently update a running task: we need an explicit follow-up.
 
-**On stage:** Three beats: indirect mention, complete request with a pause, explicit correction. This is a scripted illustration, not a model benchmark. If asked: medium semantic VAD; a 350ms unconfirmed interruption candidate can resume buffered audio. Confirmed speech cancels the reply.
+**On stage:** Be concrete about what is missing. No latency numbers without measurements. The agent processes meeting audio; it does not inspect participants’ screens or video.
 
-## 08 — Inside the loop. (45s)
+## 10 — Make it easier to invite.
 
-Separate human tracks enter from Zoom. Two parallel adapters supply the words and semantic turn completion. After those agree on a complete turn, Gemini checks whether it addresses Sparkie. Realtime handles the voice. Fast speech confirmation also has a priority path to stop playback. When a task is delegated, a transcript snapshot reaches the Devin worker with project tools. Its result returns through the task center to the voice. The bot’s own SDK track is excluded, although physical speaker echo can still reenter a human microphone.
+Next, we want to package setup so inviting Sparkie is much easier, improve recovery and measure the participation decisions, and make task updates easier to follow. The goal stays the same: a teammate with the meeting context, ready to help while the conversation is still happening.
 
-**On stage:** Four builds: input split, complete-turn routing, voice and interruption path, asynchronous worker return. Current worker is SWE 1.6 Fast; Codex is selectable. The foreground consumes assembled text in this mode; separate Realtime sessions perform semantic audio completion.
+**On stage:** These are directions, not completed features or promised dates. Close on the product goal, then take questions.
 
-## 09 — From request to review. (45s)
+## Implementation references
 
-Here is what a useful handoff looks like at the artifact level. The demo plan asks for an outline, keeps real task activity visible while roles are discussed, then shows the result and adds the confirmed roles to the same document. Review the latest artifact against the saved file; a Done badge alone is not enough. For engineering, trace an audio queue failure, fix the boundary, and verify a regression. For a customer follow-up, preserve the priorities and leave unagreed dates open. The latter two are worked scenarios; the demo recording must supply the real-session evidence.
+- Gemini routing policy and eight-entry context window: src/sparkie/wake_router.py.
+- Quiet on errors, superseded-turn handling and explicit local controls: src/sparkie/realtime.py.
+- Setup and current scope: README.md and docs/manual-setup.md.
+- Screenshot provenance: assets/CREDITS.md.
 
-**On stage:** Three beats: demo film, bug triage, customer follow-up. Keep the illustrative or expected labels on these panels. The latest follow-up result can be a new artifact even though it updates the same file. Only the supplied real recording demonstrates which presentation and execution steps actually succeeded.
-
-## 10 — Leave with work in hand. (15s)
-
-Sparkie brings the conversation and the work into the same room. Address it, delegate a concrete task, and refine the result together. That is the experience we want to build: useful progress before the call ends.
-
-**On stage:** End here. The visible links lead to the project homepage and repository, not backwards to another slide.
-
-## Timing variants
-
-For a shorter talk, keep all build steps but summarize the product comparison in 40 seconds, inspiration in 30, the system diagram in 30 and the playbooks in 30. This reduces the base to 5:05. For a seven-minute talk, add 20 seconds to the real demo and 25 seconds to discuss one practical case, reaching 6:55.
-
-## Questions to be ready for
-
-**Is the progress display real?** The Tasks panel uses actual status and backend tool events. It does not expose a completion percentage, an ETA, or a live document draft. The animated routes and progress illustration on slide 6 explain the architecture; they are not a recording of those events.
-
-**What does the artifact show?** The full returned task result, not a live view of an arbitrary project file. Ask for the complete body after creation and after edits, then verify the latest artifact against the saved file.
-
-**Does “show us” prove everyone in Zoom can see it?** No. It requests artifact presentation; remote visibility depends on the sharing path used in that session. Confirm it from another participant during rehearsal.
-
-**Is this unique?** No claim of exclusivity. Zoom and other products already execute work. Our specific focus is spoken collaboration with an agent directly in the project, from within a shared meeting.
-
-**How does it know a request is complete?** Deepgram words and separate per-participant Realtime semantic completion are aligned before Gemini wake routing. Current semantic VAD eagerness is medium.
-
-**What happens to the background job when I interrupt?** Voice interruption does not itself cancel the delegated task. Task cancellation is explicit. Unconfirmed noise candidates can resume buffered audio after the 350ms candidate window; confirmed speech cancels the current reply.
-
-**Does it automatically absorb later decisions?** The worker starts with the finalized transcript snapshot at delegation. Give an explicit update or follow-up to incorporate later decisions.
-
-**Does excluding the bot track solve echo?** It avoids feeding the bot’s own SDK track back in. Physical loudspeaker audio can still enter a human microphone.
-
-**Which examples were actually run?** The README documents the Zoom demo outline and follow-up workflow. The engineering and customer cases are worked scenarios, and their on-screen artifacts are illustrative or expected. Real media must show actual output.
-
-**Which models are configured?** GPT Realtime 2.1; Deepgram Nova-3; Gemini 3.5 Flash Minimal through tool-free Devin ACP; Devin SWE 1.6 Fast, with Codex selectable.
-
-See research.md for the full comparison, evidence and boundaries; assets/CREDITS.md for image sources.
+“Active” and “Quiet” describe the participation decision for the current turn, not permanent modes or a promise of unsolicited intervention. Quiet does not discard meeting context. Foreground session context, the router window and a worker’s task snapshot are distinct.

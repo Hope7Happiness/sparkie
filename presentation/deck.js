@@ -107,7 +107,7 @@
     const {slide, beat} = state;
     $$('.slide')[slide].dataset.beat = beat;
     $$('[data-slide][data-beat]').forEach((button) => {
-      const selected = Number(button.dataset.slide) === slide && (slide === 3 ? Math.floor(Number(button.dataset.beat) / 3) === Math.floor(beat / 3) : Number(button.dataset.beat) === beat);
+      const selected = Number(button.dataset.slide) === slide && Number(button.dataset.beat) === beat;
       button.setAttribute('aria-pressed', String(selected));
     });
     if (slide === 2) {
@@ -123,45 +123,36 @@
       setText('#product-strength', product.strength);
       setText('#product-tradeoff', product.tradeoff); setText('#product-focus', product.focus);
     } else if (slide === 3) {
-      const scene = story.inspiration[Math.floor(beat / 3)], turn = beat % 3;
-      setImage('#inspiration-image', scene.image); setText('#title-04', scene.title); setText('#inspiration-context', scene.scene);
-      const list = $('#inspiration-dialogue');
-      // Stable nodes make each newly revealed dialogue turn animate independently.
-      if (list.dataset.scene !== String(Math.floor(beat / 3))) {
-        list.replaceChildren(); list.dataset.scene = Math.floor(beat / 3);
-        scene.lines.forEach((line, i) => {
-          const row = document.createElement('div'); row.className = 'dialogue-line';
-          const role = document.createElement('span'); role.textContent = scene.roles[i];
-          const quote = document.createElement('p'); quote.textContent = line; row.append(role, quote); list.append(row);
-        });
-      }
-      [...list.children].forEach((row, i) => { row.classList.toggle('is-revealed', i <= turn); row.setAttribute('aria-hidden', String(i > turn)); });
-      setText('#inspiration-result', scene.result); $('#inspiration-result').classList.toggle('is-revealed', turn === 2);
-      $('#inspiration-result').setAttribute('aria-hidden', String(turn !== 2));
+      const capture = story.product[beat];
+      setImage('#product-capture-image', capture.image);
+      $('#product-capture-image').alt = capture.alt;
+      setText('#product-capture-title', capture.title);
+      setText('#product-capture-detail', capture.detail);
     } else if (slide === 5) {
-      const step = story.rhythm[beat]; setText('#rhythm-title', step.title); setText('#rhythm-detail', step.detail);
-      setText('#flow-voice', step.voice); setText('#flow-worker', step.worker);
+      setText('#architecture-title', story.architecture[beat].title);
+      setText('#architecture-detail', story.architecture[beat].detail);
     } else if (slide === 6) {
-      const step = story.conversation[beat]; setText('#conversation-role', step.role); setText('#conversation-line', step.line);
-      setText('#conversation-response', step.response); setText('#conversation-detail', step.detail);
+      const example = story.routing[beat];
+      setText('#routing-context', example.context);
+      setText('#routing-utterance', example.utterance);
+      setText('#routing-decision', example.label);
+      setText('#routing-reason', example.reason);
+      $('.routing-slide').dataset.decision = example.decision;
     } else if (slide === 7) {
-      setText('#architecture-title', story.architecture[beat].title); setText('#architecture-detail', story.architecture[beat].detail);
-    } else if (slide === 8) {
-      const item = story.cases[beat]; setText('#case-status', item.status); setText('#case-context', item.context);
-      setText('#case-request', item.request); setText('#case-review', item.review); setText('#case-filename', item.filename);
-      setText('#case-artifact-label', item.artifactLabel); $('#case-evidence').href = item.evidence;
-      $('#case-lines').replaceChildren(...item.lines.map((text) => { const p = document.createElement('p'); p.textContent = text; return p; }));
+      const step = story.rhythm[beat];
+      setText('#rhythm-title', step.title); setText('#rhythm-detail', step.detail);
+      setText('#flow-voice', step.voice); setText('#flow-worker', step.worker);
     }
   }
   function animateBeat(previousBeat) {
     if (reduced.matches || preview) return;
-    const targets = {2:'.comparison-copy',3:'.dialogue-line.is-revealed:last-child',5:'#slide-06 .build-caption',6:'.conversation-panel blockquote',7:'#slide-08 .build-caption',8:'.case-brief, .case-artifact'};
+    const targets = {2:'.comparison-copy',3:'.product-demo-copy',5:'#slide-06 .build-caption',6:'.routing-example blockquote',7:'#slide-08 .build-caption'};
     if (targets[state.slide]) $$(targets[state.slide]).forEach((node, i) => {
       node.getAnimations().forEach((animation) => animation.cancel());
       node.animate([{opacity:.15,transform:'translateY(20px) rotateX(6deg)'},{opacity:1,transform:'translateY(0) rotateX(0)'}],{duration:650,delay:i*65,easing:'cubic-bezier(.18,.8,.18,1)'});
     });
-    if (state.slide === 2 || (state.slide === 3 && Math.floor(previousBeat / 3) !== Math.floor(state.beat / 3))) {
-      const photo = state.slide === 2 ? $('#product-image') : $('#inspiration-image');
+    if (state.slide === 2) {
+      const photo = $('#product-image');
       photo.getAnimations().forEach((animation) => animation.cancel());
       photo.animate([{clipPath:'inset(0 100% 0 0)',transform:'scale(1.08)'},{clipPath:'inset(0)',transform:'scale(1)'}],{duration:850,easing:'cubic-bezier(.18,.8,.18,1)'});
     }
@@ -248,6 +239,13 @@
       if (key === 'artifactImage') setText('#artifact-label', media.artifactLabel || 'Project artifact');
       img.src = media[key]; img.alt = media[key + 'Alt'] || (key === 'meetingImage' ? 'Configured recording preview.' : 'Generated project artifact.');
     });
+    $('#product-preview').onclick = () => {
+      $('#artifact-full-image').src = $('#product-capture-image').src;
+      $('#artifact-full-image').alt = $('#product-capture-image').alt;
+      setText('#artifact-preview-title', story.product[state.beat].label);
+      setText('#artifact-preview-caption', 'Actual local voice session · separate from the Zoom recording');
+      $('#artifact-preview').showModal();
+    };
     $('#open-artifact').onclick = () => {
       demoPlayer.pause();
       $('#artifact-full-image').src = $('#artifact-image').src;
@@ -268,7 +266,7 @@
     }, {passive:true});
     renderSlide(false);
     // Local preloading keeps image changes from exposing an empty plane mid-transition.
-    [...new Set(story.market.flatMap((p) => [p.image,p.fallback,p.icon]).concat(story.inspiration.map((p) => p.image)))].forEach((src) => { const image = new Image(); image.src = src; });
+    [...new Set(story.market.flatMap((p) => [p.image,p.fallback,p.icon]).concat(story.product.map((p) => p.image)))].forEach((src) => { const image = new Image(); image.src = src; });
   }
   document.addEventListener('keydown', (event) => {
     if (preview || event.ctrlKey || event.metaKey || event.altKey || $('dialog[open]')) return;
