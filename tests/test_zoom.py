@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from sparkie.zoom_config import meeting_config, private_write, sdk_path, selected_platform
-from sparkie.primitive import doctor
+from sparkie.cli import doctor
 from sparkie import zoom_macos
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -132,11 +132,11 @@ class MacLifecycleTests(unittest.TestCase):
                     zoom_macos.check(root)
 
     def test_macos_doctor_does_not_require_docker(self):
-        env = dict(ENV, DEEPGRAM_API_KEY='test', DEEPGRAM_TTS_MODEL='test', ZOOM_PLATFORM='macos')
-        with patch.dict(os.environ, env, clear=True), patch('sparkie.primitive.sdk_present', return_value=True), \
-             patch('sparkie.primitive.platform.system', return_value='Darwin'), \
-             patch('sparkie.primitive.shutil.which', return_value='/test'), \
-             patch('sparkie.primitive.subprocess.run', return_value=subprocess.CompletedProcess([], 0)) as run, \
+        env = dict(ENV, DEEPGRAM_API_KEY='test', OPENAI_API_KEY='test', ZOOM_PLATFORM='macos')
+        with patch.dict(os.environ, env, clear=True), patch('sparkie.cli.sdk_present', return_value=True), \
+             patch('sparkie.cli.platform.system', return_value='Darwin'), \
+             patch('sparkie.cli.shutil.which', return_value='/test'), \
+             patch('sparkie.cli.subprocess.run', return_value=subprocess.CompletedProcess([], 0)) as run, \
              redirect_stdout(io.StringIO()) as output:
             self.assertEqual(doctor(), 0)
             self.assertNotIn('DOCKER', output.getvalue())

@@ -228,3 +228,16 @@ class LocalAudioMeeting:
     @property
     def timing_reliable(self):
         return self.input_overflows == 0 and self.output_underflows == 0
+
+
+def device_id(value):
+    if value is None or value == "":
+        return None
+    return int(value) if str(value).isdigit() else value
+
+
+def list_devices():
+    import sounddevice as sd
+    print(sd.query_devices())
+    print("Use --input-device / --output-device with an index or a unique name.")
+    return 0

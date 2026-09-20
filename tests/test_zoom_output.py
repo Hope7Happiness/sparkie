@@ -83,7 +83,7 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         # 211322 live failure: unrelated sentence + full stop + hellosparkie。
         # Preserve only the observed wake spelling/boundary, not meeting content.
         await self.agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'human'})
-        await self.transcript('讨论结束。hellosparkie。', ident='live-equivalent')
+        await self.transcript('Discussion ended。hellosparkie。', ident='live-equivalent')
         self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
         request = next(m['item']['content'][0]['text'] for m in self.sent
                        if m['type'] == 'conversation.item.create' and m['item']['role'] == 'user')
@@ -101,14 +101,14 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
                             and v['sentence_index'] == 1 for k, v in self.events))
 
     async def test_sentence_wake_is_exact_and_diagnostics_do_not_copy_text(self):
-        for text in ('能听到我吗？', '我们在讨论hellosparkie。', '讨论，Sparkie很好',
-                     'hellosparkieish', '斯帕奇你好', 'private-secret。ordinary discussion'):
+        for text in ('Can you hear me？', 'We are discussing hellosparkie。', 'Discussion, Sparkie is useful',
+                     'hellosparkieish', 'Hello, unrelated name', 'private-secret。ordinary discussion'):
             self.assertEqual(self.policy.decision(text), 'ignore')
-        for text in ('HelloSparkie。', '讨论结束。 Hello Sparkie，回答问题。',
-                     'Finished. HEY SPARKY，回答问题', 'Hi, it is Sparky'):
+        for text in ('HelloSparkie。', 'Discussion ended。 Hello Sparkie，answer the question。',
+                     'Finished. HEY SPARKY，answer the question', 'Hi, it is Sparky'):
             self.assertEqual(self.policy.decision(text), 'wake')
-        self.assertEqual(self.policy.decision('讨论结束。hellosparkie，stop'), 'mute')
-        self.assertEqual(self.policy.decision('Sparkie，回答。Sparkie，stop'), 'mute')
+        self.assertEqual(self.policy.decision('Discussion ended。hellosparkie，stop'), 'mute')
+        self.assertEqual(self.policy.decision('Sparkie，answer。Sparkie，stop'), 'mute')
         await self.transcript('private-secret unrelated discussion')
         self.assertTrue(any(k == 'zoom_response_not_requested' and v['reason'] == 'wake_rejected'
                             for k, v in self.events))
@@ -116,8 +116,8 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(m['type'] == 'response.create' for m in self.sent))
 
     async def test_grouped_wake_duplicate_and_late_commit_do_not_request_twice(self):
-        await self.transcript('讨论结束。hellosparkie。', ident='same')
-        await self.transcript('讨论结束。hellosparkie。', ident='same')
+        await self.transcript('Discussion ended。hellosparkie。', ident='same')
+        await self.transcript('Discussion ended。hellosparkie。', ident='same')
         await self.agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'late'})
         self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
         self.assertEqual(sum(k == 'zoom_wake_decision' for k, _ in self.events), 1)
@@ -240,9 +240,9 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('new', self.agent.cancelled)
 
     async def test_wake_rules_external_controls_restart_and_browser_scope(self):
-        for text in ('Hey Sparkie, hello', 'Hi Sparky', 'Sparkie解释一下'):
+        for text in ('Hey Sparkie, hello', 'Hi Sparky', 'Sparkie explain this'):
             self.assertEqual(self.policy.decision(text), 'wake')
-        for text in ('Sparkie, stop', '不用了', 'never mind'):
+        for text in ('Sparkie, stop', 'never mind', 'never mind'):
             self.assertEqual(self.policy.decision(text), 'mute')
         self.assertEqual(self.policy.decision('We discussed Sparkie yesterday'), 'ignore')
         await self.agent.control({'action': 'human_turn', 'source': 'human', 'turn_id': 'external', 'phase': 'start'})

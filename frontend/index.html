@@ -1,19 +1,19 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sparkie</title></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sparkie</title></head>
 <body><main class="lab">
-<header><a class="brand" href="/" aria-label="Sparkie 首页"><span>✳</span> sparkie</a><span id="state" role="status">准备就绪</span></header>
-<section class="hero"><p class="eyebrow">LET’S THINK TOGETHER</p><h1>聊着，把事情做了。</h1><p>随时开口，复杂的事交给我。</p></section>
-<section class="session"><form id="setup"><div class="voice-stage"><div class="voice-orb" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/></svg></div><div class="meter" aria-label="麦克风电平"><div id="level"></div></div><p id="notice" role="status">准备好就开口</p><div class="actions"><button id="start" type="submit">开始对话</button><button id="stop" type="button" class="secondary" hidden>结束对话</button><button id="mute" type="button" class="secondary" aria-pressed="false" hidden>静音</button><button id="recover" type="button" class="secondary" hidden>恢复麦克风</button><button id="interrupt" type="button" class="quiet" hidden>打断</button></div></div>
-<details class="settings-drawer"><summary>设置</summary><p><a href="/multitrack.html">双人讨论测试</a></p><div class="settings">
-<label>转写语言<select name="language"><option value="en-US">English (US)</option><option value="zh-CN">中文</option></select></label>
-<label>麦克风<select name="inputDevice"><option value="">系统默认</option></select></label>
-<label>时长<select name="seconds"><option value="0">手动结束</option><option value="300">5 分钟</option><option value="120">2 分钟</option><option value="30">30 秒</option></select></label>
-</div><button id="devices" type="button" class="quiet">刷新设备</button><p class="privacy">音频由 OpenAI、Deepgram 处理；转写和任务结果保存在本机。</p></details></form><p id="error" role="alert"></p></section>
+<header><a class="brand" href="/" aria-label="Sparkie Home"><span>✳</span> sparkie</a><span id="state" role="status">Ready</span></header>
+<section class="hero"><p class="eyebrow">LET’S THINK TOGETHER</p><h1>Turn conversation into completed work.</h1><p>Speak naturally. Sparkie handles the follow-through.</p></section>
+<section class="session"><form id="setup"><div class="voice-stage"><div class="voice-orb" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/></svg></div><div class="meter" aria-label="Microphone level"><div id="level"></div></div><p id="notice" role="status">Start whenever you are ready</p><div class="actions"><button id="start" type="submit">Start conversation</button><button id="stop" type="button" class="secondary" hidden>End conversation</button><button id="mute" type="button" class="secondary" aria-pressed="false" hidden>Mute</button><button id="recover" type="button" class="secondary" hidden>Recover microphone</button><button id="interrupt" type="button" class="quiet" hidden>interrupt</button></div></div>
+<details class="settings-drawer"><summary>Settings</summary><p><a href="/multitrack.html">Two-speaker test</a></p><div class="settings">
+<label>Transcription language<select name="language"><option value="en-US">English (US)</option><option value="zh-CN">Chinese</option></select></label>
+<label>Microphone<select name="inputDevice"><option value="">System default</option></select></label>
+<label>Duration<select name="seconds"><option value="0">Manual stop</option><option value="300">5 minutes</option><option value="120">2 minutes</option><option value="30">30 seconds</option></select></label>
+</div><button id="devices" type="button" class="quiet">Refresh devices</button><p class="privacy">Audio is processed by OpenAI and Deepgram. Transcripts and task results are stored locally.</p></details></form><p id="error" role="alert"></p></section>
 <section class="artifact-board" aria-labelledby="artifact-heading">
-<div class="section-title"><h2 id="artifact-heading">Artifacts · 任务成果</h2><a id="artifact-open" class="quiet" target="_blank" rel="noopener" hidden>独立打开</a></div>
-<p id="artifact-notice" role="status">开始对话后，可以让 Sparkie 在这里展示任务成果。</p>
-<iframe id="artifact-board" title="本轮语音对话的任务成果" hidden></iframe>
+<div class="section-title"><h2 id="artifact-heading">Artifacts · Task output</h2><a id="artifact-open" class="quiet" target="_blank" rel="noopener" hidden>Open separately</a></div>
+<p id="artifact-notice" role="status">Start a conversation and ask Sparkie to present task results here.</p>
+<iframe id="artifact-board" title="Artifacts from this voice session" hidden></iframe>
 </section>
-<div class="columns"><section class="panel"><div class="section-title"><h2>对话</h2><button id="export" class="quiet">导出</button></div><div id="conversation" class="feed"><p class="empty">从一句话开始。</p></div></section>
-<section class="panel"><div class="section-title"><h2>后台任务</h2><span id="task-count">0</span></div><div id="tasks"><p class="empty">需要深入思考的事，交给我。</p></div></section></div>
+<div class="columns"><section class="panel"><div class="section-title"><h2>Conversation</h2><button id="export" class="quiet">Export</button></div><div id="conversation" class="feed"><p class="empty">Start with a question or an idea.</p></div></section>
+<section class="panel"><div class="section-title"><h2>Background tasks</h2><span id="task-count">0</span></div><div id="tasks"><p class="empty">Delegate research, documents, and other work here.</p></div></section></div>
 </main><script type="module" src="/src/realtime.js"></script></body></html>

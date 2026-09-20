@@ -51,20 +51,20 @@ def main():
     if args.command == "init":
         try:
             private_write(CONFIG, (ROOT / "config/zoom.example.json").read_text(), True)
-            print("已创建 config/zoom.local.json（仅当前用户可读写）。")
+            print("Created config/zoom.local.json (readable and writable only by the current user).")
         except FileExistsError:
-            print("本地配置已存在，未覆盖。")
+            print("Local configuration already exists; it was not overwritten.")
         return 0
     try:
         config = json.loads(CONFIG.read_text())
     except FileNotFoundError:
-        print("请先运行 python3 scripts/zoom_config.py init。", file=sys.stderr)
+        print("Run python3 scripts/zoom_config.py init first.", file=sys.stderr)
         return 1
     except (ValueError, OSError):
-        print("无法读取本地配置；请检查 JSON 格式和文件权限。", file=sys.stderr)
+        print("Cannot read local configuration. Check JSON syntax and file permissions.", file=sys.stderr)
         return 1
     if not isinstance(config, dict):
-        print("配置必须为 JSON 对象。", file=sys.stderr)
+        print("Configuration must be a JSON object.", file=sys.stderr)
         return 1
     required = ["client_id", "client_secret"]
     if args.command == "check":
@@ -72,22 +72,22 @@ def main():
     missing = [key for key in required
                if not isinstance(config.get(key), str) or not config[key].strip()]
     if missing:
-        print("缺少配置项：" + ", ".join(missing), file=sys.stderr)
+        print("Missing configuration fields: " + ", ".join(missing), file=sys.stderr)
         return 1
     if args.command == "check":
         number = config["meeting_number"]
         if not number.isascii() or not number.isdigit() or len(number) not in (10, 11):
-            print("meeting_number 需为 10–11 位数字字符串，不含空格或链接。", file=sys.stderr)
+            print("meeting_number must be a string of 10–11 digits, without spaces or a URL.", file=sys.stderr)
             return 1
         if not isinstance(config.get("meeting_password"), str):
-            print("meeting_password 需为字符串；无密码时填写空字符串。", file=sys.stderr)
+            print("meeting_password must be a string; use an empty string if no password is required.", file=sys.stderr)
             return 1
-        print("本地字段检查通过；尚未向 Zoom 验证凭据，也未验证入会能力。")
+        print("Local fields are valid. Credentials and meeting access have not been verified with Zoom.")
         return 0
     TOKEN.parent.mkdir(mode=0o700, exist_ok=True)
     private_write(TOKEN, make_jwt(config["client_id"], config["client_secret"], time.time()) + "\n")
-    print("SDK JWT 已写入 .runtime/zoom-sdk.jwt，约 2 小时有效（未输出 token）。")
-    print("这只完成本地签名；需原生 SDK 的认证成功回调验证 Zoom 是否接受。")
+    print("SDK JWT saved to .runtime/zoom-sdk.jwt; valid for about two hours. Token not printed.")
+    print("Local signing only. The native SDK authentication callback must confirm acceptance by Zoom.")
     return 0
 
 

@@ -1,9 +1,0 @@
-{"meeting_id":"sim-001","event_id":"1","timestamp_ms":0,"text":"我们在讨论 Sparkie 的 demo。"}
-{"meeting_id":"sim-001","event_id":"2","timestamp_ms":1000,"text":"Sparkie","is_final":false}
-{"meeting_id":"sim-001","event_id":"2","timestamp_ms":1000,"text":"Sparkie，你在吗？"}
-{"meeting_id":"sim-001","event_id":"2","timestamp_ms":1000,"text":"Sparkie，你在吗？"}
-{"meeting_id":"sim-001","event_id":"3","timestamp_ms":1500,"text":"我们继续讨论，不需要等它。"}
-{"meeting_id":"sim-001","event_id":"4","timestamp_ms":2000,"text":"Sparkie，我在。","source":"bot"}
-{"meeting_id":"sim-001","event_id":"5","timestamp_ms":2500,"text":"下一步演示会议纪要。"}
-{"meeting_id":"sim-001","event_id":"6","timestamp_ms":3000,"text":"Sparkie"}
-{"meeting_id":"sim-001","event_id":"7","timestamp_ms":3500,"text":"Sparkie，不用了。"}

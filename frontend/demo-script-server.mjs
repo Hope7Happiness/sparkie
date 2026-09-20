@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 
-const pagePath = fileURLToPath(new URL('./public/demo-script.html', import.meta.url));
+const pagePath = fileURLToPath(new URL('../presentation/demo-script.html', import.meta.url));
 const clientPath = fileURLToPath(new URL('./demo-script-sync.js', import.meta.url));
 const json = value => JSON.stringify(value).replace(/</g, '\\u003c');
 
@@ -65,11 +65,11 @@ export function createScriptServer({ stateFile, seed = {} }) {
     socket.on('error', () => {});
     socket.on('message', raw => {
       let message;
-      try { message = JSON.parse(raw); } catch { send(socket, { type: 'error', message: '无效请求' }); return; }
+      try { message = JSON.parse(raw); } catch { send(socket, { type: 'error', message: 'Invalid request' }); return; }
       if (!message || message.type !== 'edit' || !Object.hasOwn(defaults, message.key) ||
           typeof message.value !== 'string' || message.value.length > 20000 ||
           !Number.isSafeInteger(message.baseRevision) || typeof message.id !== 'string' || message.id.length > 100) {
-        send(socket, { type: 'error', message: '无法保存：请求无效或台词超过 20,000 字。' }); return;
+        send(socket, { type: 'error', message: 'Cannot save: invalid request or script text exceeds 20,000 characters.' }); return;
       }
       const current = state.fields[message.key];
       if (message.baseRevision !== current.revision && message.value !== current.value) {
@@ -78,7 +78,7 @@ export function createScriptServer({ stateFile, seed = {} }) {
       const field = { value: message.value, revision: state.revision + 1 };
       const next = { ...state, revision: field.revision, fields: { ...state.fields, [message.key]: field } };
       try { persist(next); } catch {
-        send(socket, { type: 'error', message: '保存失败，请保留本页并下载备份。' }); return;
+        send(socket, { type: 'error', message: 'Save failed. Keep this page open and download a backup.' }); return;
       }
       state = next;
       broadcast({ type: 'update', key: message.key, field, id: message.id });

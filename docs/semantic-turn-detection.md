@@ -4,7 +4,7 @@ Zoom per-participant Realtime sessions now default to
 SPARKIE_TURN_DETECTION=semantic_vad. The local main environment is configured for
 this mode. Run from the main workspace:
 
-    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 180 --response-mode realtime
+    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 180
 
 Each active human participant has a separate Deepgram connection and a separate
 Realtime detector using the foreground model (currently gpt-realtime-2.1).
@@ -55,7 +55,7 @@ The current medium setting replaces low after user feedback that completion felt
 slow, especially after longer speech. The user tested medium, reported that it
 worked very well, and approved committing it. This is qualitative user acceptance;
 no measured medium latency or detailed per-scenario results were supplied. All
-297 Python tests and the primitive/demo simulations passed with medium. The live
+The regression suite passed with medium. The live
 API measurements below were collected with low and are retained as historical evidence.
 
 On 2026-09-20, the production adapter was exercised through real Deepgram and
@@ -79,8 +79,7 @@ No Zoom meeting was joined for this synthetic API test.
 Offline tests cover short-pause aggregation, late finals, interim revisions,
 cross-boundary words, same-speaker overlap, provider failure, timeout, shutdown,
 self-track exclusion, sparse callbacks, and one complete Gemini decision/reply.
-All 297 Python tests passed, as did scripts/primitive.sh and scripts/demo.sh
-(offline simulations; neither establishes Zoom capability).
+The Python regression suite covers these contracts without establishing real Zoom capability.
 
 Suggested Zoom check: pause briefly after "Hey Sparkie, could you", then finish
 the request. The wake log should contain one semantic decision for the complete

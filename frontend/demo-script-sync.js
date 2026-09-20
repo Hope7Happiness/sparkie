@@ -2,7 +2,7 @@
 (() => {
   const status = document.querySelector('#edit-status');
   const help = document.querySelector('.edit-help');
-  help.firstChild.textContent = '共享讲稿：点击台词即可修改，其他人会实时看到。角色视图与计时器各自独立。';
+  help.firstChild.textContent = 'Shared script: click a line to edit it for everyone. Role views and timers remain independent.';
   const conflicts = document.createElement('div');
   conflicts.className = 'edit-help';
   help.after(conflicts);
@@ -32,9 +32,9 @@
   }
   function paint() {
     const conflictEntries = [...pending].filter(([, item]) => item.conflict);
-    status.textContent = !ready ? ' 连接中；未同步修改会保留，恢复后继续。' : conflictEntries.length
-      ? ' 同一句有其他修改，请在下方选择保留哪一版。' : pending.size ? ' 正在同步…' : ' 已同步，所有人可见。';
-    if (!storageAvailable && pending.size) status.textContent += ' 浏览器无法保存草稿，请勿关闭本页；可下载备份。';
+    status.textContent = !ready ? ' Connecting; unsynced edits are preserved and will resume on reconnect.' : conflictEntries.length
+      ? ' This line has conflicting edits. Choose which version to keep below.' : pending.size ? ' Syncing…' : ' Synced and visible to everyone.';
+    if (!storageAvailable && pending.size) status.textContent += ' The browser cannot save drafts. Keep this page open or download a backup.';
     conflicts.replaceChildren();
     for (const [key, item] of conflictEntries) {
       const row = document.createElement('div');
@@ -42,10 +42,10 @@
       const label = document.createElement('p');
       const fieldElement = document.querySelector('[data-edit="' + key + '"]');
       const sceneTitle = fieldElement?.closest('.scene')?.querySelector('h2')?.textContent || '';
-      const turn = fieldElement?.closest('.line')?.querySelector('.turn')?.textContent || '备用 / 示例';
-      label.textContent = sceneTitle + ' · ' + turn + '\n你的版本：' + item.value + '\n共享版本：' + fields[key].value;
+      const turn = fieldElement?.closest('.line')?.querySelector('.turn')?.textContent || 'Fallback / Example';
+      label.textContent = sceneTitle + ' · ' + turn + '\nYour version: ' + item.value + '\nShared version: ' + fields[key].value;
       row.append(label);
-      for (const [title, mine] of [['采用共享版本', false], ['使用我的版本', true]]) {
+      for (const [title, mine] of [['Use shared version', false], ['Use my version', true]]) {
         const button = document.createElement('button');
         button.textContent = title;
         button.onclick = () => {

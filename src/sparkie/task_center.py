@@ -192,7 +192,7 @@ class TaskCenter:
         if running_update:
             self.updates[task_id].put_nowait((request, job['snapshot'], job['revision']))
             job.update(update_delivery='pending',
-                       progress='修改已排队，等待后台接收；已执行的操作不会撤销')
+                       progress='Update queued for the worker; completed actions are not rolled back')
         self._save(job)
         return self.status(task_id)
 

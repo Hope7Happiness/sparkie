@@ -1,4 +1,4 @@
-"""Audio boundary for replacing the simulated body with the Zoom native SDK."""
+"""Shared PCM and playback contracts for local, browser and Zoom transports."""
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
 

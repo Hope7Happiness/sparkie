@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -21,22 +21,3 @@ class SpeechActivity:
     timestamp_ms: int = 0
     speaker_id: str | None = None
     stream_id: str | None = None
-
-
-@dataclass
-class Task:
-    task_id: str
-    meeting_id: str
-    request: str
-    context: list[TranscriptEvent]
-    status: Literal["queued", "running", "completed", "failed"] = "queued"
-    result: str | None = None
-    error: str | None = None
-    sources: list[str] = field(default_factory=list)
-
-
-class MeetingAdapter(Protocol):
-    async def join(self, meeting_url: str) -> None: ...
-    async def speak(self, text: str) -> None: ...
-    async def stop_speaking(self) -> None: ...
-    async def leave(self) -> None: ...

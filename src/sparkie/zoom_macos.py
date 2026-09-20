@@ -77,7 +77,6 @@ def build(root):
     # Bundle localized permission descriptions; no user-facing web UI changes.
     for locale, text in {
         "en": '"NSMicrophoneUsageDescription" = "Connect to meeting audio. This probe joins muted.";\n"NSCameraUsageDescription" = "This receive-only probe keeps video off.";\n',
-        "zh-Hans": '"NSMicrophoneUsageDescription" = "连接会议音频；此探针以静音状态加入。";\n"NSCameraUsageDescription" = "此接收探针始终关闭视频。";\n',
     }.items():
         resource = contents / "Resources" / f"{locale}.lproj"
         resource.mkdir(parents=True)

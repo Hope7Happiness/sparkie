@@ -2,7 +2,7 @@
 import re
 
 ADDRESS = re.compile(r"^\s*(?:(?:hey|hi|hello)(?:\s*[,，.!?。！？]\s*|\s+))?spark(?:ie|y)(?=$|[\s,，:：.!?。！？]|[\u4e00-\u9fff])", re.I)
-CANCEL = re.compile(r"^(?:没事|不用了|取消|算了|never\s*mind|cancel|stop)\b|^(?:没事|不用了|取消|算了)", re.I)
+CANCEL = re.compile(r"^(?:never\s*mind|cancel|stop)\b", re.I)
 
 
 # A narrowly observed ASR rendering of the user's "hi Sparky" greeting.

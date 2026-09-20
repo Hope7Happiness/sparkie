@@ -438,9 +438,9 @@ class ZoomMacVoiceTests(unittest.IsolatedAsyncioTestCase):
         async def send(kind, data=b''):
             sent.append((kind, data))
         self.meeting.send_packet = send
-        await self.meeting.share_screen('http://127.0.0.1:8790/workspaces/ws_x/present')
+        await self.meeting.share_screen('http://127.0.0.1:5178/workspace.html?workspace_id=ws_x')
         await self.meeting.stop_share()
-        self.assertEqual(sent, [(b'V', b'http://127.0.0.1:8790/workspaces/ws_x/present'), (b'V', b'')])
+        self.assertEqual(sent, [(b'V', b'http://127.0.0.1:5178/workspace.html?workspace_id=ws_x'), (b'V', b'')])
         self.meeting.on_event = lambda kind, **kw: sent.append((kind, kw))
         self.assertTrue(self.meeting.handle_metadata(b'V', b'\x01'))
         self.assertTrue(self.meeting.handle_metadata(b'V', b'\x02'))

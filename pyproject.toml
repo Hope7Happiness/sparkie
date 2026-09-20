@@ -1,7 +1,7 @@
 [project]
 name = "sparkie"
 version = "0.1.0"
-description = "Zoom / Deepgram speech / OpenAI primitive meeting participant"
+description = "Realtime AI meeting assistant with Zoom, Deepgram and background task workers"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.28,<0.29",
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-sparkie = "sparkie.primitive:main"
+sparkie = "sparkie.cli:main"
 
 [build-system]
 requires = ["hatchling"]

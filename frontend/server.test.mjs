@@ -14,7 +14,7 @@ test('LAN addresses allow same-origin API and audio while unrelated origins and 
   }
   assert.equal(allowedRequest({ headers: { host: 'unrelated.example:5178', origin: 'http://unrelated.example:5178' } }, 5178), false);
 });
-const options = { language: 'en', echoMode: 'speaker', responseMode: 'qa', seconds: 60, inputDevice: '', outputDevice: 1 };
+const options = { language: 'en', echoMode: 'speaker', responseMode: 'realtime', seconds: 60, inputDevice: '', outputDevice: 1 };
 function harness() {
   let now = 1000;
   const child = new EventEmitter();
@@ -25,16 +25,16 @@ function harness() {
   return { controller, child, advance: ms => { now += ms; }, args: () => argumentsUsed };
 }
 test('reject unsafe device values and unbounded duration before spawning', () => {
-  for (const override of [{ seconds: 0 }, { seconds: 301 }, { inputDevice: '--help' }, { language: 'fake' }, { outputDevice: null }, { responseMode: 'shell' }]) {
+  for (const override of [{ seconds: 0 }, { seconds: 301 }, { inputDevice: '--help' }, { language: 'fake' }, { outputDevice: null }, { responseMode: 'shell' }, { responseMode: 'wake' }, { responseMode: 'qa' }]) {
     assert.throws(() => validateOptions({ ...options, ...override }));
   }
 });
 test('one microphone owner, live events and clean stop preserve results', () => {
   const { controller, child, args } = harness();
   controller.start(options);
-  assert.equal(args()[2].stdio[0], 'ignore');
-  assert.equal(args()[1][args()[1].indexOf('--response-mode') + 1], 'qa');
-  assert.throws(() => controller.start(options), /正在运行/);
+  assert.equal(args()[2].stdio[0], 'pipe');
+  assert.equal(args()[1][1], 'sparkie.realtime_session');
+  assert.throws(() => controller.start(options), /already running/);
   child.stdout.write('plain notice\n{"type":"listening_ready"}\n{"type":"audio_level","peak":0.4,"gated":true,"timing_reliable":false}\n{"type":"wake","event_id":"1"}\n');
   assert.equal(controller.state.status, 'listening');
   assert.equal(controller.state.level, .4);
@@ -68,14 +68,14 @@ test('forced-killed stop is failed, not a successful ended session', () => {
   controller.start(options); controller.stop(); child.emit('close', null, 'SIGKILL');
   assert.equal(controller.state.status, 'failed');
   assert.equal(controller.state.exitSignal, 'SIGKILL');
-  assert.match(controller.state.error, /强制停止/);
+  assert.match(controller.state.error, /forcibly stopped/);
 });
 test('stalled input triggers visible failure despite an active browser heartbeat', () => {
   const { controller, child, advance } = harness();
   controller.start(options);
   child.stdout.write('{"type":"listening_ready"}\n');
   advance(3100); controller.snapshot(); controller.expire();
-  assert.match(controller.state.warning, /停滞/);
+  assert.match(controller.state.warning, /stalled/);
   advance(3001); controller.snapshot(); controller.expire();
   assert.equal(controller.state.stopReason, 'audio-stalled');
   assert.deepEqual(child.signals, ['SIGTERM']);
@@ -102,7 +102,7 @@ test('audio failure is retained even if graceful stop exits zero', () => {
 test('a short input stall warning clears when samples resume', () => {
   const { controller, child, advance } = harness();
   controller.start(options); child.stdout.write('{"type":"listening_ready"}\n');
-  advance(3100); controller.expire(); assert.match(controller.state.warning,/停滞/);
+  advance(3100); controller.expire(); assert.match(controller.state.warning,/stalled/);
   child.stdout.write('{"type":"audio_level","peak":0.1,"gated":false,"timing_reliable":true}\n');
   assert.equal(controller.state.warning,undefined);
   child.emit('close',0);
@@ -139,7 +139,7 @@ test('browser input stalls preserve tasks and recover on incoming audio without 
   child.stdout.write('{"type":"listening_ready"}\n');
   advance(7000); controller.snapshot(); controller.expire();
   assert.equal(controller.state.audioStalled, true);
-  assert.match(controller.state.warning, /后台任务仍在继续/);
+  assert.match(controller.state.warning, /background tasks are still running/);
   assert.deepEqual(child.signals, []);
   controller.audioCommand({ action: 'audio_input', sequence: 0, pcm: 'AAA=' });
   assert.equal(controller.state.audioStalled, false);
@@ -182,7 +182,7 @@ test('repeated cancelled replies show a temporary hint without stopping the sess
   assert.equal(controller.state.voiceHint, undefined);
   advance(1000);
   emit({type:'realtime_response_done',status:'cancelled'});
-  assert.match(controller.state.voiceHint, /打断/);
+  assert.match(controller.state.voiceHint, /interrupt/);
   assert.equal(controller.state.status, 'listening');
   emit({type:'assistant_transcript',text:'Hello'});
   assert.equal(controller.state.voiceHint, undefined);

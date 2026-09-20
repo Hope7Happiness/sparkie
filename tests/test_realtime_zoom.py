@@ -369,8 +369,8 @@ class CLISelectionTests(unittest.TestCase):
             self.assertEqual(run.await_args.args[0].seconds, 3600)
 
     def test_zoom_defaults_to_realtime_not_legacy_tts(self):
-        from sparkie.primitive import main
-        with patch('sparkie.primitive.load_dotenv'), \
+        from sparkie.cli import main
+        with patch('sparkie.cli.load_dotenv'), \
              patch('sys.argv', ['sparkie', 'zoom']), \
              patch('sparkie.realtime_session.run', new=AsyncMock(return_value=0)) as run:
             with self.assertRaises(SystemExit) as result:
@@ -378,7 +378,6 @@ class CLISelectionTests(unittest.TestCase):
             self.assertEqual(result.exception.code, 0)
             args = run.await_args.args[0]
             self.assertEqual(args.transport, 'zoom')
-            self.assertEqual(args.response_mode, 'realtime')
 
 
 class SessionIntegrationTests(unittest.IsolatedAsyncioTestCase):

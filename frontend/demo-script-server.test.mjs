@@ -30,7 +30,7 @@ test('two clients share durable edits; stale same-field writes conflict; only sc
     for (const path of ['/', '/.env', '/api/status', '/workspace-api', '/s/wrong/', app.base + '../state.json']) {
       assert.equal((await fetch(app.origin + path)).status, 404);
     }
-    const key = 'opening.line.0.1', value = '</script><script>window.injected=true</script>\n中文';
+    const key = 'opening.line.0.1', value = '</script><script>window.injected=true</script>\nUnicode λ🙂';
     const ack = receive(a.socket), remote = receive(b.socket);
     a.socket.send(JSON.stringify({ type:'edit', id:'a1', key, value, baseRevision:0 }));
     assert.equal((await ack).field.value, value);

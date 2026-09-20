@@ -25,7 +25,7 @@ Do not read all visible dialogue verbatim. Give the scene its premise, let the n
 
 ## Demo preparation
 
-Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. The longer session follows the [continuous three-person rehearsal script](../frontend/public/demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
+Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. The longer session follows the [continuous three-person rehearsal script](demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
 
 - Rehearse the same Zoom session and workspace. Keep the actual Tasks panel visible during role discussion. Status and tool-action text are event-driven; do not add a fictional percentage, ETA, or streaming document preview.
 - Ask the worker to save demo-outline.md **and return the complete Markdown body**. Ask for the full body again after the role update. The live artifact contains the task result; a file path or “saved” message does not display the document.

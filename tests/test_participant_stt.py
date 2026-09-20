@@ -272,7 +272,7 @@ class MacPacketTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as root:
             meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
             meeting.reader = asyncio.StreamReader()
-            users = [{'user_id': 10, 'name': '张三', 'is_self': False},
+            users = [{'user_id': 10, 'name': 'Søren', 'is_self': False},
                      {'user_id': 99, 'name': 'Sparkie', 'is_self': True}]
             meeting.reader.feed_data(packet(b'J', json.dumps(users).encode()) + packet(b'R') +
                 packet(b'U', struct.pack('!IQ', 10, 1200) + b'\x01\0' * 320))
@@ -280,7 +280,7 @@ class MacPacketTests(unittest.IsolatedAsyncioTestCase):
             try:
                 received = await asyncio.wait_for(meeting.queue.get(), 2)
                 self.assertEqual((received.speaker_id, received.timestamp_ms), ('zoom:10', 1200))
-                self.assertEqual(meeting.speaker_name('zoom:10'), '张三')
+                self.assertEqual(meeting.speaker_name('zoom:10'), 'Søren')
                 self.assertTrue(meeting.is_self('zoom:99'))
                 self.assertTrue(meeting.audio_ready.is_set())
                 self.assertEqual(meeting.queue.qsize(), 0)

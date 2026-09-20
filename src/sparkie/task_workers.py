@@ -49,7 +49,7 @@ class CodexTaskWorker:
             process = await asyncio.create_subprocess_exec(*command, stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
                 env=child_env, start_new_session=True, limit=4 * 2**20)
-            progress(progress='正在启动任务执行器')
+            progress(progress='Starting the task worker')
             async def execute():
                 process.stdin.write((instructions + payload).encode())
                 await process.stdin.drain()
@@ -61,18 +61,18 @@ class CodexTaskWorker:
                         continue
                     kind = event.get('type')
                     if kind == 'turn.started':
-                        progress(progress='正在处理请求')
+                        progress(progress='Processing the request')
                     elif kind in ('item.started', 'item.completed'):
                         item = event.get('item', {})
-                        label = {'command_execution': '本机命令', 'file_change': '文件操作',
-                                 'mcp_tool_call': '外部工具', 'web_search': '网页检索'}.get(item.get('type'))
+                        label = {'command_execution': 'local command', 'file_change': 'file operation',
+                                 'mcp_tool_call': 'external tool', 'web_search': 'web search'}.get(item.get('type'))
                         if label:
-                            progress(progress=f'正在执行{label}' if kind == 'item.started'
-                                     else f'{label}已返回，正在检查结果',
+                            progress(progress=f'Running: {label}' if kind == 'item.started'
+                                     else f'{label} completed; checking the result',
                                      last_action=item.get('type'), last_action_status=item.get('status'))
                     elif kind == 'turn.completed':
                         usage = event.get('usage', {})
-                        progress(progress='正在保存结果', usage={k: usage[k] for k in
+                        progress(progress='Saving the result', usage={k: usage[k] for k in
                                  ('input_tokens', 'cached_input_tokens', 'output_tokens') if k in usage})
                 await process.wait()
             try:
