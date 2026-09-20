@@ -744,31 +744,31 @@ function serverBases(raw) {
            ws: `${secure ? 'wss' : 'ws'}://${host}` };
 }
 
-$('join').onsubmit = async event => {
-  event.preventDefault();
-  const form = new FormData(event.target);
-  const base = serverBases(form.get('server'));
-  const kind = 'zoom_uuid', external = form.get('external_id'),
-        title = form.get('title') || '';
+async function connectWorkspace(server, { workspaceId, external, title = '' } = {}) {
+  const base = serverBases(server);
   state.socket?.close();
   state.socket = null;
   clearWorkspaceUI();
   const version = state.viewVersion;
   try {
-    const response = await fetch(`${base.http}/api/meetings/resolve?` +
-      new URLSearchParams({ kind, external_id: external, title }));
-    if (!response.ok) throw new Error(`resolve ${response.status}`);
-    const workspace = await response.json();
+    if (!workspaceId) {
+      const response = await fetch(`${base.http}/api/meetings/resolve?` +
+        new URLSearchParams({ kind: 'zoom_uuid', external_id: external, title }));
+      if (!response.ok) throw new Error(`resolve ${response.status}`);
+      workspaceId = (await response.json()).workspace_id;
+    }
     if (version !== state.viewVersion) return;
     state.server = base.http;
-    state.workspaceId = workspace.workspace_id;
-    $('ws-id').textContent = workspace.workspace_id;
-    const snapshot = await (await fetch(`${base.http}/api/workspaces/${workspace.workspace_id}`)).json();
+    state.workspaceId = workspaceId;
+    $('ws-id').textContent = workspaceId;
+    const response = await fetch(`${base.http}/api/workspaces/${encodeURIComponent(workspaceId)}`);
+    if (!response.ok) throw new Error(`snapshot ${response.status}`);
+    const snapshot = await response.json();
     if (version !== state.viewVersion) return;
     loadSnapshot(snapshot);
-    const socket = new WebSocket(`${base.ws}/workspaces/${workspace.workspace_id}/events?generation=${state.generation}`);
+    const socket = new WebSocket(`${base.ws}/workspaces/${encodeURIComponent(workspaceId)}/events?generation=${state.generation}`);
     socket.onmessage = ({ data }) => { if (state.socket === socket) onEvent(JSON.parse(data)); };
-    socket.onopen = () => setState(`Connected · ${workspace.workspace_id}`);
+    socket.onopen = () => setState(`Connected · ${workspaceId}`);
     socket.onclose = () => { if (state.socket === socket) setState('Disconnected'); };
     socket.onerror = () => fail('Event stream connection failed — is sparkie workspace running?');
     state.socket = socket;
@@ -778,6 +778,14 @@ $('join').onsubmit = async event => {
     if (version !== state.viewVersion) return;
     fail(`Cannot reach backend: ${error.message}. Run sparkie workspace first`);
   }
+}
+
+$('join').onsubmit = async event => {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  await connectWorkspace(form.get('server'), {
+    external: form.get('external_id'), title: form.get('title') || '',
+  });
 };
 
 $('simulate').onsubmit = event => {
@@ -799,10 +807,16 @@ document.addEventListener?.('keydown', event => {
 
 // Shareable entry: /workspace.html?meeting=<zoom id> joins straight in.
 try {
-  const meeting = new URLSearchParams(globalThis.location?.search || '').get('meeting');
-  if (meeting) {
+  const params = new URLSearchParams(globalThis.location?.search || '');
+  const meeting = params.get('meeting');
+  const workspaceId = params.get('workspace_id');
+  const server = params.get('server');
+  if (workspaceId) {
+    connectWorkspace(server || '127.0.0.1:8790', { workspaceId });
+  } else if (meeting) {
     const form = document.querySelector('#join');
     form.external_id.value = meeting;
+    if (server) form.elements.namedItem('server').value = server;
     form.requestSubmit();
   }
 } catch { /* No location outside the browser. */ }

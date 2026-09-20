@@ -53,7 +53,7 @@ class Element {
   get tags() { return [...this.walk()].map(el => el.tag); }
 }
 
-function harness({ fetch = async () => { throw new Error('offline'); } } = {}) {
+function harness({ fetch = async () => { throw new Error('offline'); }, search = '' } = {}) {
   const root = new Element('body');
   const byId = new Map();
   const document = {
@@ -68,15 +68,74 @@ function harness({ fetch = async () => { throw new Error('offline'); } } = {}) {
   const source = readFileSync(new URL('./workspace.js', import.meta.url), 'utf8')
     .replace(/^import '\.\/[\w-]+\.css';$/gm, '')
     + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
+  class WebSocket {
+    static OPEN = 1;
+    constructor(url) { this.url = url; }
+    close() {}
+  }
   const context = vm.createContext({
-    document, WebSocket: { OPEN: 1 }, fetch,
-    URL, Blob, FormData, console,
+    document, WebSocket, fetch, location: { search },
+    URL, URLSearchParams, Blob, FormData, console,
   });
   vm.runInContext(source, context);
   return { api: context.api, document, root };
 }
 
 const stage = document => document.getElementById('stage');
+
+test('shared workspace entry hydrates the exact workspace without resolving or resetting a meeting', async () => {
+  const calls = [];
+  const { api, document } = harness({
+    search: '?workspace_id=ws_shared&server=localhost%3A8791&meeting=wrong',
+    fetch: async url => {
+      calls.push(url);
+      return { ok: true, json: async () => ({
+        workspace: { workspace_id: 'ws_shared', generation: 7 }, state: {},
+        transcript: [{ speaker: 'Tester', text: 'Shared transcript' }],
+        tasks: [{ task_id: 'task_1', instruction: 'Test task', status: 'running' }],
+        artifacts: [],
+      }) };
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['http://localhost:8791/api/workspaces/ws_shared']);
+  assert.equal(api.state.workspaceId, 'ws_shared');
+  assert.equal(api.state.generation, 7);
+  assert.equal(api.state.socket.url, 'ws://localhost:8791/workspaces/ws_shared/events?generation=7');
+  assert.equal(document.getElementById('workspace').hidden, false);
+  assert.match(document.getElementById('transcript').textContent, /Shared transcript/);
+  assert.match(document.getElementById('tasks').textContent, /Test task/);
+});
+
+test('shared workspace receives artifact updates and presents the selected artifact', async () => {
+  const { api, document } = harness({
+    search: '?workspace_id=ws_shared',
+    fetch: async () => ({ ok: true, json: async () => ({
+      workspace: { workspace_id: 'ws_shared', generation: 1 }, state: {},
+      transcript: [], tasks: [], artifacts: [],
+    }) }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  const event = data => api.state.socket.onmessage({ data: JSON.stringify(data) });
+  for (const id of ['first', 'second']) {
+    event({ type: 'artifact.ready', artifact_id: id, title: id,
+      content: { markdown: `# ${id} report` } });
+  }
+  event({ type: 'artifact.present', artifact_id: 'first' });
+  assert.equal(api.state.activeArtifact, 'first');
+  assert.match(document.getElementById('overlay-card').textContent, /first report/);
+  assert.equal(document.getElementById('artifact-overlay').hidden, false);
+});
+
+test('shared workspace entry reports missing workspace instead of opening an unrelated one', async () => {
+  const { api, document } = harness({
+    search: '?workspace_id=ws_missing',
+    fetch: async () => ({ ok: false, status: 404 }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(api.state.socket, null);
+  assert.match(document.getElementById('error').textContent, /snapshot 404/);
+});
 
 test('reset discards in-flight artifact hydration from the previous session', async () => {
   let resolve;
