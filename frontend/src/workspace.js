@@ -8,7 +8,7 @@ const $ = id => document.getElementById(id);
 const state = {
   socket: null, server: null, workspaceId: null, activeArtifact: null,
   artifacts: new Map(), tasks: new Map(), hydrated: new Set(), utterances: 0,
-  generation: null, viewVersion: 0, snapshotEvents: null,
+  generation: null, viewVersion: 0, overlayVersion: 0, snapshotEvents: null,
 };
 
 const setState = text => { $('state').textContent = embedded ? text.split(' · ')[0] : text; };
@@ -530,6 +530,7 @@ function openOverlay(artifact) {
 }
 
 function closeOverlay() {
+  state.overlayVersion += 1;
   $('artifact-overlay').hidden = true;
 }
 
@@ -561,6 +562,7 @@ async function hydrateArtifact(id) {
 // shell mid-generation looks like a broken artifact.
 async function presentArtifact(id, { overlay = false } = {}) {
   const version = state.viewVersion;
+  const overlayVersion = state.overlayVersion;
   state.activeArtifact = id;
   document.querySelectorAll('.artifact').forEach(el =>
     el.classList.toggle('active', el.dataset.artifact === id));
@@ -569,7 +571,7 @@ async function presentArtifact(id, { overlay = false } = {}) {
   if (version !== state.viewVersion || state.activeArtifact !== id) return;
   const artifact = state.artifacts.get(id);
   renderStage(artifact);
-  if (overlay || overlayOpen()) openOverlay(artifact);
+  if (overlayVersion === state.overlayVersion && (overlay || overlayOpen())) openOverlay(artifact);
 }
 
 function paintArtifactCard(artifact) {

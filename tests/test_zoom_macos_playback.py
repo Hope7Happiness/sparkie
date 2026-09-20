@@ -9,6 +9,104 @@ from pathlib import Path
 
 class MacPlaybackTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('clang'), 'macOS clang required')
+    def test_workspace_snapshot_pixels_and_bounded_lifecycle(self):
+        root = Path(__file__).resolve().parents[1]
+        native = (root / 'native/zoom-macos/main.m').read_text()
+        method = '- (void)captureShareFrame {' + native.split('- (void)captureShareFrame {', 1)[1].split(
+            '// Virtual microphone callbacks', 1)[0]
+        harness = r'''
+#import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
+typedef int ZoomSDKError;
+enum { ZoomSDKError_Success = 0, ZoomSDKFrameDataFormat_I420_Limited = 0 };
+static int frames;
+@interface ZoomSDKShareSender : NSObject
+- (int)sendShareFrame:(char*)data width:(unsigned)w height:(unsigned)h frameLength:(unsigned)n format:(int)format;
+@end
+@implementation ZoomSDKShareSender
+- (int)sendShareFrame:(char*)data width:(unsigned)w height:(unsigned)h frameLength:(unsigned)n format:(int)format {
+    if (w != 1280 || h != 720 || n != w * h * 3 / 2 || format != 0) _Exit(10);
+    unsigned char *p = (unsigned char *)data;
+    for (unsigned i = 0; i < w * h; ++i) if (p[i] != 235) _Exit(11);
+    for (unsigned i = w * h; i < n; ++i) if (p[i] != 128) _Exit(12);
+    frames++;
+    return 0;
+}
+@end
+@interface View : NSObject
+@property(copy) void (^completion)(NSImage *, NSError *);
+@property int requests;
+- (NSRect)bounds;
+- (void)takeSnapshotWithConfiguration:(WKSnapshotConfiguration *)configuration completionHandler:(void (^)(NSImage *, NSError *))callback;
+- (void)complete:(NSImage *)image;
+@end
+@implementation View
+- (NSRect)bounds { return NSMakeRect(0, 0, 1280, 720); }
+- (void)takeSnapshotWithConfiguration:(WKSnapshotConfiguration *)configuration completionHandler:(void (^)(NSImage *, NSError *))callback {
+    self.requests++;
+    self.completion = callback;
+}
+- (void)complete:(NSImage *)image {
+    void (^callback)(NSImage *, NSError *) = self.completion;
+    self.completion = nil;
+    callback(image, nil);
+}
+@end
+@interface Receiver : NSObject
+@property ZoomSDKShareSender *shareSender;
+@property View *shareView;
+@property NSMutableData *shareI420;
+@property BOOL shareSnapshotPending;
+@property BOOL stopping;
+- (void)captureShareFrame;
+@end
+@implementation Receiver
+''' + method + r'''
+@end
+int main() {
+    @autoreleasepool {
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+            pixelsWide:16 pixelsHigh:16 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES
+            isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bitmapFormat:0 bytesPerRow:64 bitsPerPixel:32];
+        memset(rep.bitmapData, 255, 16 * 64);
+        NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(16, 16)];
+        [image addRepresentation:rep];
+        Receiver *receiver = [Receiver new];
+        receiver.shareSender = [ZoomSDKShareSender new];
+        receiver.shareView = [View new];
+        [receiver captureShareFrame];
+        [receiver captureShareFrame];
+        if (receiver.shareView.requests != 1) return 13;
+        [receiver.shareView complete:image];
+        if (frames != 1 || receiver.shareSnapshotPending) return 14;
+        [receiver captureShareFrame];
+        receiver.shareSender = [ZoomSDKShareSender new];
+        [receiver.shareView complete:image];
+        if (frames != 1) return 15;
+        [receiver captureShareFrame];
+        [receiver.shareView complete:nil];
+        if (frames != 1 || receiver.shareSnapshotPending) return 16;
+        [receiver captureShareFrame];
+        receiver.stopping = YES;
+        [receiver.shareView complete:image];
+        [receiver captureShareFrame];
+        if (frames != 1 || receiver.shareView.requests != 4) return 17;
+    }
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'snapshot.m'
+            binary = Path(directory) / 'snapshot'
+            source.write_text(harness)
+            build = subprocess.run(['clang', '-fobjc-arc', '-fblocks', '-framework', 'Cocoa',
+                                    '-framework', 'WebKit', str(source), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('clang'), 'macOS clang required')
     def test_packets_stall_and_sdk_rejection(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'native/zoom-macos/main.m').read_text().split('@interface SparkieReceiver')[0]

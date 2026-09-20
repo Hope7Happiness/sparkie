@@ -122,6 +122,30 @@ test('shared workspace receives artifact updates and presents the selected artif
   assert.equal(api.state.activeArtifact, 'first');
   assert.match(document.getElementById('overlay-card').textContent, /first report/);
   assert.equal(document.getElementById('artifact-overlay').hidden, false);
+  event({ type: 'artifact.cleared' });
+  assert.equal(document.getElementById('artifact-overlay').hidden, true);
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(api.state.artifacts.size, 2);
+  assert.equal(document.getElementById('workspace').hidden, false);
+  event({ type: 'artifact.ready', artifact_id: 'third', title: 'Third', content: { markdown: 'New report' } });
+  assert.equal(document.getElementById('artifact-overlay').hidden, true);
+});
+
+test('back to workspace is not undone by an in-flight presentation fetch', async () => {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const { api, document } = harness({ fetch: () => pending });
+  api.state.server = 'http://localhost';
+  api.openOverlay({ artifact_id: 'old', content: { markdown: 'Old report' } });
+  api.state.artifacts.set('next', { artifact_id: 'next', title: 'Next report' });
+  api.onEvent({ type: 'artifact.present', artifact_id: 'next' });
+  document.getElementById('overlay-return').onclick();
+  resolve({ ok: true, json: async () => ({ artifact_id: 'next', content: { markdown: 'Next report' } }) });
+  await new Promise(done => setImmediate(done));
+  assert.equal(document.getElementById('artifact-overlay').hidden, true);
+  assert.equal(api.state.artifacts.size, 1);
+  api.onEvent({ type: 'artifact.present', artifact_id: 'next' });
+  assert.equal(document.getElementById('artifact-overlay').hidden, false);
 });
 
 test('shared workspace entry reports missing workspace instead of opening an unrelated one', async () => {

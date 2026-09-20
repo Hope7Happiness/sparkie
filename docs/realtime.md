@@ -197,7 +197,7 @@ Focused offline validation: uv run --frozen python -m unittest discover -s tests
 ## Zoom 中使用 Artifact（macOS Realtime）
 
 Zoom Realtime 与纯语音页共用预先命名、Markdown/图片交付以及展示/收起工具。
-Zoom 使用 Workspace 后端直接提供的共享页面，不需要启动 Vite：
+Zoom 共享原来的完整 artifact workspace 前端，不再使用简化 `/present` 页面。先在单独终端运行 `npm --prefix frontend run dev`（默认 5178，前端与 Zoom 进程需使用相同 `SPARKIE_WEB_PORT`），然后启动以下服务。更新后需重启已有 workspace 服务和 Sparkie 会话，否则运行中的进程仍使用旧协议与工具：
 
 ```bash
 # 拉取更新后，先用已配置的本机 SDK 重建原生接收器；不要跳过这一步。
@@ -211,8 +211,9 @@ SPARKIE_TASK_BACKEND=devin ZOOM_PLATFORM=macos \
 
 默认成果服务地址为 127.0.0.1:8790；分机部署时把 SPARKIE_WORKSPACE_SERVER 设置为
 Zoom 运行机器可访问的 host:port。ZOOM_MACOS_SDK_PATH 需指向实际存在的 SDK 源目录。
-会话连接 Workspace 后，会请求共享 Sparkie Workspace 窗口。主持人需允许共享，macOS
-也需具备屏幕录制权限。Linux 与旧 wake/qa 路径未接入这套原生窗口共享。
+会话连接 Workspace 后，会加载完整前端并请求 SDK 外部共享源，截取自有 WebView 推送画面。
+主持人需允许共享；只有外部共享源失败后退回 app-window 采集路径才检查 macOS 录屏权限。
+Linux 与旧 wake/qa 路径未接入这套共享。
 
 远端验收时分别说 “Sparkie, create a weather report”、
 “Sparkie, plot a weather chart”、 “Sparkie, show the report” 和
@@ -222,7 +223,9 @@ Zoom 运行机器可访问的 host:port。ZOOM_MACOS_SDK_PATH 需指向实际存
 诊断先查看 workspace_linked、zoom_share_requested、zoom_share_state，再看 artifact_control
 的确认。blocked / window_invalid / share_failed 不算共享成功；sharing 仅表示 SDK 接受，
 最后仍须另一参会端确认画面。共享页可单独打开
-http://localhost:8790/workspaces/<workspace_id>/present 排查渲染。
+`http://localhost:5178/workspace.html?workspace_id=<workspace_id>&server=127.0.0.1:8790` 排查渲染。
+说 “Sparkie, go back to the main artifact page” 应调用 hide_artifact 返回完整列表，不停止共享、
+不删除文档，也不委派后台任务去修改项目首页。界面 Back/Esc 也可退出全屏，迟到的加载不得重新打开。
 
 本次完成了离线 Zoom 路由和工具集成、实际浏览器共享页验证，以及原生编译/链接检查。
 未启动真实 Zoom 会议，未验证远端可见性、共享授权与音频延迟。自动命名提示词在新会话生效。
