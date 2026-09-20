@@ -1,5 +1,11 @@
 # Phase 0 接口约定
 
+## 本地多音轨转写测试页
+
+`/multitrack.html` 通过同源 WebSocket `/multitrack-audio` 使用独立 Python `sparkie.multitrack_lab` 子进程。只调用真实 Deepgram，模拟 Zoom 用户 ID，不入会、不调用 Realtime/后台任务。首条 `start` 含 language 和 2–4 个 `{name}`；随后 `frame` 含从零连续递增的 sequence 和同顺序 tracks 数组，每项为 1280 bytes 的 base64 PCM16 mono 32 kHz（20 ms）。统一时间为 sequence × 20 ms；非零分轨帧使用生产 U 解码/队列及 ParticipantEars。`finish` 排空队列并等待最终转写。
+
+输出 ready、participant_stt_ready/closed、progress、transcript、completed/failed；转写包含 speaker_id、speaker、timestamp_ms、event_id。最多 3000 组帧（60 秒），输入连接空闲 15 秒、整个 WebSocket 95 秒上限；消息/管道/发送缓存有界，关闭页面即结束本轮。无模拟转写模式；测试替身只用于单元测试。详情与实际验证见 [多音轨测试页](multitrack-lab.md)。
+
 ## 当前 primitive 的音频边界
 
 新增 `src/sparkie/audio.py`：`AudioFrame(sequence, pcm, sample_rate)`，PCM 为单声道 S16LE。`AudioMeeting` 接口提供 `join()`、异步 `audio()`、`play_audio(pcm, sample_rate)`、`stop_speaking()` 和 `leave()`。音频版 primitive 使用此接口；下方早期 `MeetingAdapter.speak(text)` 是规划中的文字层接口，当前 engine 不调用它。会议接入和语音合成模块在此边界分别接 Zoom 与 Deepgram TTS。
