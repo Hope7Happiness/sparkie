@@ -2,6 +2,7 @@
 // runs the loopback PCM bridge shared with the Linux path. No PCM, meeting
 // credentials, or JWTs are logged.
 #import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
 #import <ZoomSDK/ZoomSDK.h>
 #import <ZoomSDK/ZoomSDKRawDataAudioSourceController.h>
 #include <arpa/inet.h>
@@ -34,6 +35,10 @@ static ZoomSDKAudioRawDataSender *bridge_sender;  // sender_mutex
 static NSMutableArray<NSData *> *bridge_outgoing; // out_mutex
 static NSData *bridge_pending;                    // play_mutex; first 4 bytes are the playback id
 static NSData *bridge_cancel_id;                  // play_mutex; acknowledgement after worker quiesces
+@protocol SparkieShareControl <NSObject>
+- (void)shareWindowCommand:(NSString *)url;
+@end
+static id<SparkieShareControl> app_delegate;      // main-thread receiver for UI commands
 static pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t out_cv = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t play_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -232,6 +237,14 @@ static void *bridge_serve(void *unused) {
             if (size && !bridge_transfer(fd, payload.mutableBytes, size, NO)) break;
             if (header[0] == 'C' && size == 4) {
                 bridge_cancel(payload);
+            } else if (header[0] == 'V') {
+                // Screen-share control: payload is the UTF-8 workspace URL to
+                // present, empty payload stops sharing and closes the window.
+                NSString *url = size ? [[NSString alloc] initWithData:payload
+                                                             encoding:NSUTF8StringEncoding] : @"";
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [app_delegate shareWindowCommand:url];
+                });
             } else if (header[0] == 'P' && size > 4 && size % 2 == 0) {
                 pthread_mutex_lock(&play_mutex);
                 if (bridge_playing || bridge_pending) bridge_error("playback_active");
@@ -312,7 +325,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 
 @interface SparkieReceiver : NSObject <NSApplicationDelegate, ZoomSDKAuthDelegate,
     ZoomSDKMeetingServiceDelegate, ZoomSDKMeetingRecordDelegate, ZoomSDKAudioRawDataDelegate,
-    ZoomSDKVirtualAudioMicDelegate>
+    ZoomSDKVirtualAudioMicDelegate, SparkieShareControl>
 @property NSDictionary *config;
 @property ZoomSDKAudioRawDataHelper *audio;
 @property BOOL voice;
@@ -327,13 +340,23 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 @property NSTimer *participantTimer;
 @property NSTimer *unmuteTimer;
 @property NSData *lastParticipants;
+@property NSWindow *shareWindow;
+@property WKWebView *shareView;
+@property NSString *shareURL;
+@property BOOL sharing;
+@property BOOL shareWanted;
+@property BOOL inMeeting;
 - (void)publishParticipants;
 - (void)ensureUnmuted;
+- (void)shareWindowCommand:(NSString *)url;
+- (void)tryStartShare;
+- (void)stopShare;
 - (void)shutdown;
 @end
 
 @implementation SparkieReceiver
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    app_delegate = self;
     BOOL checkOnly = [NSProcessInfo.processInfo.arguments containsObject:@"--check"];
     if (!checkOnly) {
         NSString *configPath = NSProcessInfo.processInfo.environment[@"SPARKIE_ZOOM_CONFIG"];
@@ -421,6 +444,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     printf("MEETING_STATUS state=%d error=%d reason=%d\n", state, error, reason);
     if (self.stopping) return;
     if (state == ZoomSDKMeetingStatus_InMeeting) {
+        self.inMeeting = YES;
         printf("In Meeting Now...\n");
         ZoomSDKMeetingActionController *actions = [[[ZoomSDK sharedSDK] getMeetingService] getMeetingActionController];
         if (self.voice) {
@@ -453,9 +477,11 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         }
         [self publishParticipants];
         [self tryAudio];
+        [self tryStartShare];
     } else if (state == ZoomSDKMeetingStatus_Failed) {
         self.exitCode = 1; [self shutdown];
     } else if (state == ZoomSDKMeetingStatus_Ended) {
+        self.inMeeting = NO;
         [self shutdown];
     }
 }
@@ -562,6 +588,64 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         }
     }
 }
+// Workspace presentation window shared into the meeting via app-window share.
+// The bridge 'V' command carries the present URL; an empty payload stops.
+- (void)shareWindowCommand:(NSString *)url {
+    if (!self.voice || self.stopping) return;
+    if (!url.length) { self.shareWanted = NO; [self stopShare]; return; }
+    self.shareWanted = YES;
+    self.shareURL = url;
+    if (!self.shareWindow) {
+        NSRect frame = NSMakeRect(80, 80, 1280, 760);
+        self.shareWindow = [[NSWindow alloc] initWithContentRect:frame
+            styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                      NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable
+            backing:NSBackingStoreBuffered defer:NO];
+        self.shareWindow.title = @"Sparkie Workspace";
+        self.shareWindow.releasedWhenClosed = NO;
+        self.shareView = [[WKWebView alloc] initWithFrame:frame];
+        self.shareWindow.contentView = self.shareView;
+    }
+    [self.shareView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
+    [self.shareWindow orderFrontRegardless];
+    printf("SHARE_WINDOW_LOAD url=%s\n", url.UTF8String);
+    [self tryStartShare];
+}
+- (void)tryStartShare {
+    if (!self.shareWanted || self.sharing || !self.inMeeting || self.stopping ||
+        !self.shareWindow) return;
+    ZoomSDKASController *share = [[[ZoomSDK sharedSDK] getMeetingService] getASController];
+    if (!share) { printf("SHARE_CONTROLLER_MISSING\n"); return; }
+    ZoomSDKCannotShareReasonType reason = ZoomSDKCannotShareReasonType_None;
+    if (![share canStartShare:&reason]) {
+        printf("SHARE_BLOCKED reason=%d\n", reason);
+        bridge_emit('V', (char[]){2}, 1);
+        return;
+    }
+    CGWindowID windowID = (CGWindowID)self.shareWindow.windowNumber;
+    if (![share isShareAppValid:windowID]) {
+        printf("SHARE_WINDOW_INVALID id=%u\n", windowID);
+        bridge_emit('V', (char[]){3}, 1);
+        return;
+    }
+    ZoomSDKError result = [share startAppShare:windowID];
+    printf("APP_SHARE result=%d\n", result);
+    if (result == ZoomSDKError_Success) {
+        self.sharing = YES;
+        bridge_emit('V', (char[]){1}, 1);
+    } else {
+        bridge_emit('V', (char[]){4}, 1);
+    }
+}
+- (void)stopShare {
+    if (self.sharing) {
+        ZoomSDKASController *share = [[[ZoomSDK sharedSDK] getMeetingService] getASController];
+        if (share) [share stopShare];
+        self.sharing = NO;
+    }
+    [self.shareWindow orderOut:nil];
+    bridge_emit('V', (char[]){0}, 1);
+}
 // Virtual microphone callbacks; only active in voice mode.
 - (void)onMicInitialize:(ZoomSDKAudioRawDataSender *)rawdataSender {
     printf("ZOOM_MIC_INITIALIZED\n");
@@ -624,6 +708,8 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     self.stopping = YES;
     [self.participantTimer invalidate]; self.participantTimer = nil;
     [self.unmuteTimer invalidate]; self.unmuteTimer = nil;
+    [self stopShare];
+    [self.shareWindow close]; self.shareWindow = nil; self.shareView = nil;
     if (self.voice) {
         // Stop the sender before tearing down SDK objects. Keep the virtual source
         // installed until after leaving, so teardown cannot switch to a physical mic.

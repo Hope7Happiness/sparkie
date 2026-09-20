@@ -84,7 +84,7 @@ def build(root):
         (resource / "InfoPlist.strings").write_text(text)
     subprocess.run(["xcrun", "clang", "-fobjc-arc", "-fblocks", "-Werror=implicit-function-declaration",
                     "-Werror=objc-method-access", "-Werror=protocol", "-mmacosx-version-min=12.0", "-framework", "Cocoa",
-                    "-framework", "ZoomSDK", "-F", str(frameworks),
+                    "-framework", "WebKit", "-framework", "ZoomSDK", "-F", str(frameworks),
                     "-Wl,-rpath,@executable_path/../Frameworks", str(root / "native/zoom-macos/main.m"),
                     "-o", str(contents / "MacOS/SparkieZoom")], check=True)
     # Finder/iCloud metadata on a Documents checkout can invalidate code signing.
