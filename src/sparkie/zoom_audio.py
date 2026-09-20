@@ -504,7 +504,8 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
             return True
         if kind == b'V' and len(data) == 1:
             states = {0: 'stopped', 1: 'sharing', 2: 'blocked',
-                      3: 'window_invalid', 4: 'share_failed'}
+                      3: 'window_invalid', 4: 'share_failed',
+                      5: 'screen_permission_missing'}
             self.on_event('zoom_share_state', state=states.get(data[0], data[0]))
             return True
         if kind != b'J':

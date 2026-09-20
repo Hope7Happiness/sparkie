@@ -8,7 +8,7 @@ const $ = id => document.getElementById(id);
 const state = {
   socket: null, server: null, workspaceId: null, activeArtifact: null,
   artifacts: new Map(), tasks: new Map(), hydrated: new Set(), utterances: 0,
-  generation: null, viewVersion: 0, snapshotEvents: null,
+  generation: null, viewVersion: 0, overlayVersion: 0, snapshotEvents: null,
 };
 
 const setState = text => { $('state').textContent = embedded ? text.split(' · ')[0] : text; };
@@ -530,6 +530,7 @@ function openOverlay(artifact) {
 }
 
 function closeOverlay() {
+  state.overlayVersion += 1;
   $('artifact-overlay').hidden = true;
 }
 
@@ -561,6 +562,7 @@ async function hydrateArtifact(id) {
 // shell mid-generation looks like a broken artifact.
 async function presentArtifact(id, { overlay = false } = {}) {
   const version = state.viewVersion;
+  const overlayVersion = state.overlayVersion;
   state.activeArtifact = id;
   document.querySelectorAll('.artifact').forEach(el =>
     el.classList.toggle('active', el.dataset.artifact === id));
@@ -569,7 +571,7 @@ async function presentArtifact(id, { overlay = false } = {}) {
   if (version !== state.viewVersion || state.activeArtifact !== id) return;
   const artifact = state.artifacts.get(id);
   renderStage(artifact);
-  if (overlay || overlayOpen()) openOverlay(artifact);
+  if (overlayVersion === state.overlayVersion && (overlay || overlayOpen())) openOverlay(artifact);
 }
 
 function paintArtifactCard(artifact) {
@@ -834,24 +836,23 @@ async function connectWorkspace(base, { workspaceId, external, title = '' }) {
   clearWorkspaceUI();
   const version = state.viewVersion;
   try {
-    let workspace = { workspace_id: workspaceId };
     if (workspaceId && !/^ws_[a-f0-9]+$/.test(workspaceId)) throw new Error('Invalid workspace');
     if (!workspaceId) {
       const response = await fetch(`${base.http}/api/meetings/resolve?` +
         new URLSearchParams({ kind: 'zoom_uuid', external_id: external, title }));
       if (!response.ok) throw new Error(`resolve ${response.status}`);
-      workspace = await response.json();
+      workspaceId = (await response.json()).workspace_id;
     }
     if (version !== state.viewVersion) return;
     state.server = base.http;
-    state.workspaceId = workspace.workspace_id;
-    $('ws-id').textContent = workspace.workspace_id;
-    const response = await fetch(`${base.http}/api/workspaces/${workspace.workspace_id}`);
-    if (!response.ok) throw new Error(`workspace ${response.status}`);
+    state.workspaceId = workspaceId;
+    $('ws-id').textContent = workspaceId;
+    const response = await fetch(`${base.http}/api/workspaces/${encodeURIComponent(workspaceId)}`);
+    if (!response.ok) throw new Error(`snapshot ${response.status}`);
     const snapshot = await response.json();
     if (version !== state.viewVersion) return;
     loadSnapshot(snapshot);
-    const socket = new WebSocket(`${base.ws}/workspaces/${workspace.workspace_id}/events?generation=${state.generation}`);
+    const socket = new WebSocket(`${base.ws}/workspaces/${encodeURIComponent(workspaceId)}/events?generation=${state.generation}`);
     socket.onmessage = ({ data }) => { if (state.socket === socket) onEvent(JSON.parse(data)); };
     // Refresh after subscribing so updates between fetch and socket open aren't lost.
     socket.onopen = () => { if (state.socket === socket) reloadSnapshot(); };
@@ -893,13 +894,15 @@ document.addEventListener?.('keydown', event => {
 
 // Shareable entry: /workspace.html?meeting=<zoom id> joins straight in.
 try {
-  const workspaceId = entryParams.get('workspace');
+  const workspaceId = entryParams.get('workspace_id') || entryParams.get('workspace');
   const meeting = entryParams.get('meeting');
+  const server = entryParams.get('server');
   if (workspaceId) {
-    connectWorkspace(serverBases(entryParams.get('server') || '/workspace-api'), { workspaceId });
+    connectWorkspace(serverBases(server || '/workspace-api'), { workspaceId });
   } else if (meeting) {
     const form = document.querySelector('#join');
     form.external_id.value = meeting;
+    if (server) form.elements.namedItem('server').value = server;
     form.requestSubmit();
   }
 } catch { /* No location outside the browser. */ }

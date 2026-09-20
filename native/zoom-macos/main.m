@@ -325,7 +325,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 
 @interface SparkieReceiver : NSObject <NSApplicationDelegate, ZoomSDKAuthDelegate,
     ZoomSDKMeetingServiceDelegate, ZoomSDKMeetingRecordDelegate, ZoomSDKAudioRawDataDelegate,
-    ZoomSDKVirtualAudioMicDelegate, SparkieShareControl>
+    ZoomSDKVirtualAudioMicDelegate, ZoomSDKShareSourceDelegate, SparkieShareControl>
 @property NSDictionary *config;
 @property ZoomSDKAudioRawDataHelper *audio;
 @property BOOL voice;
@@ -346,9 +346,17 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 @property BOOL sharing;
 @property BOOL shareWanted;
 @property BOOL inMeeting;
+@property NSTimer *shareTimer;
+@property BOOL shareAccessRequested;
+@property int lastShareStatus;
+@property ZoomSDKShareSender *shareSender;
+@property NSTimer *shareFrameTimer;
+@property NSMutableData *shareI420;
+@property BOOL shareSnapshotPending;
 - (void)publishParticipants;
 - (void)ensureUnmuted;
 - (void)shareWindowCommand:(NSString *)url;
+- (void)emitShareStatus:(int)status;
 - (void)tryStartShare;
 - (void)stopShare;
 - (void)shutdown;
@@ -609,7 +617,19 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     [self.shareView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
     [self.shareWindow orderFrontRegardless];
     printf("SHARE_WINDOW_LOAD url=%s\n", url.UTF8String);
+    // A brand-new window needs a WindowServer pass before the SDK lists it as
+    // shareable; retry like the unmute loop until the share is up.
+    if (!self.shareTimer) {
+        self.shareTimer = [NSTimer scheduledTimerWithTimeInterval:2 target:self
+            selector:@selector(tryStartShare) userInfo:nil repeats:YES];
+    }
     [self tryStartShare];
+}
+- (void)emitShareStatus:(int)status {
+    if (status == self.lastShareStatus) return;
+    self.lastShareStatus = status;
+    char code = (char)status;
+    bridge_emit('V', &code, 1);
 }
 - (void)tryStartShare {
     if (!self.shareWanted || self.sharing || !self.inMeeting || self.stopping ||
@@ -619,32 +639,147 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     ZoomSDKCannotShareReasonType reason = ZoomSDKCannotShareReasonType_None;
     if (![share canStartShare:&reason]) {
         printf("SHARE_BLOCKED reason=%d\n", reason);
-        bridge_emit('V', (char[]){2}, 1);
+        [self emitShareStatus:2];
+        return;
+    }
+    // External share source needs no screen-recording grant and no CptHost:
+    // we snapshot our own workspace webview and push I420 frames ourselves.
+    ZoomSDKRawDataShareSourceController *rawShare = nil;
+    if ([[[ZoomSDK sharedSDK] getRawDataController] getRawDataShareSourceHelper:&rawShare]
+            == ZoomSDKError_Success && rawShare) {
+        ZoomSDKError raw = [rawShare setExternalShareSource:self shareAudioSource:nil];
+        printf("RAW_SHARE result=%d\n", raw);
+        if (raw == ZoomSDKError_Success) {
+            self.sharing = YES;
+            [self.shareTimer invalidate]; self.shareTimer = nil;
+            [self emitShareStatus:1];
+            return;
+        }
+    }
+    // The SDK builds its shareable-window list from screen capture; without
+    // the Screen Recording grant every window ID stays invalid. Ask once;
+    // the retry loop picks up the grant if it applies without a restart.
+    if (!CGPreflightScreenCaptureAccess()) {
+        if (!self.shareAccessRequested) {
+            self.shareAccessRequested = YES;
+            printf("SHARE_NO_SCREEN_ACCESS\n");
+            CGRequestScreenCaptureAccess();
+        }
+        [self emitShareStatus:5];
         return;
     }
     CGWindowID windowID = (CGWindowID)self.shareWindow.windowNumber;
+    NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, windowID));
+    BOOL windowVisible = NO;
+    for (NSDictionary *window in windows) {
+        if ([window[(id)kCGWindowNumber] unsignedIntValue] == windowID &&
+            [window[(id)kCGWindowIsOnscreen] boolValue]) windowVisible = YES;
+    }
+    if (!windowVisible) {
+        printf("SHARE_WINDOW_OFFSCREEN id=%u\n", windowID);
+        [self emitShareStatus:3];
+        return;
+    }
     if (![share isShareAppValid:windowID]) {
         printf("SHARE_WINDOW_INVALID id=%u\n", windowID);
-        bridge_emit('V', (char[]){3}, 1);
+        [self emitShareStatus:3];
         return;
     }
     ZoomSDKError result = [share startAppShare:windowID];
     printf("APP_SHARE result=%d\n", result);
     if (result == ZoomSDKError_Success) {
         self.sharing = YES;
-        bridge_emit('V', (char[]){1}, 1);
+        [self.shareTimer invalidate]; self.shareTimer = nil;
+        [self emitShareStatus:1];
     } else {
-        bridge_emit('V', (char[]){4}, 1);
+        [self emitShareStatus:4];
     }
 }
 - (void)stopShare {
+    self.shareWanted = NO;
+    [self.shareTimer invalidate]; self.shareTimer = nil;
+    [self.shareFrameTimer invalidate]; self.shareFrameTimer = nil;
+    self.shareSender = nil;
+    self.shareI420 = nil;
     if (self.sharing) {
         ZoomSDKASController *share = [[[ZoomSDK sharedSDK] getMeetingService] getASController];
         if (share) [share stopShare];
         self.sharing = NO;
     }
     [self.shareWindow orderOut:nil];
-    bridge_emit('V', (char[]){0}, 1);
+    [self emitShareStatus:0];
+}
+// ZoomSDKShareSourceDelegate: the SDK asks for frames while the raw share runs.
+- (void)onStartSend:(ZoomSDKShareSender *)sender {
+    printf("RAW_SHARE_SEND_START\n");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self.shareWanted || self.stopping || !sender) return;
+        self.shareSender = sender;
+        if (!self.shareFrameTimer) {
+            self.shareFrameTimer = [NSTimer scheduledTimerWithTimeInterval:0.25
+                target:self selector:@selector(captureShareFrame) userInfo:nil repeats:YES];
+        }
+    });
+}
+- (void)onStopSend {
+    printf("RAW_SHARE_SEND_STOP\n");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.shareSender = nil;
+        self.shareI420 = nil;
+        self.sharing = NO;
+        [self.shareFrameTimer invalidate]; self.shareFrameTimer = nil;
+        [self emitShareStatus:0];
+    });
+}
+- (void)captureShareFrame {
+    if (!self.shareSender || !self.shareView || self.shareSnapshotPending || self.stopping) return;
+    self.shareSnapshotPending = YES;
+    ZoomSDKShareSender *sender = self.shareSender;
+    WKSnapshotConfiguration *shot = [WKSnapshotConfiguration new];
+    shot.rect = self.shareView.bounds;
+    [self.shareView takeSnapshotWithConfiguration:shot completionHandler:
+        ^(NSImage *image, NSError *error) {
+        self.shareSnapshotPending = NO;
+        if (!image || sender != self.shareSender || self.stopping) return;
+        static const unsigned W = 1280, H = 720;
+        // bitmapFormat must stay 0 (premultiplied): CoreGraphics bitmap contexts
+        // cannot draw into AlphaNonpremultiplied, the draw silently yields black.
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+            pixelsWide:W pixelsHigh:H bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES
+            isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace
+            bitmapFormat:0 bytesPerRow:W * 4 bitsPerPixel:32];
+        if (!rep) return;
+        NSGraphicsContext *ctx = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+        if (!ctx) return;
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:ctx];
+        [image drawInRect:NSMakeRect(0, 0, W, H)];
+        [NSGraphicsContext restoreGraphicsState];
+        if (!self.shareI420) self.shareI420 = [NSMutableData dataWithLength:W * H * 3 / 2];
+        if (!self.shareI420) return;
+        unsigned char *src = rep.bitmapData, *yp = self.shareI420.mutableBytes;
+        unsigned char *up = yp + W * H, *vp = up + W * H / 4;
+        for (unsigned y = 0; y < H; y++) {
+            unsigned char *row = src + y * rep.bytesPerRow;
+            for (unsigned x = 0; x < W; x++) {
+                int r = row[x * 4], g = row[x * 4 + 1], b = row[x * 4 + 2];
+                yp[y * W + x] = (unsigned char)(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
+                if (!(y & 1) && !(x & 1)) {
+                    up[(y / 2) * (W / 2) + x / 2] =
+                        (unsigned char)(((112 * b - 38 * r - 74 * g + 128) >> 8) + 128);
+                    vp[(y / 2) * (W / 2) + x / 2] =
+                        (unsigned char)(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
+                }
+            }
+        }
+        ZoomSDKError sent = [sender sendShareFrame:self.shareI420.mutableBytes width:W height:H
+            frameLength:W * H * 3 / 2 format:ZoomSDKFrameDataFormat_I420_Limited];
+        static int sentLog;
+        if (sent != ZoomSDKError_Success || sentLog < 3) {
+            printf("RAW_SHARE_FRAME result=%d\n", sent);
+            sentLog++;
+        }
+    }];
 }
 // Virtual microphone callbacks; only active in voice mode.
 - (void)onMicInitialize:(ZoomSDKAudioRawDataSender *)rawdataSender {

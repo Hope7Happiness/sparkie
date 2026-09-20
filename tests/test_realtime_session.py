@@ -7,10 +7,43 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 from sparkie.audio import AudioFrame
 from sparkie import realtime_session
+
+
+class WorkspaceShareTests(unittest.IsolatedAsyncioTestCase):
+    async def test_share_loads_full_workspace_with_exact_id_and_backend(self):
+        workspace = SimpleNamespace(enabled=True, workspace_id='ws_123abc', server='localhost:8791')
+        meeting = SimpleNamespace(share_screen=AsyncMock())
+        events = []
+        with patch.dict(os.environ, {'SPARKIE_WEB_PORT': '5180'}):
+            await realtime_session.share_workspace(
+                meeting, workspace, lambda kind, **fields: events.append({'type': kind, **fields}))
+        url = urlsplit(meeting.share_screen.await_args.args[0])
+        self.assertEqual((url.scheme, url.netloc, url.path),
+                         ('http', '127.0.0.1:5180', '/workspace.html'))
+        self.assertEqual(parse_qs(url.query), {'workspace_id': ['ws_123abc'], 'server': ['localhost:8791']})
+        self.assertEqual(events[0]['type'], 'zoom_share_requested')
+
+    async def test_disabled_mirroring_does_not_share_an_empty_workspace(self):
+        workspace = SimpleNamespace(enabled=False, workspace_id='ws_123abc', server='localhost:8790')
+        meeting = SimpleNamespace(share_screen=AsyncMock())
+        events = []
+        await realtime_session.share_workspace(
+            meeting, workspace, lambda kind, **fields: events.append({'type': kind, **fields}))
+        meeting.share_screen.assert_not_awaited()
+        self.assertEqual(events[0]['reason'], 'workspace_unavailable')
+
+    async def test_share_failure_does_not_fail_the_meeting(self):
+        workspace = SimpleNamespace(enabled=True, workspace_id='ws_123abc', server='localhost:8790')
+        meeting = SimpleNamespace(share_screen=AsyncMock(side_effect=ConnectionError))
+        events = []
+        await realtime_session.share_workspace(
+            meeting, workspace, lambda kind, **fields: events.append({'type': kind, **fields}))
+        self.assertEqual(events, [{'type': 'zoom_share_failed', 'error_type': 'ConnectionError'}])
 
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):

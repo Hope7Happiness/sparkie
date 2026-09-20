@@ -80,6 +80,84 @@ function harness({ fetch = async () => { throw new Error('offline'); }, search =
 
 const stage = document => document.getElementById('stage');
 
+test('shared workspace entry hydrates the exact workspace without resolving or resetting a meeting', async () => {
+  const calls = [];
+  const { api, document } = harness({
+    search: '?workspace_id=ws_abcd&server=localhost%3A8791&meeting=wrong',
+    fetch: async url => {
+      calls.push(url);
+      return { ok: true, json: async () => ({
+        workspace: { workspace_id: 'ws_abcd', generation: 7 }, state: {},
+        transcript: [{ speaker: 'Tester', text: 'Shared transcript' }],
+        tasks: [{ task_id: 'task_1', instruction: 'Execute test', artifact_title: 'Test task', status: 'running' }],
+        artifacts: [],
+      }) };
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['http://localhost:8791/api/workspaces/ws_abcd']);
+  assert.equal(api.state.workspaceId, 'ws_abcd');
+  assert.equal(api.state.generation, 7);
+  assert.equal(api.state.socket.url, 'ws://localhost:8791/workspaces/ws_abcd/events?generation=7');
+  assert.equal(document.getElementById('workspace').hidden, false);
+  assert.match(document.getElementById('transcript').textContent, /Shared transcript/);
+  assert.match(document.getElementById('tasks').textContent, /Test task/);
+});
+
+test('shared workspace receives artifact updates and presents the selected artifact', async () => {
+  const { api, document } = harness({
+    search: '?workspace_id=ws_abcd',
+    fetch: async () => ({ ok: true, json: async () => ({
+      workspace: { workspace_id: 'ws_abcd', generation: 1 }, state: {},
+      transcript: [], tasks: [], artifacts: [],
+    }) }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  const event = data => api.state.socket.onmessage({ data: JSON.stringify(data) });
+  for (const id of ['first', 'second']) {
+    event({ type: 'artifact.ready', artifact_id: id, title: id,
+      content: { markdown: `# ${id} report` } });
+  }
+  event({ type: 'artifact.present', artifact_id: 'first' });
+  assert.equal(api.state.activeArtifact, 'first');
+  assert.match(document.getElementById('overlay-card').textContent, /first report/);
+  assert.equal(document.getElementById('artifact-overlay').hidden, false);
+  event({ type: 'artifact.cleared' });
+  assert.equal(document.getElementById('artifact-overlay').hidden, true);
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(api.state.artifacts.size, 2);
+  assert.equal(document.getElementById('workspace').hidden, false);
+  event({ type: 'artifact.ready', artifact_id: 'third', title: 'Third', content: { markdown: 'New report' } });
+  assert.equal(document.getElementById('artifact-overlay').hidden, true);
+});
+
+test('back to workspace is not undone by an in-flight presentation fetch', async () => {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const { api, document } = harness({ fetch: () => pending });
+  api.state.server = 'http://localhost';
+  api.openOverlay({ artifact_id: 'old', content: { markdown: 'Old report' } });
+  api.state.artifacts.set('next', { artifact_id: 'next', title: 'Next report' });
+  api.onEvent({ type: 'artifact.present', artifact_id: 'next' });
+  document.getElementById('overlay-return').onclick();
+  resolve({ ok: true, json: async () => ({ artifact_id: 'next', content: { markdown: 'Next report' } }) });
+  await new Promise(done => setImmediate(done));
+  assert.equal(document.getElementById('artifact-overlay').hidden, true);
+  assert.equal(api.state.artifacts.size, 1);
+  api.onEvent({ type: 'artifact.present', artifact_id: 'next' });
+  assert.equal(document.getElementById('artifact-overlay').hidden, false);
+});
+
+test('shared workspace entry reports missing workspace instead of opening an unrelated one', async () => {
+  const { api, document } = harness({
+    search: '?workspace_id=ws_dead',
+    fetch: async () => ({ ok: false, status: 404 }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(api.state.socket, null);
+  assert.match(document.getElementById('error').textContent, /snapshot 404/);
+});
+
 test('reset discards in-flight artifact hydration from the previous session', async () => {
   let resolve;
   const response = new Promise(done => { resolve = done; });

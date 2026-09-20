@@ -9,7 +9,7 @@ import unittest
 
 from sparkie.agent_runtime import AgentRuntime
 from sparkie.event_bus import EventBus
-from sparkie.realtime import RealtimeAgent
+from sparkie.realtime import RealtimeAgent, session_config
 from sparkie.realtime_zoom_audio import RealtimeZoomAudio
 from sparkie.task_center import TaskCenter, TranscriptLedger
 from sparkie.workspace import WorkspaceStore
@@ -20,6 +20,14 @@ from test_semantic_interruption import Bridge
 
 
 class ZoomArtifactTests(unittest.IsolatedAsyncioTestCase):
+    def test_main_page_navigation_is_a_foreground_presentation_control(self):
+        config = session_config('test')['session']
+        hide = next(tool for tool in config['tools'] if tool['name'] == 'hide_artifact')
+        self.assertIn('return to the main artifact workspace/list', hide['description'])
+        self.assertIn('not stop Zoom screen sharing', hide['description'])
+        self.assertIn('main artifact page, workspace or artifact list mean hide_artifact', config['instructions'])
+        self.assertIn('not a request to edit a website or delegate a background task', config['instructions'])
+
     async def test_zoom_addressed_task_names_image_and_controls_presentation_with_interruption_guard(self):
         with tempfile.TemporaryDirectory() as directory:
             store = WorkspaceStore(':memory:')
@@ -74,11 +82,14 @@ class ZoomArtifactTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await tool('hide_artifact', {}))['error'], 'interrupted_before_execution')
                 self.assertEqual(store.get_state(client.workspace_id)['active_artifact_id'], artifact['artifact_id'])
                 await agent.handle({'type': 'response.done', 'response': {'id': 'voice', 'status': 'cancelled'}})
-                await agent.human_transcript({'text': 'Sparkie, hide the report', 'event_id': 'second',
+                await agent.human_transcript({'text': 'Hi, Sparkie. Can you go back to the main artifact page?', 'event_id': 'second',
                     'is_final': True, 'source': 'human'})
                 await agent.handle({'type': 'response.created', 'response': {'id': 'hide'}})
                 self.assertTrue((await tool('hide_artifact', {}, 'hide'))['ok'])
                 self.assertIsNone(store.get_state(client.workspace_id)['active_artifact_id'])
+                self.assertIsNotNone(store.get_artifact(artifact['artifact_id']))
+                self.assertEqual(list(center.jobs), [task_id])
+                self.assertEqual(center.status(task_id)['status'], 'completed')
             finally:
                 await center.close()
                 await asyncio.gather(*mirrors)

@@ -253,6 +253,14 @@ Failed/cancelled join cancels its handshake task and reader, closes its bridge, 
 
 
 
+### Zoom 共享完整 artifact workspace
+
+Zoom Realtime 将 `/workspace.html?workspace_id=<id>&server=<backend>` 发给 native WebView，共享同一套 `frontend/workspace.html`、`src/workspace.js` 和 CSS，不再加载简化 `/present` 页面。前端地址是 `http://127.0.0.1:${SPARKIE_WEB_PORT:-5178}`；运行 `npm --prefix frontend run dev`，并确保前端与 Zoom 进程使用相同的 `SPARKIE_WEB_PORT`。workspace 后端仍由 `SPARKIE_WORKSPACE_SERVER` 指定，默认 8790。启动顺序：新版 workspace 服务 → 前端 → Zoom 会话。代码更新后需重启旧 workspace 服务，使 generation 协议一致。
+
+`workspace_id` 入口直接获取已有 workspace snapshot 并订阅其 generation 的事件流，不 resolve 新会议，也不 reset。完整界面保留转写、任务、artifact 列表、stage 和原有全屏展示；原有 `?meeting=<zoom id>` 入口仍可用，`server` 参数两种入口均支持。Zoom 只有在 workspace 镜像连接可用时才请求共享；失败时记录 `zoom_share_skipped(reason=workspace_unavailable)`，避免把空画布当成已连接 workspace。`zoom_share_requested` 仅表示已发送加载请求，不代表页面渲染或远端画面已验收。
+
+“回到主页面 / main artifact page / 返回列表”由前台调用 `hide_artifact`，服务端广播 `artifact.cleared`，完整 workspace 关闭全屏并保留 artifact 列表与任务，不停止 Zoom 共享、不删除报告、不修改项目介绍页。若同一句还请求生成新内容，先退出展示，再仅委派新内容任务。本地 Back/Esc 关闭操作也会使在途加载的旧全屏请求失效，避免刚返回就又弹出。浏览器语音嵌入入口 `?workspace=<id>&embedded=1` 与 Zoom 的 `workspace_id` 入口均保留。
+
 ### Workspace session generation and reset isolation
 
 The meetings table now has a persistent integer generation (existing databases migrate to 0). Reset atomically clears the session tables and increments generation, cancels only that workspace's runtime jobs, and publishes workspace.reset with the new generation. Jobs capture generation before scheduling and check it before reading context, publishing errors, or storing results; even a worker that returns after cancellation cannot repopulate the new session. Cancellation does not undo external work already performed.
@@ -435,9 +443,15 @@ still use their own isolated server ports.
 macOS Zoom Realtime uses the same TaskCenter, artifact_title field, file/image
 materializer and Realtime presentation tools as browser voice. Once the bridge is
 ready and WorkspaceClient is connected, the session sends the V bridge command
-with /workspaces/<workspace_id>/present. The native receiver opens that backend
-page in a WKWebView and requests Zoom app-window sharing. This route requires no
-Vite server. Linux receivers do not implement this app-window sharing path.
+with the full frontend /workspace.html?workspace_id=<id>&server=<backend> URL.
+This uses the running Vite frontend (SPARKIE_WEB_PORT, default 5178), not the
+separate backend /present page. The native receiver snapshots its WKWebView and
+sends 1280×720 I420 frames through the SDK external share source at up to 4 fps.
+Only one snapshot may be pending; frames for a replaced sender or shutdown are
+discarded. Premultiplied bitmap rendering prevents the previously observed black
+frames. If the external source is unavailable, the existing app-window path is
+retained with a screen-capture permission check. V status 5 is
+screen_permission_missing. Linux receivers do not implement this sharing path.
 
 The self-contained page follows explicit artifact.present/artifact.cleared and
 snapshot.state.active_artifact_id, never the newest artifact automatically. It

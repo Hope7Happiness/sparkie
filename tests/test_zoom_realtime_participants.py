@@ -10,6 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 from sparkie import realtime_session
 from sparkie.contracts import TranscriptEvent, SpeechActivity
@@ -72,7 +73,7 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             previous = os.umask(0o077)
             try:
                 with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos',
-                                             'SPARKIE_TURN_DETECTION': turn_detection,
+                                             'SPARKIE_TURN_DETECTION': turn_detection, 'SPARKIE_WEB_PORT': '5178',
                                              'SPARKIE_WORKSPACE_SERVER': workspace_server or '127.0.0.1:1'}), \
                      patch('sparkie.zoom_audio.ZoomMacAudioMeeting', Meeting), \
                      patch.object(realtime_session, 'RealtimeAgent', Agent), \
@@ -89,7 +90,8 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, 0)
         if workspace_server:
             linked = next(e for e in events if e['type'] == 'workspace_linked')
-            self.assertEqual(shared_urls, [f"http://{workspace_server}/workspaces/{linked['workspace_id']}/present"])
+            query = urlencode({'workspace_id': linked['workspace_id'], 'server': workspace_server})
+            self.assertEqual(shared_urls, [f'http://127.0.0.1:5178/workspace.html?{query}'])
             self.assertTrue(any(e['type'] == 'zoom_share_requested' for e in events))
         else:
             self.assertEqual(shared_urls, [])
