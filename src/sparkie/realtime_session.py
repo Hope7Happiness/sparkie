@@ -22,6 +22,7 @@ from .task_center import TranscriptLedger, TaskCenter
 from .task_workers import configured_task_worker
 from .event_output import EventOutput
 from .semantic_turns import SEMANTIC_EAGERNESS, SemanticTurnEars
+from .workspace_services import WorkspaceServices
 
 
 async def share_workspace(meeting, workspace, emit):
@@ -259,6 +260,7 @@ async def run(args):
     running = []
     reason = 'completed'
     failure = None
+    sharing_prepared = True
     # Browser output is a media protocol; CLI output is only a view of events.jsonl.
     console = EventOutput(sys.stdout, required=browser_transport)
     if output_policy is not None:
@@ -269,6 +271,18 @@ async def run(args):
              context_entries=agent.wake_context.maxlen if wake_router else 0,
              timeout_seconds=wake_router.timeout if wake_router else None)
     try:
+        if (transport_name == 'zoom' and hasattr(getattr(audio, 'meeting', None), 'share_screen')
+                and os.getenv('SPARKIE_ZOOM_AUTO_WORKSPACE', '1') != '0'):
+            services = WorkspaceServices(Path(__file__).resolve().parents[2], workspace.server,
+                                         os.getenv('SPARKIE_WEB_PORT') or '5178', emit)
+            preparing = asyncio.create_task(services.ensure())
+            preparation_stop = asyncio.create_task(stop.wait())
+            running.extend([preparing, preparation_stop])
+            done, _ = await asyncio.wait([preparing, preparation_stop], return_when=asyncio.FIRST_COMPLETED)
+            if preparation_stop in done:
+                reason = 'stopped'
+                return 0
+            sharing_prepared = preparing.result()
         external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
         kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')
         # A reused meeting number reopens the same workspace; reset gives each
@@ -330,7 +344,11 @@ async def run(args):
         # is connected; share failures degrade to events, never session failures.
         meeting_obj = getattr(audio, 'meeting', None)
         if transport_name == 'zoom' and hasattr(meeting_obj, 'share_screen'):
-            await share_workspace(meeting_obj, workspace, emit)
+            if sharing_prepared:
+                await share_workspace(meeting_obj, workspace, emit)
+            else:
+                emit('zoom_share_skipped', reason='workspace_services_unavailable',
+                     hint='Workspace startup failed; inspect workspace_services_failed before restarting the session.')
         capturer = asyncio.create_task(capture())
         sender = asyncio.create_task(send_audio())
         control = asyncio.create_task(controls())

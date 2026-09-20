@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="640" viewBox="0 0 1440 640" role="img" aria-labelledby="title desc">
+  <title id="title">Sparkie — watch the demo</title>
+  <desc id="desc">A forest-green and warm-paper editorial cover: Your meeting. Already moving forward. Watch the Sparkie demo video.</desc>
+  <defs>
+    <linearGradient id="forest" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#102d26"/>
+      <stop offset="1" stop-color="#265143"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#e5b76d" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#e5b76d" stop-opacity=".8"/>
+    </linearGradient>
+    <clipPath id="frame"><rect width="1440" height="640" rx="28"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1440" height="640" fill="url(#forest)"/>
+    <path d="M810 780 C600 380 1510 600 1280 -160" fill="none" stroke="#91ab91" stroke-opacity=".1" stroke-width="220"/>
+    <path d="M900 760 C700 410 1450 520 1370 -110" fill="none" stroke="url(#ribbon)" stroke-width="2"/>
+    <path d="M950 760 C760 400 1480 510 1420 -110" fill="none" stroke="#e5b76d" stroke-opacity=".3" stroke-width="2"/>
+    <path d="M1000 760 C820 390 1510 500 1470 -110" fill="none" stroke="#e5b76d" stroke-opacity=".15" stroke-width="2"/>
+    <g fill="#f5f1e6" font-family="Arial, Helvetica, sans-serif">
+      <text x="88" y="102" font-size="28" font-weight="700" letter-spacing="5">SPARKIE</text>
+      <text x="84" y="256" font-family="Georgia, 'Times New Roman', serif" font-size="88">Your meeting.</text>
+      <text x="88" y="346" font-size="66" font-weight="700" letter-spacing="-2">Already moving</text>
+      <text x="88" y="424" font-size="66" font-weight="700" letter-spacing="-2">forward.</text>
+      <text x="90" y="555" font-size="23" fill="#e5b76d" letter-spacing="2">WATCH THE DEMO</text>
+    </g>
+    <circle cx="1135" cy="320" r="92" fill="#f5f1e6"/>
+    <path d="M1115 279 L1171 320 L1115 361 Z" fill="#204336"/>
+  </g>
+</svg>

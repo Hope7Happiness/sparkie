@@ -9,7 +9,7 @@ STATES = {0: 'idle', 1: 'connecting', 2: 'waiting_for_host', 3: 'in_meeting',
           4: 'disconnecting', 5: 'reconnecting', 6: 'failed', 7: 'ended',
           8: 'audio_ready', 9: 'other_meeting_in_progress', 10: 'waiting_room'}
 HINTS = {
-    'connecting': 'Zoom has not reached admission. Check host meeting availability and local network/VPN; no SDK cause was reported.',
+    'connecting': 'Zoom has not reached admission. Check host meeting availability, local network/VPN and native audio-device startup; no SDK cause was reported.',
     'waiting_for_host': 'Ask the host to start the configured meeting.',
     'waiting_room': 'Ask the host to admit Sparkie from the waiting room.',
     'in_meeting': 'Check computer audio, recording permission and virtual microphone readiness.',
@@ -39,6 +39,15 @@ class NativeJoinProgress:
         self.failure = None
 
     def feed_line(self, line):
+        if line in (b'SDK_INIT_BEGIN (check macOS Keychain prompts if this stalls)', b'JOIN_VOIP_BEGIN'):
+            self.stage, self.result = line.split(b' ', 1)[0].decode(), None
+            return True
+        match = re.fullmatch(rb'AUTO_JOIN_VOIP result=(-?[0-9]{1,5}) enabled=[01]', line)
+        if match:
+            self.stage, self.result = 'AUTO_JOIN_VOIP', int(match[1])
+            if self.result != 0:
+                self.failure = 'audio_join_config_failed'
+            return True
         match = re.fullmatch(rb'MEETING_STATUS state=([0-9]{1,5}) error=([0-9]{1,5}) reason=([0-9]{1,5})', line)
         if match:
             values = tuple(map(int, match.groups()))
@@ -48,13 +57,16 @@ class NativeJoinProgress:
             if self.state in (6, 7):
                 self.failure = 'meeting_failed' if self.state == 6 else 'meeting_ended_before_audio'
             return True
-        match = re.fullmatch(rb'(SDK_INIT|SDK_AUTH_REQUEST|SDK_AUTH_RESULT|MUTE_ON_JOIN|JOIN_REQUEST) result=(-?[0-9]{1,5})', line)
+        match = re.fullmatch(rb'(SDK_INIT|SDK_AUTH_REQUEST|SDK_AUTH_RESULT|MUTE_ON_JOIN|JOIN_REQUEST|AUDIO_SOURCE_SET|AUDIO_SOURCE_HELPER|JOIN_VOIP) result=(-?[0-9]{1,5})', line)
         if match:
             self.stage, self.result = match[1].decode(), int(match[2])
             if self.result != 0:
                 self.failure = {'SDK_INIT': 'sdk_init_failed', 'SDK_AUTH_REQUEST': 'sdk_auth_failed',
                                 'SDK_AUTH_RESULT': 'sdk_auth_failed', 'MUTE_ON_JOIN': 'mute_on_join_failed',
-                                'JOIN_REQUEST': 'join_request_failed'}[self.stage]
+                                'JOIN_REQUEST': 'join_request_failed',
+                                'AUDIO_SOURCE_SET': 'audio_source_failed',
+                                'AUDIO_SOURCE_HELPER': 'audio_source_failed',
+                                'JOIN_VOIP': 'audio_join_failed'}[self.stage]
             return True
         return False
 
@@ -97,6 +109,10 @@ class NativeJoinProgress:
                           hint=HINTS.get(name, 'Inspect the last meeting state and verify the current meeting configuration with the host.'))
         else:
             fields['hint'] = 'Check native startup/system permission prompts and SDK authentication progress.'
+        if self.stage == 'SDK_INIT_BEGIN':
+            fields['hint'] = 'Zoom SDK initialization has not returned. Check macOS Keychain prompts for SparkieZoom.'
+        elif self.stage == 'JOIN_VOIP_BEGIN':
+            fields['hint'] = 'The SDK audio-connect call has not returned. Inspect native CoreAudio/device startup; meeting admission alone does not prove audio readiness.'
         return fields
 
     def timeout_reason(self):

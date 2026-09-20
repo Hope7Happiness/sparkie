@@ -140,6 +140,33 @@ class JoinTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failure_details(caught.exception)['reason'], 'meeting_failed')
         self.assertEqual(failure_details(caught.exception)['meeting_error'], 8)
 
+    async def test_audio_connect_stall_reports_native_stage_without_stale_success(self):
+        self.write(['SDK_INIT result=0', 'AUTO_JOIN_VOIP result=0 enabled=0',
+                    'JOIN_REQUEST result=0', 'MEETING_STATUS state=3 error=101 reason=0',
+                    'AUDIO_SOURCE_SET result=0', 'JOIN_VOIP_BEGIN'])
+        with self.assertRaises(ZoomJoinError) as caught:
+            await self.meeting.join()
+        fields = failure_details(caught.exception)
+        self.assertEqual(fields['reason'], 'audio_readiness_timeout')
+        self.assertEqual(fields['native_stage'], 'JOIN_VOIP_BEGIN')
+        self.assertNotIn('sdk_result', fields)
+        self.assertIn('CoreAudio', fields['hint'])
+
+    async def test_keychain_wait_and_audio_setup_failure_have_distinct_evidence(self):
+        progress = NativeJoinProgress(self.log)
+        self.assertTrue(progress.feed_line(b'SDK_INIT_BEGIN (check macOS Keychain prompts if this stalls)'))
+        self.assertIn('Keychain', progress.snapshot()['hint'])
+        for line, reason in [(b'AUTO_JOIN_VOIP result=8 enabled=0', 'audio_join_config_failed'),
+                             (b'AUDIO_SOURCE_SET result=8', 'audio_source_failed'),
+                             (b'JOIN_VOIP result=8', 'audio_join_failed')]:
+            with self.subTest(line=line):
+                self.meeting.join_progress = NativeJoinProgress(self.log)
+                self.write([line.decode()])
+                with self.assertRaises(ZoomJoinError) as caught:
+                    self.meeting.check_join_progress()
+                self.assertEqual(caught.exception.reason, reason)
+        self.assertFalse(progress.feed_line(b'JOIN_VOIP_BEGIN private details'))
+
     async def test_handshake_hang_is_monitored_and_cancelled(self):
         self.write(['MEETING_STATUS state=1 error=101 reason=0'])
         entered = asyncio.Event()

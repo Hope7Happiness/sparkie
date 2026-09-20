@@ -2,6 +2,7 @@
 import asyncio
 import contextlib
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -19,7 +20,11 @@ from .zoom_config import meeting_config, private_write
 class ZoomAudioMeeting:
     """Linux Docker bridge; the SDK runs in a container, the host speaks framed PCM."""
 
-    def __init__(self, runtime, *, max_seconds=300, join_timeout=120):
+    def __init__(self, runtime, *, max_seconds=300, join_timeout=None):
+        if join_timeout is None:
+            join_timeout = float(os.getenv('SPARKIE_ZOOM_JOIN_TIMEOUT_SECONDS') or '600')
+        if not math.isfinite(join_timeout) or join_timeout <= 0:
+            raise ValueError('Zoom join timeout must be a positive, finite number of seconds')
         self.runtime = Path(runtime).resolve()
         self.max_seconds, self.join_timeout = max_seconds, join_timeout
         self.name = 'sparkie-zoom-voice-' + secrets.token_hex(4)
@@ -205,7 +210,9 @@ class ZoomAudioMeeting:
     async def receive(self):
         try:
             while True:
-                kind, data = await asyncio.wait_for(self.read_packet(), 10 if self.audio_ready.is_set() else self.join_timeout)
+                # Admission can still be pending after an early readiness packet.
+                timeout = self.join_timeout if self._joining or not self.audio_ready.is_set() else 10
+                kind, data = await asyncio.wait_for(self.read_packet(), timeout)
                 if kind in (b'A', b'U'):
                     frame = self.decode_audio(kind, data)
                     data = frame.pcm

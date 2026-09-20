@@ -320,3 +320,10 @@ preferences disable the generation animation. Existing Zoom wake and interrupted
 response guards also apply to the presentation tools.
 
 Validate sharing and audio on a second participant device; local bridge tests and compilation do not establish remote visibility or audibility.
+
+
+## Zoom startup services and admission budget
+
+macOS Zoom Realtime starts or reuses the local workspace backend and frontend before joining unless SPARKIE_ZOOM_AUTO_WORKSPACE=0. It invokes sparkie.cli for the backend and the installed Vite frontend. Healthy services survive meeting exit; startup failures disable automatic sharing for the session but allow voice to continue.
+
+The total join budget defaults to 600 seconds, configurable through SPARKIE_ZOOM_JOIN_TIMEOUT_SECONDS as a positive finite number. It covers SDK startup, host/admission waiting and audio readiness. Bridge reads retain the join budget until join completes, even after early audio-ready packets; the normal 10-second read timeout applies afterwards. Meeting duration starts at audio readiness. The native 60-second authentication callback deadline remains separate and cannot expire after successful authentication.

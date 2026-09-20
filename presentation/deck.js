@@ -18,7 +18,7 @@
     return match ? normalize(Number(match[1]) - 1, Number(match[2] || 1) - 1) : normalize(0);
   }
   const hashFor = (state) => '#' + number(state.slide) + (state.beat ? '/' + (state.beat + 1) : '');
-  let state = readHash(), speakerWindow, transition;
+  let state = readHash(), speakerWindow, transition, demoPlayer;
   let running = false, accumulated = 0, started = 0;
   const elapsed = () => accumulated + (running ? performance.now() - started : 0);
   const formatTime = (ms) => String(Math.floor(ms / 60000)).padStart(2, '0') + ':' + String(Math.floor(ms / 1000 % 60)).padStart(2, '0');
@@ -186,7 +186,7 @@
     $('#beat-progress').setAttribute('aria-label', 'Item ' + (state.beat + 1) + ' of ' + story.counts[state.slide]);
     setText('#slide-announcement', 'Slide ' + (state.slide + 1) + ', item ' + (state.beat + 1) + ' of ' + story.counts[state.slide] + '. ' + data.slides[state.slide].title);
     $$('.overview-card').forEach((card, i) => card.setAttribute('aria-current', String(i === state.slide)));
-    if (state.slide !== 4) $('#demo-video').pause();
+    if (state.slide !== 4) demoPlayer?.pause();
   }
   if (presenter) {
     document.body.dataset.mode = 'presenter'; document.body.dataset.theme = 'light';
@@ -232,8 +232,8 @@
       } catch { setText('#slide-announcement', 'Use your browser fullscreen command.'); }
     };
     const video = $('#demo-video'); let objectURL;
-    function loadVideo(src) { video.pause(); $('#media-error').hidden = true; video.hidden = false; $('#video-placeholder').hidden = true; video.src = src; video.load(); }
-    video.addEventListener('error', () => { video.hidden = true; $('#video-placeholder').hidden = false; setText('#media-error', 'This recording could not be played. Choose a browser-compatible video such as H.264 MP4.'); $('#media-error').hidden = false; });
+    demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#video-placeholder'), error:$('#media-error')});
+    const loadVideo = (src) => demoPlayer.load(src);
     $('#choose-video').onclick = $('#replace-video').onclick = () => $('#video-input').click();
     $('#video-input').onchange = (event) => {
       const file = event.target.files[0]; if (!file) return; if (objectURL) URL.revokeObjectURL(objectURL);
