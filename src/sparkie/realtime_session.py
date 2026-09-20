@@ -47,6 +47,9 @@ async def run(args):
                     workspace.utterance(event['text'], 'sparkie', 'bot'))
         elif kind == 'human_turn_committed':
             ledger.append({**event, 'event_id': 'control:' + fields['turn_id']})
+            if event.get('text'):
+                asyncio.get_running_loop().create_task(
+                    workspace.utterance(fields['text'], fields.get('source') or 'human', 'human'))
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')
