@@ -98,6 +98,8 @@ ParticipantEars 按用户分流，每条连接独立断句。仅非零 PCM 建�
 
 Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台连接和后台任务仍继续，但自动语音输出关闭。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
 
+积压输入使用 get_nowait 优先排空，空队列才进入带超时的等待；分流器每路由 32 帧主动让出执行。避免桥接收器批量读入 A/U 时，分流器逐帧让出导致入口队列被调度差异填满。保留原有容量与显式超限行为，不靠扩大队列掩盖慢消费者。
+
 启动 transcript_ready 的 readiness=router 仅表示分流器可接收；每位用户的真实连接就绪单独记录 participant_stt_ready。结束时先停止分轨输入、排空并刷新转写，最多等 10 秒，超时记录缺口，然后关闭所有连接。transcript.jsonl 按结果到达顺序保存，后台快照保留身份与时间；run.json 的 transcript 按 timestamp_ms 排序。
 
 同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。当前前台通过独立分轨 VAD 打断，不依赖混音门控。离线或合成输入验证不作为真实多人会议成功证据。
@@ -241,7 +243,7 @@ Failed/cancelled join cancels its handshake task and reader, closes its bridge, 
 
 `agent_runtime.py` 每条 ingest 的最终 human 转录产出动作列表：IGNORE / RESPOND / CREATE_TASK / PRESENT_ARTIFACT（Update/idea/decision 等记忆类动作后续以同词汇扩展）。路由目前是启发式：`wake.addressed_request` 判唤醒，研究类关键词建任务，"show us / 展示" 类呈现最近 ready artifact，其余唤醒请求发 `agent.respond` 事件（实际语音应答仍由 voice adapter/既有 engine 消费，runtime 不合成语音）。CREATE_TASK 存 tasks 表并发 `task.started`，异步 worker 完成后写 artifacts 表、发 `task.completed` + `artifact.ready`；PRESENT_ARTIFACT 写 `meeting_state.active_artifact_id` 并发 `artifact.present`。worker 签名为 `async (instruction, transcript) -> {type,title,summary,content}`；`--worker codex` 复用 `CodexTaskWorker`（真实后台任务），`demo` 返回明确标注 simulated 的占位 artifact。
 
-`workspace_server.py` 由 `sparkie workspace` 启动（默认 127.0.0.1:8790，SQLite 存 `output/workspace.db`）：`GET /api/meetings/resolve?kind=..&external_id=..`（resolve_or_create；`reset=1` 时清空该 workspace 的 transcript/tasks/artifacts/meeting_state 并向订阅者广播 `workspace.reset`——会议号复用时每次入会开一张新画布，meetings 行与 workspace_id 不变）、`GET /api/workspaces`（全部 workspace + 计数，落地列表）、`GET /api/workspaces/<id>`（snapshot）、`GET /api/artifacts/<id>`（单个 artifact 含 content）、`GET /workspaces/<id>/present`（自包含 stage 页，订阅事件流渲染 artifact.present/ready，供 native 共享窗口加载，不依赖 vite）、`GET /healthz`、`WS /workspaces/<id>/events`（广播流）。客户端消息：`{"type":"utterance","text":..,"speaker":..,"source":"human|bot","is_final":..}` ingest；`{"type":"end_meeting"}` 置 ended 并排队报告任务；`{"type":"cancel_task","task_id":..}` 取消运行中任务并发 `task.cancelled`；`{"type":"task_update","task_id":..,"status":..,"request":..,"result":..,"error":..,"error_type":..,"progress":..}` 把 live session 的 TaskCenter 生命周期 upsert 进 tasks 表并广播 `task.updated`（task_id 由会话侧拥有，与 runtime 自建的 `t_` 前缀 id 不冲突）；completed 且带 result 时落成 artifacts 行（content={markdown: result}）并广播 `artifact.ready`，可被 "show us" / artifact.present 投放。utterance 消息可带 `"live": true`：live session 的镜像转写只保留 PRESENT_ARTIFACT 动作，跳过 RESPOND/CREATE_TASK，避免与会话自己的 agent 双重触发；浏览器 cancel_task 对镜像任务同样生效——`task.cancelled` 广播回到会话侧 WS，由 session 回调 TaskCenter.cancel 真正杀 job。websockets 的 HTTP 层不读 body，所有写入都走事件 socket；CORS 全开、无 share token 与鉴权，仅限本机 MVP。RTMS webhook、Zoom App 面板、`/m/<token>` 私链均未实现；voice output 仍走既有 MeetingAdapter/AudioMeeting 路径，不在此层。
+`workspace_server.py` 由 `sparkie workspace` 启动（默认 127.0.0.1:8790，SQLite 存 `output/workspace.db`）：`GET /api/meetings/resolve?kind=..&external_id=..`（resolve_or_create；`reset=1` 时清空该 workspace 的 transcript/tasks/artifacts/meeting_state 并向订阅者广播 `workspace.reset`——会议号复用时每次入会开一张新画布，meetings 行与 workspace_id 不变）、`GET /api/workspaces`（全部 workspace + 计数，落地列表）、`GET /api/workspaces/<id>`（snapshot）、`GET /api/artifacts/<id>`（单个 artifact 含 content）、`GET /healthz`、`WS /workspaces/<id>/events`（广播流）。客户端消息：`{"type":"utterance","text":..,"speaker":..,"source":"human|bot","is_final":..}` ingest；`{"type":"end_meeting"}` 置 ended 并排队报告任务；`{"type":"cancel_task","task_id":..}` 取消运行中任务并发 `task.cancelled`；`{"type":"task_update","task_id":..,"status":..,"request":..,"result":..,"error":..,"error_type":..,"progress":..}` 把 live session 的 TaskCenter 生命周期 upsert 进 tasks 表并广播 `task.updated`（task_id 由会话侧拥有，与 runtime 自建的 `t_` 前缀 id 不冲突）；completed 且带 result 时落成 artifacts 行（content={markdown: result}）并广播 `artifact.ready`，可被 "show us" / artifact.present 投放。utterance 消息可带 `"live": true`：live session 的镜像转写不产生动作；Realtime 通过显式 artifact.control 指令选择展示，避免与会话自己的 agent 双重触发；浏览器 cancel_task 对镜像任务同样生效——`task.cancelled` 广播回到会话侧 WS，由 session 回调 TaskCenter.cancel 真正杀 job。websockets 的 HTTP 层不读 body，所有写入都走事件 socket；CORS 全开、无 share token 与鉴权，仅限本机 MVP。RTMS webhook、Zoom App 面板、`/m/<token>` 私链均未实现；voice output 仍走既有 MeetingAdapter/AudioMeeting 路径，不在此层。
 
 `workspace_client.py` 是会议侧容错镜像：`realtime_session`（browser/local/zoom 三种 transport）与旧 `zoom_session` 启动时以 `reset=1` resolve workspace（zoom 用 `ZOOM_MEETING_ID` 作 `zoom_uuid` external_id），最终 human 转写与 assistant_transcript（bot source）镜像为 `live: true` 的 utterance，TaskCenter 的 `background_task` 事件镜像为 `task_update`（queued/running/completed/failed/cancelled 全程可见）；client 订阅广播流，`task.cancelled` 广播回调到 `center.cancel`，页面上的取消按钮可终止 live job；连不上服务器或任何发送失败都静默降级为 no-op，不影响会议。会话结束时发 `end_meeting`：runtime 置 `status=ended` 广播 `meeting.ended`，有转写且有 worker 时经正常任务管线产出报告 artifact（指令为转写内 Markdown 纪要），`ended` 状态会议的新 artifact 自动 `artifact.present`——会后打开页面即见纪要。页面 `/workspace.html` 展示转写、任务（含取消）、artifacts 与 stage；artifact.content 按 markdown/image/pdf/url shape 渲染，data URI 转 blob URL 供 PDF iframe。
 
@@ -325,3 +327,134 @@ Deepgram Finalize response. A pending boundary times out after 5s. Detector or
 alignment failure uses participant_input_failed and a semantic_turn_unavailable
 coverage gap, without falling back to fragmented wake requests. Actual API
 configuration, usage implications and validation are in semantic-turn-detection.md.
+
+### Browser voice artifact board
+
+The non-Zoom voice page at / embeds the existing workspace renderer in artifact-only mode. SessionController retains workspace_linked.workspace_id as workspaceId in /api/status independently of the bounded event history; it remains available after normal session end and is cleared on a new session. The page binds the iframe once per workspace, restores it on refresh, and clears the previous board while the next session connects. Voice controls and background-task cancellation/reporting remain in the parent page.
+
+/workspace.html?workspace=<id>&server=/workspace-api&embedded=1 opens an existing workspace directly, without resolving a Zoom meeting or resetting it. Completed artifacts populate the catalog without changing presentation. Embedded mode restores only the explicitly selected artifact from the snapshot. Standalone navigation retains the full workspace view. The Vite /workspace-api HTTP/WebSocket proxy targets SPARKIE_WORKSPACE_SERVER (default 127.0.0.1:8790), so LAN clients use the same origin instead of connecting to their own localhost. Snapshot refresh after WebSocket subscription catches artifacts produced during initial connection. Workspace outages do not stop voice sessions; results remain in the original task list, and the board reports its connection state.
+
+
+### Realtime artifact presentation controls and generation status
+
+Devin/background workers produce content; Realtime owns presentation for live sessions. Realtime has list_artifacts, present_artifact(artifact_id), and hide_artifact tools through the injected WorkspaceClient. The catalog returns up to 50 recent metadata records (including task_id, title and status), not whole documents. Show/switch targets an actual ready artifact in the same workspace. Hide clears the shared active_artifact_id without deleting artifacts or cancelling jobs. Existing interrupted-response guards also fence these tool calls.
+
+The workspace socket accepts artifact.control with action=list|present|clear, request_id, generation, and optional artifact_id. It returns artifact.control.result to the requester. Present persists selection and broadcasts artifact.present; clear broadcasts artifact.cleared. Invalid, unavailable, cross-workspace and stale-generation requests return explicit errors. Client requests use the existing two-second deadline; timeout means unknown outcome, never success. An acknowledgement proves server selection, not that every browser rendered it. Manual board selection uses this same server path. Live transcript mirroring no longer applies keyword-based presentation; legacy standalone/demo routing retains its existing behavior. Live-session end reports still generate but do not automatically replace the selected document after Realtime disconnects.
+
+The board shows separate generation cards for queued/running tasks, with document shimmer animation while running and static waiting state while queued. Completion, failure, cancellation and reset remove the associated card; other in-progress tasks and the selected document remain visible. The animation indicates task activity, not incremental document contents or a measured completion percentage. Reduced-motion preferences disable motion.
+
+Realtime's presentation prompt now makes the decision context-dependent on user
+turns and task-result notifications: proactively present a ready report when it
+supports the current explanation/review or the user is waiting for it. Match task
+ID, title and summary, including older reports; keep the current selection for
+unrelated completions and avoid re-presenting an already selected report. Simple
+answers/status acknowledgements need no board change. Respect voice-only/clear
+requests and clarify only when context and catalog leave equally plausible
+reports. Catalog metadata does not imply access to the complete report body.
+These are model instructions, not a deterministic automatic selection policy.
+They apply when the next Realtime session starts; an existing connection retains
+its previous instructions. Reference: https://developers.openai.com/api/docs/guides/realtime-conversations .
+
+Validation: 301 Python tests, 34 frontend tests, frontend build and both offline demos passed. An isolated browser fixture traversed actual Workspace HTTP/WebSocket, Realtime tool handling and presentation events: generation/stop, reduced motion, no automatic selection on completion, explicit present/hide, refresh and session clearing. No new real-model, microphone or Zoom acceptance was performed. Realtime tool result handling follows https://developers.openai.com/api/docs/guides/realtime-conversations .
+
+### Worker document content versus completion summary
+
+This extends the earlier summary-only task_update contract. For a generated Markdown
+file or raster image, Devin and Codex workers declare their primary deliverable in one fenced
+sparkie-artifact block containing JSON with a path field. The shared task_artifacts
+processor strips the declaration from the completion summary and snapshots the
+UTF-8 file on the worker host before completion is emitted. Ordinary prose paths
+and incoming workspace socket messages never trigger local file reads.
+
+The file must resolve inside the worker workspace or the user's Desktop and be a
+regular file. Markdown (.md/.markdown) must be nonempty UTF-8 and fit in 128 KiB.
+Raster images (.png/.jpg/.jpeg/.webp/.gif) must fit in 2 MiB and their file signatures
+must match their declared extension; SVG/HTML are not image deliverables. Images
+are snapshotted as data URLs in content.image, with the original filename for
+download. The workspace socket accepts up to 4 MiB per message to carry base64
+images; the voice console/event stream carries metadata only, keeping media out of
+its bounded audio/control pipe. Full snapshots remain in tasks.json and artifacts.
+Symlinks resolving outside those roots are rejected. One primary deliverable is
+supported per task. Reading happens off the voice event loop. This is an explicit
+worker output contract, not automatic discovery of files changed by shell tools;
+workers must emit the declaration for file deliverables.
+
+background_task/task_update now optionally carries artifact={type,content:{markdown}
+or {image,filename},source_path}. The workspace stores that content while the task
+result stays the concise completion summary. Task status
+and spoken-result notifications include only source_path metadata, not the full
+document. Inline text answers without a declaration keep their existing rendering.
+An invalid/unreadable declared document produces artifact_error, shown in the task
+panel, and no misleading summary artifact; it does not undo the completed task.
+Standalone workspace workers use the same materializer. Artifact creation does
+not change the active presentation; Realtime/manual selection still owns that.
+
+Regression coverage exercises file creation through TaskCenter and AgentRuntime,
+exact document snapshots, title extraction, concise voice notifications, preserved
+selection, duplicate completion, and invalid/out-of-scope files. Browser inspection
+of the reported existing artifact verified the actual Markdown heading, sections
+and table after repairing its stored content. This is document pipeline validation,
+not new live-model or Zoom acceptance.
+
+Validation: 306 Python tests, 34 frontend tests, frontend build, primitive.sh and
+demo.sh passed for this document-content change.
+
+### Artifact names and direct previews
+
+Realtime delegate_task now requires artifact_title, a short user-facing name
+(1–80 characters) chosen before delegation. Execution details stay in request.
+TaskCenter persists and emits the name from queued onward; the workspace migrates
+existing task tables with a nullable artifact_title column. Both waiting cards and
+task lists show this name, including after refresh, and use a neutral Task output
+fallback for older unnamed tasks instead of exposing execution prompts. The final
+artifact keeps the supplied name in its catalog; older tasks derive one from their
+content. This does not select or auto-present an artifact.
+
+Markdown stage/fullscreen views render the document itself, without another title
+and summary wrapped around it; catalog cards retain metadata. Markdown downloads
+also preserve the original body. Image downloads export the image itself.
+The latest Boston test reproduced duplicate preview metadata and the PNG rejection
+unsupported_document_type. Regression coverage includes naming through the Realtime
+tool before the worker runs, title persistence, legacy database migration, a media
+payload above the former 1 MiB socket limit, exact Markdown exports and wrapper-free
+previews. Browser verification of the reported test confirmed one Markdown title
+in both previews, and byte-for-byte delivery and actual decoding of its existing
+1334 × 1050 PNG. An isolated synthetic task exercised named waiting cards over
+real HTTP/WebSocket and refresh; no new model or Zoom acceptance was performed.
+309 Python tests, 36 frontend tests, frontend build and both offline demos passed.
+For the suite, SPARKIE_WORKSPACE_SERVER=127.0.0.1:1 prevented session fixtures from
+mirroring into the running live workspace service; workspace integration tests
+still use their own isolated server ports.
+
+### Zoom Realtime artifact sharing
+
+macOS Zoom Realtime uses the same TaskCenter, artifact_title field, file/image
+materializer and Realtime presentation tools as browser voice. Once the bridge is
+ready and WorkspaceClient is connected, the session sends the V bridge command
+with /workspaces/<workspace_id>/present. The native receiver opens that backend
+page in a WKWebView and requests Zoom app-window sharing. This route requires no
+Vite server. Linux receivers do not implement this app-window sharing path.
+
+The self-contained page follows explicit artifact.present/artifact.cleared and
+snapshot.state.active_artifact_id, never the newest artifact automatically. It
+renders Markdown without repeated metadata, shows raster images, and displays
+short names and activity for queued/running tasks. Reconnect restores the current
+selection and task names; reset clears them. Selection revisions fence late
+artifact fetches, and snapshot seq fences buffered socket events. Reduced-motion
+preferences disable the generation animation. Existing Zoom wake and interrupted
+response guards also apply to the presentation tools.
+
+Verification uses synthetic Zoom bridge/model/worker input with real TaskCenter,
+Workspace HTTP/WebSocket and Zoom output policy, plus an actual browser loading
+the backend presentation page. It covers named image delegation, explicit
+show/hide, interruption, session share-URL wiring, named generation, image decoding,
+no automatic takeover, refresh and clear. Native compile/link was checked against
+the installed macOS Zoom SDK (the configured SDK source directory was unavailable).
+No real Zoom meeting, remote visibility, sharing permission or media latency was
+validated. zoom_share_requested means a bridge request; zoom_share_state=sharing
+means SDK acceptance, not another participant seeing the screen. Rebuild the
+native receiver on the Zoom host before using the new V command; see realtime.md.
+
+Merged-build checks: 314 Python tests, 36 frontend tests, frontend production
+build, both offline demos and native compile/link passed. Session test fixtures
+use isolated workspace endpoints so they cannot trigger the live task worker.

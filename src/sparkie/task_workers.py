@@ -8,6 +8,7 @@ import signal
 import tempfile
 from .providers import ProviderError
 from .devin_acp import DevinTaskWorker
+from .task_artifacts import ARTIFACT_INSTRUCTIONS
 
 
 class CodexTaskWorker:
@@ -44,6 +45,7 @@ class CodexTaskWorker:
             # Keep configured tool environments; use CLI login instead of the voice API key for billing.
             child_env = dict(os.environ)
             child_env.pop('OPENAI_API_KEY', None)
+            instructions += ARTIFACT_INSTRUCTIONS
             process = await asyncio.create_subprocess_exec(*command, stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
                 env=child_env, start_new_session=True, limit=4 * 2**20)

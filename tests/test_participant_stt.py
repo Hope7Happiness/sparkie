@@ -129,6 +129,57 @@ class ParticipantTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MacPacketTests(unittest.IsolatedAsyncioTestCase):
+    async def test_buffered_dual_input_drains_without_starving_participant_stt(self):
+        from test_zoom_audio import packet
+        with tempfile.TemporaryDirectory() as root:
+            meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
+            meeting.mixed_audio = True
+            received, mixed = [], []
+            class Ears:
+                async def transcribe(self, frames):
+                    self.on_ready()
+                    async for item in frames:
+                        received.append(item.pcm)
+                        if len(received) % 32 == 0:
+                            await asyncio.sleep(0)
+                    yield TranscriptEvent('meeting', 'done', 0, 'all audio consumed')
+            router = ParticipantEars(Ears)
+            async def transcribe():
+                return [e async for e in router.transcribe(meeting.participant_audio_stream())]
+            async def foreground():
+                async for item in meeting.audio():
+                    mixed.append(item.pcm)
+            meeting.reader = asyncio.StreamReader()
+            meeting.reader_task = asyncio.create_task(meeting.receive())
+            stt = asyncio.create_task(transcribe())
+            fg = asyncio.create_task(foreground())
+            count = 6000
+            pcm = struct.pack('<h', 100) * 320
+            meeting.reader.feed_data(b''.join(
+                packet(b'A', pcm) + packet(b'U', struct.pack('!IQ', 10, i * 10) + pcm)
+                for i in range(count)))
+            try:
+                async with asyncio.timeout(30):
+                    while meeting.frames_received < count * 2 or len(mixed) < count:
+                        if meeting.failure:
+                            raise meeting.failure
+                        if stt.done():
+                            stt.result()
+                        await asyncio.sleep(.001)
+                meeting.input_finished = True
+                meeting.participant_input_done.set()
+                events = await asyncio.wait_for(stt, 5)
+                self.assertEqual(received, [pcm] * count + [b'\0\0' * 16000])
+                self.assertEqual(mixed, [pcm] * count)
+                self.assertEqual([e.speaker_id for e in events], ['zoom:10'])
+                self.assertIsNone(meeting.participant_failure)
+                self.assertLess(meeting.participant_max_queued, 500)
+            finally:
+                stt.cancel()
+                fg.cancel()
+                await asyncio.gather(stt, fg, return_exceptions=True)
+                await meeting.leave()
+
     async def test_realtime_splits_user_stt_from_mixed_foreground_and_preserves_capture_gating(self):
         from sparkie.realtime_zoom_audio import RealtimeZoomAudio
         from test_zoom_audio import packet

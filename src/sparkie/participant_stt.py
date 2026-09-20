@@ -32,8 +32,11 @@ class ParticipantEars:
             try:
                 while True:
                     try:
-                        frame = await asyncio.wait_for(state['queue'].get(),
-                                                       .1 if self.continuous_silence else self.idle_seconds)
+                        try:
+                            frame = state['queue'].get_nowait()
+                        except asyncio.QueueEmpty:
+                            frame = await asyncio.wait_for(state['queue'].get(),
+                                                           .1 if self.continuous_silence else self.idle_seconds)
                     except TimeoutError:
                         if not self.continuous_silence:
                             return
@@ -104,6 +107,7 @@ class ParticipantEars:
 
         async def route():
             nonlocal serial
+            routed = 0
             try:
                 if self.on_ready:
                     self.on_ready()  # Router ready; per-user provider readiness is a separate event.
@@ -130,8 +134,11 @@ class ParticipantEars:
                         task.add_done_callback(runners.discard)
                     state['last_ms'] = frame.timestamp_ms + len(frame.pcm) / 64
                     state['queue'].put_nowait(frame)
-                    # A buffered source must not starve the independent STT consumers.
-                    await asyncio.sleep(0)
+                    # Drain a bounded batch before yielding: yielding per frame lets
+                    # the dual-input bridge refill faster than this router drains.
+                    routed += 1
+                    if routed % 32 == 0:
+                        await asyncio.sleep(0)
                 for state in list(active.values()):
                     if state['accepting']:
                         state['accepting'] = False

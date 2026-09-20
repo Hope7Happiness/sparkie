@@ -1,10 +1,12 @@
 """Best-effort client that mirrors a live meeting session into a workspace.
 
 The meeting never depends on the workspace server: every failure disables the
-client silently so Zoom audio / realtime keep running without it.
+mirroring silently so Zoom audio / realtime keep running without it.
+Explicit artifact controls return acknowledged results or bounded errors.
 """
 import asyncio
 import json
+from uuid import uuid4
 
 import httpx
 from websockets.asyncio.client import connect
@@ -19,6 +21,7 @@ class WorkspaceClient:
         self.enabled = True
         self.on_message = None
         self._drain = None
+        self._requests = {}
 
     async def open(self, kind, external_id, title="", reset=False):
         try:
@@ -45,6 +48,12 @@ class WorkspaceClient:
         try:
             async for raw in self.socket:
                 message = json.loads(raw)
+                if message.get('type') == 'artifact.control.result':
+                    pending = self._requests.get(message.get('request_id'))
+                    if pending is not None and not pending.done():
+                        pending.set_result({k: v for k, v in message.items()
+                                            if k not in ('type', 'request_id')})
+                    continue
                 if message.get('type') == 'workspace.reset' and message.get('generation') != self.generation:
                     self.enabled = False
                     return
@@ -56,6 +65,32 @@ class WorkspaceClient:
                     pass
         except Exception:
             pass
+        finally:
+            self.enabled = False
+            for pending in list(self._requests.values()):
+                if not pending.done():
+                    pending.set_result({'ok': False, 'error': 'workspace_unavailable'})
+
+    async def artifact_control(self, action, artifact_id=None):
+        if not self.enabled or self.socket is None:
+            return {'ok': False, 'error': 'workspace_unavailable'}
+        if len(self._requests) >= 32:
+            return {'ok': False, 'error': 'workspace_busy'}
+        request_id = uuid4().hex
+        pending = asyncio.get_running_loop().create_future()
+        self._requests[request_id] = pending
+        try:
+            async with asyncio.timeout(self.timeout):
+                await self.socket.send(json.dumps({'type': 'artifact.control',
+                    'request_id': request_id, 'generation': self.generation,
+                    'action': action, 'artifact_id': artifact_id}))
+                return await pending
+        except TimeoutError:
+            return {'ok': False, 'error': 'workspace_timeout', 'outcome': 'unknown'}
+        except Exception:
+            return {'ok': False, 'error': 'workspace_unavailable'}
+        finally:
+            self._requests.pop(request_id, None)
 
     async def send(self, message):
         if not self.enabled or self.socket is None:
@@ -73,7 +108,7 @@ class WorkspaceClient:
         await self.send({"type": "task_update", **fields})
 
     async def end_meeting(self):
-        await self.send({"type": "end_meeting"})
+        await self.send({"type": "end_meeting", "live": True})
         # Give the report task a moment to be queued before the socket closes.
         if self.enabled:
             await asyncio.sleep(.3)

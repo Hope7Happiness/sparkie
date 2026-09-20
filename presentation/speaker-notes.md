@@ -25,7 +25,14 @@ Do not read all visible dialogue verbatim. Give the scene its premise, let the n
 
 ## Demo preparation
 
-Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. Show discussion → explicit delegation → the saved file → follow-up edit. A human opens and shares the file. Label shortened waits. Until media is supplied, identify the slot as a planned demo; do not present the placeholder as evidence.
+Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. The longer session follows the [continuous three-person rehearsal script](../frontend/public/demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
+
+- Rehearse the same Zoom session and workspace. Keep the actual Tasks panel visible during role discussion. Status and tool-action text are event-driven; do not add a fictional percentage, ETA, or streaming document preview.
+- Ask the worker to save demo-outline.md **and return the complete Markdown body**. Ask for the full body again after the role update. The live artifact contains the task result; a file path or “saved” message does not display the document.
+- After a ready result, say “Sparkie, show us the outline.” After the follow-up completes, say “Sparkie, show us the updated outline.” Verify that the selected artifact is the intended result; presentation selects the latest ready artifact. If the embedded board already shows it, skip the redundant request. If voice presentation fails, use Present on the correct card and describe the fallback accurately.
+- Browser artifact presentation and sharing that browser window into Zoom are distinct steps. Rehearse the actual sharing path and confirm that another participant sees the intended content. Do not infer remote visibility from the local panel.
+- Select the key moments for the 60-second excerpt; this is a playback budget, not an end-to-end performance claim. Label shortened waits and retain the actual agent voice. Until media is supplied, identify the slot as planned and keep the placeholder label.
+- The light “we’ve been recording” ending in the rehearsal script only applies when recording has actually been running. Otherwise use the ordinary “Great. Let’s record it.” ending.
 
 ## 01 — Meet your fourth teammate. (20s)
 
@@ -53,15 +60,15 @@ Here is a product review. One person favors guided onboarding, another a simpler
 
 ## 05 — Watch the work happen. (60s)
 
-In the real demo, the team is planning the film you are watching. Sparkie receives the request to create the outline while the discussion continues. We open the real file, then ask it to incorporate the agreed recording roles. Listen for the acknowledgement, but look at the file for evidence of completion.
+The team is planning the film you are watching. Sparkie takes the outline task; while it works, the team agrees who will narrate, record, and edit. Watch the real task status and tool activity beside the conversation. When the outline is ready, they ask Sparkie to show it, review the roles against it, and request a follow-up update. The final artifact brings the outline and agreed roles together. Listen for the acknowledgement, but inspect the actual content for completion.
 
-**On stage:** Use a real 60-second clip. Placeholder imagery is not evidence. Label shortened waits. A human opens and shares the file. If no recording is supplied, describe the planned demo slot honestly.
+**On stage:** Use a real 60-second excerpt: delegation → Tasks activity during role discussion → show us the outline → confirmed roles → update activity → latest artifact. These are selected moments from a longer session, not a 60-second latency claim. Label shortened waits. Verify the right workspace and artifact version. If voice presentation fails, click Present; describe a manual fallback honestly. Keep placeholders labelled until real media is supplied.
 
 ## 06 — Two rhythms. One teammate. (35s)
 
-An acknowledgement belongs to the voice loop. Execution belongs to a separate worker. The worker starts with the finalized transcript available at delegation and works in the project while the room continues talking. If a person interrupts, the voice yields; this does not automatically cancel the task. A completed result returns through the task layer and can be reported at a quiet moment.
+An acknowledgement belongs to the voice loop. Execution belongs to a separate worker. It starts with the finalized transcript available at delegation while the team keeps talking. Actual task events can show whether it is queued, running, or done, and which tool action is underway. Human interruption yields the voice without automatically cancelling the task. The completed result can be reported aloud and inspected as an artifact. Later decisions need an explicit follow-up.
 
-**On stage:** Four beats: delegate, work while talking, human interruption, result. The illuminated routes are a conceptual sequence, not measured timing. Task cancellation is an explicit operation.
+**On stage:** Four beats: delegate, work while talking, human interruption, result. Slide routes and the illustrated progress bar are conceptual, not live telemetry or measured timing. Real Tasks activity is shown in the recording: status and tool actions, without a completion percentage or time estimate. Task cancellation is explicit.
 
 ## 07 — Read the room. (25s)
 
@@ -77,9 +84,9 @@ Separate human tracks enter from Zoom. Two parallel adapters supply the words an
 
 ## 09 — From request to review. (45s)
 
-Here is what a useful handoff looks like at the artifact level. The documented Zoom demo creates an outline, then updates it with roles; the file must be opened and checked. For a concrete engineering walkthrough, an unused audio queue provides a failure to reproduce, a boundary to fix, and a regression to verify. For a customer follow-up, the useful output preserves priorities and explicitly leaves an unagreed date open. The latter two are worked scenarios. We are showing what to ask for and how to judge the result, not claiming every workflow has been run successfully in a meeting.
+Here is what a useful handoff looks like at the artifact level. The demo plan asks for an outline, keeps real task activity visible while roles are discussed, then shows the result and adds the confirmed roles to the same document. Review the latest artifact against the saved file; a Done badge alone is not enough. For engineering, trace an audio queue failure, fix the boundary, and verify a regression. For a customer follow-up, preserve the priorities and leave unagreed dates open. The latter two are worked scenarios; the demo recording must supply the real-session evidence.
 
-**On stage:** Three beats: demo film, bug triage, customer follow-up. Artifact panels are labelled illustrative or expected. Real-session evidence belongs in the recording slot. Keep the acceptance check visible.
+**On stage:** Three beats: demo film, bug triage, customer follow-up. Keep the illustrative or expected labels on these panels. The latest follow-up result can be a new artifact even though it updates the same file. Only the supplied real recording demonstrates which presentation and execution steps actually succeeded.
 
 ## 10 — Leave with work in hand. (15s)
 
@@ -92,6 +99,12 @@ Sparkie brings the conversation and the work into the same room. Address it, del
 For a shorter talk, keep all build steps but summarize the product comparison in 40 seconds, inspiration in 30, the system diagram in 30 and the playbooks in 30. This reduces the base to 5:05. For a seven-minute talk, add 20 seconds to the real demo and 25 seconds to discuss one practical case, reaching 6:55.
 
 ## Questions to be ready for
+
+**Is the progress display real?** The Tasks panel uses actual status and backend tool events. It does not expose a completion percentage, an ETA, or a live document draft. The animated routes and progress illustration on slide 6 explain the architecture; they are not a recording of those events.
+
+**What does the artifact show?** The full returned task result, not a live view of an arbitrary project file. Ask for the complete body after creation and after edits, then verify the latest artifact against the saved file.
+
+**Does “show us” prove everyone in Zoom can see it?** No. It requests artifact presentation; remote visibility depends on the sharing path used in that session. Confirm it from another participant during rehearsal.
 
 **Is this unique?** No claim of exclusivity. Zoom and other products already execute work. Our specific focus is spoken collaboration with an agent directly in the project, from within a shared meeting.
 

@@ -28,6 +28,7 @@ from .event_bus import EventBus
 from .present_page import present_html
 from .task_center import CodexTaskWorker
 from .workspace import WorkspaceStore
+from .task_artifacts import MAX_ARTIFACT_MESSAGE_BYTES
 
 EVENTS_PATH = re.compile(r"^/workspaces/(ws_[0-9a-f]+)/events$")
 PRESENT_PATH = re.compile(r"^/workspaces/(ws_[0-9a-f]+)/present$")
@@ -109,6 +110,18 @@ class WorkspaceServer:
                     continue
                 if not isinstance(message, dict):
                     continue
+                if message.get('type') == 'artifact.control':
+                    request_id = message.get('request_id')
+                    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+                        continue
+                    if message.get('generation', generation) != self.store.generation(workspace_id):
+                        result = {'ok': False, 'error': 'workspace_session_changed'}
+                    else:
+                        result = self.runtime.artifact_control(
+                            workspace_id, message.get('action'), message.get('artifact_id'))
+                    await connection.send(json.dumps({'type': 'artifact.control.result',
+                        'request_id': request_id, **result}))
+                    continue
                 # Old session sockets cannot write into a freshly reset canvas.
                 # A browser may explicitly adopt the generation in its new snapshot.
                 if message.get('generation', generation) != self.store.generation(workspace_id):
@@ -121,7 +134,7 @@ class WorkspaceServer:
                         is_final=message.get("is_final", True)),
                         live_mirror=bool(message.get("live")))
                 elif kind == "end_meeting":
-                    self.runtime.end_meeting(workspace_id)
+                    self.runtime.end_meeting(workspace_id, live_mirror=bool(message.get('live')))
                 elif kind == "cancel_task" and isinstance(message.get("task_id"), str):
                     self.runtime.cancel_task(workspace_id, message["task_id"])
                 elif kind == "task_update":
@@ -140,7 +153,8 @@ class WorkspaceServer:
 
 async def serve_workspace(store, bus, runtime, host="127.0.0.1", port=8790):
     app = WorkspaceServer(store, bus, runtime)
-    server = await serve(app.handle, host, port, process_request=app.process_request)
+    server = await serve(app.handle, host, port, process_request=app.process_request,
+                         max_size=MAX_ARTIFACT_MESSAGE_BYTES)
     return server
 
 
@@ -157,15 +171,18 @@ async def workspace_session(args):
             worker = CodexTaskWorker(model=os.getenv("SPARKIE_CODEX_MODEL") or "gpt-5.6-terra",
                                      workspace=Path.cwd())
         async def task_worker(instruction, transcript):
-            # The deliverable belongs in the reply body — a file path alone
-            # would leave the artifact empty for anyone watching the workspace.
-            prompt = (instruction + "\n\nReply with the complete deliverable itself "
-                      "(the full text/document in Markdown), not just a description "
-                      "of it or a file path.")
+            from .task_artifacts import materialize_result
+            prompt = (instruction + "\n\nFor a file deliverable, use the sparkie-artifact "
+                      "declaration. Otherwise reply with the complete deliverable itself "
+                      "in Markdown, not just a description of it or a file path.")
             answer = await worker.run(prompt, transcript)
-            title, summary = artifact_meta(answer)
-            return {"type": "report", "title": title,
-                    "summary": summary, "content": {"markdown": answer}}
+            output = await asyncio.to_thread(materialize_result, answer, worker.workspace)
+            if output.get('artifact_error'):
+                raise ValueError(output['artifact_error'])
+            content = output.get('artifact', {}).get('content', {'markdown': output['result']})
+            title, summary = artifact_meta(content.get('markdown', output['result']))
+            return {"type": output.get('artifact', {}).get('type', 'report'), "title": title,
+                    "summary": summary, "content": content}
     else:
         async def task_worker(instruction, transcript):
             return {"type": "demo", "title": instruction[:80],
