@@ -98,6 +98,18 @@ class WorkspaceServer:
                     continue
                 if not isinstance(message, dict):
                     continue
+                if message.get('type') == 'artifact.control':
+                    request_id = message.get('request_id')
+                    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+                        continue
+                    if message.get('generation', generation) != self.store.generation(workspace_id):
+                        result = {'ok': False, 'error': 'workspace_session_changed'}
+                    else:
+                        result = self.runtime.artifact_control(
+                            workspace_id, message.get('action'), message.get('artifact_id'))
+                    await connection.send(json.dumps({'type': 'artifact.control.result',
+                        'request_id': request_id, **result}))
+                    continue
                 # Old session sockets cannot write into a freshly reset canvas.
                 # A browser may explicitly adopt the generation in its new snapshot.
                 if message.get('generation', generation) != self.store.generation(workspace_id):
@@ -110,7 +122,7 @@ class WorkspaceServer:
                         is_final=message.get("is_final", True)),
                         live_mirror=bool(message.get("live")))
                 elif kind == "end_meeting":
-                    self.runtime.end_meeting(workspace_id)
+                    self.runtime.end_meeting(workspace_id, live_mirror=bool(message.get('live')))
                 elif kind == "cancel_task" and isinstance(message.get("task_id"), str):
                     self.runtime.cancel_task(workspace_id, message["task_id"])
                 elif kind == "task_update":

@@ -587,7 +587,7 @@ function upsertArtifact(event) {
     row.append(badge, meta);
     const open = document.createElement('button');
     open.type = 'button'; open.className = 'secondary'; open.textContent = 'Present';
-    open.onclick = () => presentArtifact(id, { overlay: true });
+    open.onclick = () => requestPresentation(id);
     card.append(title, row, open);
     $('artifacts').querySelector('.empty')?.remove();
     $('artifacts').append(card);
@@ -605,6 +605,48 @@ const STATUS_FROM_EVENT = {
   'task.cancelled': 'cancelled',
 };
 const STATUS_LABEL = { queued: 'Queued', running: 'Running…', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' };
+let generationView = '';
+
+function requestPresentation(artifactId) {
+  if (state.socket?.readyState !== WebSocket.OPEN) {
+    fail('Not connected — reconnect the board to select a document.');
+    return;
+  }
+  state.socket.send(JSON.stringify({ type: 'artifact.control', action: 'present',
+    artifact_id: artifactId, request_id: `board-${Date.now()}`, generation: state.generation }));
+}
+
+function renderGeneration() {
+  const active = [...state.tasks.values()].filter(task => ['queued', 'running'].includes(task.status));
+  const signature = JSON.stringify(active.map(task => [task.task_id, task.status, task.instruction]));
+  if (signature === generationView) return;
+  generationView = signature;
+  const area = $('artifact-generating');
+  area.textContent = '';
+  area.hidden = active.length === 0;
+  for (const task of active) {
+    const card = document.createElement('div');
+    card.className = 'artifact-generating';
+    card.dataset.taskStatus = task.status;
+    const icon = document.createElement('span');
+    icon.className = 'document-loader';
+    icon.setAttribute('aria-hidden', 'true');
+    const body = document.createElement('div');
+    const label = document.createElement('strong');
+    label.textContent = task.status === 'running'
+      ? (embedded ? '正在生成文档' : 'Generating document')
+      : (embedded ? '等待生成文档' : 'Document queued');
+    const title = document.createElement('p');
+    title.textContent = task.instruction || (embedded ? '正在准备任务成果…' : 'Preparing task output…');
+    const lines = document.createElement('div');
+    lines.className = 'generation-lines';
+    lines.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i++) lines.append(document.createElement('span'));
+    body.append(label, title, lines);
+    card.append(icon, body);
+    area.append(card);
+  }
+}
 
 function taskStatus(event) {
   if (event.status && STATUS_LABEL[event.status]) return event.status;
@@ -616,6 +658,7 @@ function upsertTask(event) {
   const status = taskStatus(event);
   const task = { ...(state.tasks.get(id) || {}), ...event, status };
   state.tasks.set(id, task);
+  renderGeneration();
   let card = document.querySelector(`[data-task="${id}"]`);
   if (!card) {
     card = document.createElement('div');
@@ -665,7 +708,6 @@ function loadSnapshot(snapshot) {
   for (const artifact of snapshot.artifacts || []) upsertArtifact(artifact);
   const active = snapshot.state?.active_artifact_id;
   if (active && state.artifacts.has(active)) presentArtifact(active);
-  else if (embedded && state.artifacts.size) presentArtifact([...state.artifacts.keys()].at(-1));
 }
 
 function onEvent(event) {
@@ -685,10 +727,19 @@ function onEvent(event) {
       break;
     case 'artifact.ready':
       upsertArtifact(event);
-      if (embedded) presentArtifact(event.artifact_id);
       break;
     case 'artifact.present':
       presentArtifact(event.artifact_id, { overlay: !embedded });
+      break;
+    case 'artifact.cleared':
+      state.activeArtifact = null;
+      renderStage(null);
+      closeOverlay();
+      document.querySelectorAll('.artifact').forEach(el => el.classList.remove('active'));
+      break;
+    case 'artifact.control.result':
+      if (!event.ok) fail(`Cannot present document: ${event.error || 'unavailable'}`);
+      else $('error').textContent = '';
       break;
     case 'meeting.ended':
       setState(`Ended · ${state.workspaceId || ''}`);
@@ -709,10 +760,11 @@ function clearWorkspaceUI() {
   if (embedded) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = '完成语音任务后，成果会自动展示在这里。';
+    empty.textContent = '告诉 Sparkie 想展示哪份成果，也可以从列表中选择。';
     $('stage').append(empty);
   }
   state.tasks.clear();
+  renderGeneration();
   state.artifacts.clear();
   state.utterances = 0;
   $('utterance-count').textContent = '0';

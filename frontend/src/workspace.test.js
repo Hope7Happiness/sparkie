@@ -297,7 +297,7 @@ test('artifact list cards get a type badge matching their content', () => {
   assert.equal(api.artifactKind({ type: 'artifact.ready', content: { url: 'https://x.dev' } }), 'url');
 });
 
-test('embedded voice board presents completed artifacts without covering voice controls', async () => {
+test('embedded voice board only changes presentation on explicit controls', async () => {
   const { api, document } = harness({ search: '?embedded=1', fetch: async () => ({
     ok: true, json: async () => ({ artifact_id: 'art_voice', title: 'Voice result',
       content: { markdown: '# Task complete\n\n| Item | Result |\n| --- | --- |\n| A | Done |' } }),
@@ -305,14 +305,20 @@ test('embedded voice board presents completed artifacts without covering voice c
   api.state.server = 'http://localhost:5178/workspace-api';
   api.onEvent({ type: 'artifact.ready', artifact_id: 'art_voice', title: 'Voice result' });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(api.state.activeArtifact, 'art_voice');
-  assert.ok(stage(document).querySelector('table'));
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(stage(document).querySelector('table'), null);
   assert.notEqual(document.getElementById('artifact-overlay').hidden, false);
   api.onEvent({ type: 'artifact.present', artifact_id: 'art_voice' });
   await new Promise(resolve => setImmediate(resolve));
+  assert.equal(api.state.activeArtifact, 'art_voice');
+  assert.ok(stage(document).querySelector('table'));
   assert.notEqual(document.getElementById('artifact-overlay').hidden, false);
+  api.onEvent({ type: 'artifact.cleared' });
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(stage(document).textContent, '');
+  assert.equal(api.state.artifacts.size, 1);
   api.clearWorkspaceUI();
-  assert.ok(stage(document).textContent.includes('成果会自动展示'));
+  assert.ok(stage(document).textContent.includes('告诉 Sparkie'));
   assert.equal(api.state.artifacts.size, 0);
 });
 
@@ -330,4 +336,30 @@ test('voice workspace opens by ID through same-origin proxy without resolving a 
   const count = requests.length;
   await api.connectWorkspace(api.serverBases('/workspace-api'), { workspaceId: '../../other' });
   assert.equal(requests.length, count, 'invalid IDs cannot become request paths');
+});
+
+test('generation animation tracks real task lifecycle and preserves current presentation', () => {
+  const { api, document } = harness({ search: '?embedded=1' });
+  api.renderStage({ artifact_id: 'art_existing', title: 'Keep reading', content: { markdown: 'Current document' } });
+  const progress = document.getElementById('artifact-generating');
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'queued', instruction: 'Weather report' });
+  assert.equal(progress.hidden, false);
+  assert.ok(progress.textContent.includes('等待生成文档'));
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'running', instruction: 'Weather report' });
+  assert.ok(progress.textContent.includes('正在生成文档'));
+  assert.ok(progress.querySelector('.document-loader'));
+  assert.ok(progress.querySelector('.generation-lines'));
+  assert.ok(stage(document).textContent.includes('Current document'));
+  api.onEvent({ type: 'task.updated', task_id: 'second', status: 'running', instruction: 'Another report' });
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'completed' });
+  assert.equal(progress.hidden, false);
+  assert.ok(!progress.textContent.includes('Weather report'));
+  api.onEvent({ type: 'task.updated', task_id: 'second', status: 'failed' });
+  assert.equal(progress.hidden, true);
+  api.onEvent({ type: 'task.updated', task_id: 'third', status: 'running' });
+  api.onEvent({ type: 'task.cancelled', task_id: 'third' });
+  assert.equal(progress.hidden, true);
+  api.onEvent({ type: 'task.updated', task_id: 'fourth', status: 'running' });
+  api.clearWorkspaceUI();
+  assert.equal(progress.hidden, true);
 });

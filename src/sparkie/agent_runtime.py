@@ -1,6 +1,7 @@
 """Agent runtime: observe meeting events, emit actions, sync artifacts to the bus.
 
-Routing is heuristic for the MVP — the same action vocabulary
+Standalone/demo routing is heuristic; live mirrors leave presentation to Realtime.
+The same action vocabulary
 (IGNORE / RESPOND / CREATE_TASK / PRESENT_ARTIFACT) can later be driven by an LLM
 without changing the store or the bus. The runtime knows nothing about Zoom;
 adapters ingest TranscriptEvents and consume RESPOND actions.
@@ -87,10 +88,8 @@ class AgentRuntime:
         actions = self.observe(workspace_id, event, row_id) \
             if event.is_final and event.source == "human" else [Action("IGNORE")]
         if live_mirror:
-            # A live session already answered/created its own tasks; only the
-            # presentation path stays so "show us" still drives every screen.
-            actions = [a for a in actions if a.kind == "PRESENT_ARTIFACT"] or \
-                [Action("IGNORE")]
+            # Realtime owns live conversation decisions, including presentation.
+            actions = [Action("IGNORE")]
         for action in actions:
             self.dispatch(workspace_id, action)
         return actions
@@ -123,14 +122,15 @@ class AgentRuntime:
                 "type": "task.started", "task_id": task_id, "instruction": instruction})
             self.runner_workspaces[task_id] = workspace_id
             self.runners[task_id] = asyncio.get_running_loop().create_task(
-                self._run_task(workspace_id, task_id, instruction, self.store.generation(workspace_id)))
+                self._run_task(workspace_id, task_id, instruction, self.store.generation(workspace_id),
+                               present_after_end=action.payload.get('present_after_end', True)))
         elif action.kind == "PRESENT_ARTIFACT":
             artifact_id = action.payload["artifact_id"]
             self.store.set_active_artifact(workspace_id, artifact_id)
             self.bus.publish(workspace_id, {
                 "type": "artifact.present", "artifact_id": artifact_id})
 
-    async def _run_task(self, workspace_id, task_id, instruction, generation):
+    async def _run_task(self, workspace_id, task_id, instruction, generation, present_after_end=True):
         if generation != self.store.generation(workspace_id):
             return
         try:
@@ -158,7 +158,7 @@ class AgentRuntime:
             "task_id": task_id, "title": artifact.get("title", ""),
             "summary": artifact.get("summary", "")})
         # A report produced after the meeting ended presents itself.
-        if self.store.get_workspace(workspace_id)["status"] == "ended":
+        if present_after_end and self.store.get_workspace(workspace_id)["status"] == "ended":
             self.dispatch(workspace_id, Action("PRESENT_ARTIFACT", {"artifact_id": artifact_id}))
 
     def mirror_task(self, workspace_id, fields):
@@ -188,6 +188,26 @@ class AgentRuntime:
                 "type": "artifact.ready", "artifact_id": artifact_id,
                 "task_id": task_id, "title": title, "summary": summary})
 
+    def artifact_control(self, workspace_id, action, artifact_id=None):
+        if action == 'list':
+            return {'ok': True, 'artifacts': self.store.artifact_catalog(workspace_id),
+                    'active_artifact_id': self.store.get_state(workspace_id)['active_artifact_id']}
+        if action == 'present':
+            if not isinstance(artifact_id, str):
+                return {'ok': False, 'error': 'invalid_artifact_id'}
+            artifact = self.store.get_artifact(artifact_id)
+            if not artifact or artifact['meeting_id'] != workspace_id:
+                return {'ok': False, 'error': 'artifact_not_found'}
+            if artifact['status'] != 'ready':
+                return {'ok': False, 'error': 'artifact_not_ready'}
+            self.dispatch(workspace_id, Action('PRESENT_ARTIFACT', {'artifact_id': artifact_id}))
+            return {'ok': True, 'active_artifact_id': artifact_id, 'title': artifact['title']}
+        if action == 'clear':
+            self.store.set_active_artifact(workspace_id, None)
+            self.bus.publish(workspace_id, {'type': 'artifact.cleared'})
+            return {'ok': True, 'active_artifact_id': None}
+        return {'ok': False, 'error': 'invalid_artifact_action'}
+
     def cancel_task(self, workspace_id, task_id):
         runner = self.runners.get(task_id)
         if runner and not runner.done():
@@ -198,13 +218,14 @@ class AgentRuntime:
     REPORT_INSTRUCTION = ("Summarize this meeting using only the transcript: overview, "
                           "key discussion points, decisions, action items. Reply in Markdown.")
 
-    def end_meeting(self, workspace_id):
+    def end_meeting(self, workspace_id, live_mirror=False):
         """Mark the meeting ended and queue a report artifact through the task pipeline."""
         self.store.set_status(workspace_id, "ended")
         self.bus.publish(workspace_id, {"type": "meeting.ended", "status": "ended"})
         if self.worker is None or not self.store.transcript(workspace_id):
             return
-        self.dispatch(workspace_id, Action("CREATE_TASK", {"instruction": self.REPORT_INSTRUCTION}))
+        self.dispatch(workspace_id, Action("CREATE_TASK", {"instruction": self.REPORT_INSTRUCTION,
+                                                       "present_after_end": not live_mirror}))
 
     async def drain(self):
         if self.runners:

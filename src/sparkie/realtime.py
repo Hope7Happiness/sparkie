@@ -20,6 +20,16 @@ def safe_error_code(code):
 
 
 TOOLS = [
+    {'type': 'function', 'name': 'list_artifacts',
+     'description': 'List up to 50 recent artifacts in this conversation, their task IDs and titles, and the selected artifact. Use this to identify the actual document before presenting; never invent an ID.',
+     'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
+    {'type': 'function', 'name': 'present_artifact',
+     'description': 'Select a ready artifact on the shared board, replacing the current selection. Use an artifact_id returned by list_artifacts. Returns server acknowledgement, not proof a viewer rendered it.',
+     'parameters': {'type': 'object', 'properties': {'artifact_id': {'type': 'string'}},
+                    'required': ['artifact_id'], 'additionalProperties': False}},
+    {'type': 'function', 'name': 'hide_artifact',
+     'description': 'Clear the current board presentation without deleting any documents or cancelling tasks.',
+     'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
     {'type': 'function', 'name': 'update_task',
      'description': 'Send the complete revised request when the user adds details or corrects an existing task. '
                     'Preserves its task ID. Queued tasks are updated in place. Running Devin tasks are interrupted '
@@ -58,6 +68,15 @@ def session_config(model):
             'When delegating a task, acknowledge it in one short sentence. '
             'When a task finishes, state the main result first, in at most three short sentences. '
             'Leave supporting details in the task panel. Only elaborate when the user asks. '
+            'You control artifact presentation. The background agent produces documents; you decide when and which '
+            'artifact to show, switch, or hide using list_artifacts, present_artifact and hide_artifact. '
+            'When a requested deliverable finishes, use list_artifacts to find its task_id and title, then present it '
+            'when appropriate to the conversation, especially if the user is waiting to see it. '
+            'Do not replace a document being discussed merely because another task completed. '
+            'For requests to show an earlier document, select the matching existing artifact, not simply the latest. '
+            'If the reference is ambiguous, ask one short clarification. Never delegate a presentation-only request '
+            'or regenerate a completed document just to show it. New or revised content still goes to delegate_task. '
+            'Do not claim presentation succeeded when the tool reports an error or unknown outcome. '
             'Answer simple requests directly. For complex reasoning, analysis, '
             'planning or drafting use delegate_task promptly. For ANY request needing web search, current facts, files, '
             'code execution, or external tools, CALL delegate_task instead of saying you cannot do it or giving '
@@ -100,9 +119,10 @@ def session_config(model):
 class RealtimeAgent:
     BARGE_IN_CONFIRM_SECONDS = .350
 
-    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None, wake_router=None):
+    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None, wake_router=None, workspace=None):
         self.key, self.audio, self.tasks, self.emit = key, audio, tasks, emit
         self.model, self.connector = model, connector
+        self.workspace = workspace
         self.ready = asyncio.Event()
         self.ws = None
         self.response_id = None
@@ -741,6 +761,12 @@ class RealtimeAgent:
                 if name == 'remain_silent':
                     result = {'acknowledged': True}
                     self.emit('realtime_silent')
+                elif name in ('list_artifacts', 'present_artifact', 'hide_artifact'):
+                    action = {'list_artifacts': 'list', 'present_artifact': 'present', 'hide_artifact': 'clear'}[name]
+                    result = (await self.workspace.artifact_control(action, arguments.get('artifact_id'))
+                              if self.workspace is not None else {'ok': False, 'error': 'workspace_unavailable'})
+                    self.emit('artifact_control', action=action, ok=result.get('ok', False),
+                              artifact_id=result.get('active_artifact_id'), error=result.get('error'))
                 elif name == 'delegate_task':
                     result = self.tasks.submit(arguments.get('request'))
                 elif name == 'task_status':

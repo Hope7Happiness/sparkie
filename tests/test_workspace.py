@@ -259,7 +259,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         artifact = self.store.get_artifact(events[-1]["artifact_id"])
         assert "sunny" in artifact["content"]["markdown"]
 
-    async def test_live_mirror_filters_actions_but_keeps_present(self):
+    async def test_live_mirror_leaves_presentation_to_realtime(self):
         actions = self.runtime.ingest(
             self.ws, utterance(self.ws, "Sparkie, research X"), live_mirror=True)
         assert [a.kind for a in actions] == ["IGNORE"]
@@ -267,7 +267,8 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.store.create_artifact(self.ws, title="report")
         actions = self.runtime.ingest(
             self.ws, utterance(self.ws, "Sparkie, show us the results"), live_mirror=True)
-        assert [a.kind for a in actions] == ["PRESENT_ARTIFACT"]
+        assert [a.kind for a in actions] == ["IGNORE"]
+        self.assertIsNone(self.store.get_state(self.ws)['active_artifact_id'])
 
     async def test_artifact_meta_derives_title_and_summary(self):
         from sparkie.agent_runtime import artifact_meta
@@ -461,6 +462,70 @@ class WorkspaceServerTests(unittest.IsolatedAsyncioTestCase):
             assert received[-1]["task_id"] == "j7"
         finally:
             await client.close()
+
+    async def test_realtime_controls_artifacts_through_acknowledged_workspace_socket(self):
+        from sparkie.workspace_client import WorkspaceClient
+        from sparkie.realtime import RealtimeAgent
+        client = WorkspaceClient(f'127.0.0.1:{self.port}')
+        self.assertTrue(await client.open('browser', 'artifact-tools'))
+        workspace_id = client.workspace_id
+        first = self.store.create_artifact(workspace_id, task_id='first', title='Weather')
+        second = self.store.create_artifact(workspace_id, task_id='second', title='Other document')
+        other = self.store.resolve_or_create('browser', 'another-session')
+        foreign = self.store.create_artifact(other, title='Must not select')
+        tasks = SimpleNamespace(submit=AsyncMock())
+        agent = RealtimeAgent('fixture', SimpleNamespace(), tasks, lambda *a, **k: None, workspace=client)
+        agent.send = AsyncMock()
+        async def call(name, arguments=None):
+            await agent.handle({'type': 'response.function_call_arguments.done', 'response_id': 'r',
+                'call_id': str(agent.send.await_count), 'name': name, 'arguments': json.dumps(arguments or {})})
+            return json.loads(agent.send.call_args.args[0]['item']['output'])
+        try:
+            catalog = await call('list_artifacts')
+            self.assertTrue(catalog['ok'])
+            self.assertEqual({a['artifact_id'] for a in catalog['artifacts']}, {first, second})
+            self.assertNotIn('content', catalog['artifacts'][0])
+            shown = await call('present_artifact', {'artifact_id': first})
+            self.assertTrue(shown['ok'])
+            self.assertEqual(self.store.get_state(workspace_id)['active_artifact_id'], first)
+            rejected = await call('present_artifact', {'artifact_id': foreign})
+            self.assertEqual(rejected['error'], 'artifact_not_found')
+            self.assertEqual(self.store.get_state(workspace_id)['active_artifact_id'], first)
+            self.assertTrue((await call('hide_artifact'))['ok'])
+            self.assertIsNone(self.store.get_state(workspace_id)['active_artifact_id'])
+            self.assertIsNotNone(self.store.get_artifact(first))
+            # A cancelled model turn must not change the current board.
+            agent.cancelled.add('r')
+            rejected = await call('present_artifact', {'artifact_id': second})
+            self.assertEqual(rejected['error'], 'interrupted_before_execution')
+            self.assertIsNone(self.store.get_state(workspace_id)['active_artifact_id'])
+            tasks.submit.assert_not_called()
+            self.store.reset(workspace_id)
+            stale = await client.artifact_control('clear')
+            self.assertEqual(stale['error'], 'workspace_session_changed')
+        finally:
+            await client.close()
+
+    async def test_artifact_control_timeout_is_not_claimed_as_success(self):
+        from sparkie.workspace_client import WorkspaceClient
+        client = WorkspaceClient(timeout=.01)
+        client.socket = SimpleNamespace(send=AsyncMock(), close=AsyncMock())
+        result = await client.artifact_control('present', 'art_fixture')
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['outcome'], 'unknown')
+        self.assertEqual(client._requests, {})
+        await client.close()
+        missing = WorkspaceClient()
+        self.assertEqual((await missing.artifact_control('list'))['error'], 'workspace_unavailable')
+
+    async def test_live_session_report_is_generated_without_forcing_presentation(self):
+        workspace = await self.get('/api/meetings/resolve?kind=browser&external_id=live-report')
+        ws = workspace['workspace_id']
+        self.store.append_transcript(ws, utterance(ws, 'A short discussion'))
+        self.runtime.end_meeting(ws, live_mirror=True)
+        await self.runtime.drain()
+        self.assertEqual(len(self.store.snapshot(ws)['artifacts']), 1)
+        self.assertIsNone(self.store.get_state(ws)['active_artifact_id'])
 
     async def test_unknown_workspace_socket_is_rejected(self):
         from websockets.exceptions import ConnectionClosed

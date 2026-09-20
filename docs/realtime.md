@@ -185,6 +185,11 @@ Focused offline validation: uv run --frozen python -m unittest discover -s tests
     cd frontend
     npm run dev
 
-打开 http://localhost:5178/，开始对话并委派任务。Artifacts 区自动绑定本轮语音会话；任务完成后展示成果，支持 Markdown/表格、图片、PDF、链接及原有下载和展示操作。「独立打开」可查看本轮完整 Workspace。刷新页面可恢复当前会话的成果；新一轮语音会话不会沿用上一轮的成果。Workspace 服务不可用时，语音及后台任务仍可使用，结果仍在任务列表中；启动 Workspace 后重新开始一轮对话即可关联。
+打开 http://localhost:5178/，开始对话并委派任务。Artifacts 区自动绑定本轮语音会话；任务生成期间显示动画，完成后由 Realtime 根据对话选择展示；支持 Markdown/表格、图片、PDF、链接及原有下载和展示操作。「独立打开」可查看本轮完整 Workspace。刷新页面可恢复当前会话的成果；新一轮语音会话不会沿用上一轮的成果。Workspace 服务不可用时，语音及后台任务仍可使用，结果仍在任务列表中；启动 Workspace 后重新开始一轮对话即可关联。
 
 本轮验证覆盖真实浏览器页面、Workspace HTTP/WebSocket 和模拟任务结果的展示链路；不代表重新完成了真人语音、模型任务或 Zoom 验收。
+
+
+展示由前台 Realtime 控制：可以说「展示刚才那份天气报告」「换成上一份文档」「先收起来」。Realtime 先查询当前会话的成果目录，再调用展示或收起工具；仅展示已有成果不会重新委派给 Devin。Devin 继续负责生成和修改文档。前端也保留手动选择和下载。
+
+生成动画由实际任务的排队/执行状态驱动，不表示文档已经生成，也不伪造百分比。新成果就绪不会自动盖掉正在讨论的文档。已结束的旧语音会话需要重新开始，才能加载新增的 Realtime 工具和提示词。

@@ -21,7 +21,7 @@ function renderArtifactBoard(state) {
     artifactWorkspace = null;
     frame.hidden = link.hidden = true;
     notice.hidden = false;
-    notice.textContent = !state.id ? '开始对话后，任务成果会自动展示在这里。'
+    notice.textContent = !state.id ? '开始对话后，可以让 Sparkie 在这里展示任务成果。'
       : state.status === 'starting' ? '正在连接本轮成果面板…'
       : '成果面板未连接。语音和后台任务仍可使用，结果可在下方任务列表查看。';
   }

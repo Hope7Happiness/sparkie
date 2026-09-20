@@ -96,7 +96,7 @@ async def run(args):
     workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
-                          output_policy=output_policy, wake_router=wake_router)
+                          output_policy=output_policy, wake_router=wake_router, workspace=workspace)
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',

@@ -198,6 +198,12 @@ class WorkspaceStore:
             (workspace_id, status)).fetchone()
         return row[0] if row else None
 
+    def artifact_catalog(self, workspace_id):
+        return _row(self.db.execute(
+            "SELECT artifact_id, task_id, type, title, summary, status FROM artifacts"
+            " WHERE meeting_id=? ORDER BY created_at DESC, artifact_id DESC LIMIT 50",
+            (workspace_id,)))
+
     # -- shared UI state -----------------------------------------------------------
     def set_active_artifact(self, workspace_id, artifact_id):
         self.db.execute(
