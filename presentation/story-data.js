@@ -224,10 +224,10 @@ Object.assign(window.SPARKIE_DECK, {slides: [
     "cue": "Be concrete about what is missing. No latency numbers without measurements. The agent processes meeting audio; it does not inspect participants’ screens or video."
   },
   {
-    "title": "Make it easier to invite.",
+    "title": "Easier to invite. More proactive.",
     "chapter": "OUTLOOK",
     "seconds": 25,
-    "notes": "Next, we want to package setup so inviting Sparkie is much easier, improve recovery and measure the participation decisions, and make task updates easier to follow. The goal stays the same: a teammate with the meeting context, ready to help while the conversation is still happening.",
-    "cue": "These are directions, not completed features or promised dates. Close on the product goal, then take questions."
+    "notes": "We want to take Sparkie in two directions. First, make it easier to use: guided setup, more reliable sessions, and task updates that are easy to follow. Second, make it more proactive. With the meeting context, it could spot useful work, suggest a next step, or offer to take on a task at the right moment. The goal is a teammate that helps move the meeting forward, while respecting the people in the room.",
+    "cue": "Two directions on one slide: easier to use, and more proactive. Setup includes credentials and permissions; reliability includes recovery and participation evaluation. Proactive suggestions and offers are future work, beyond the current invitation-based routing policy. Close on the product goal, then take questions."
   }
 ]});

@@ -48,6 +48,7 @@
 .limits-grid article{border-top:1px solid #abbca0;padding-top:17px}
 .outlook-slide .talk-kicker{color:var(--amber)}
 .outlook-slide h2 em{color:var(--amber)}
+.outlook-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:50px}
 .outlook-grid article{border-top:1px solid #91ab8170;padding-top:17px}
 .outlook-grid article>span{font-size:15px;color:var(--amber)}
 .outlook-grid p{color:#b6c7ac;font-size:20px}
@@ -78,3 +79,4 @@
  .outlook-goal{font-size:27px;margin-top:30px}.outlook-links{flex-wrap:wrap;gap:20px}
 }
 @media print{.narrative-slide{overflow:hidden}.routing-outcomes>div{opacity:1}.product-demo-layout{height:110mm}.routing-layout{gap:25px}.narrative-slide h2{font-size:40pt}}
+@media(max-width:360px){.masthead nav{gap:6px}.masthead .wordmark{font-size:23px;gap:7px}}
