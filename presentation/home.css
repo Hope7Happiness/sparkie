@@ -14,7 +14,7 @@
 @media(max-width:650px){.hero-universe{right:-22%;top:35%;width:115%;height:64%;opacity:.7}.home-photo-shade{background:linear-gradient(180deg,#183b32,transparent 70%),linear-gradient(90deg,#183b32b0,transparent 70%)}.home-photo-mark{width:75px;height:75px;right:26%;bottom:18%;border-radius:18px}}
 @media(max-width:650px){.story-frame{width:min(100%,42vh);height:auto;max-height:100%;aspect-ratio:1}}
 
-/* Inline brand signature: the existing app icon, wordmark and a quiet frame. */
+/* Inline brand signature: the four-point star, wordmark and a quiet frame. */
 .brand-mention{
   display:inline-flex;align-items:center;gap:.32em;white-space:nowrap;
   padding:.13em .46em .13em .17em;border:1px solid #183b3230;border-radius:.55em;

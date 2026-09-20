@@ -26,6 +26,6 @@ These are screenshots of public product websites, not screenshots of independent
 
 ## Repository art
 
-sparkie-icon.png is reused from docs/assets/sparkie-icon.png in this repository. The original meeting and artifact SVG placeholders remain in the recording slot until replaced by real media.
+sparkie-mark.svg uses the presentation’s existing four-point star geometry, with the forest-green and amber brand colors. It is the shared mark for the homepage, presentation and favicons. The older sparkie-icon.png is retained as a legacy asset, reused from docs/assets/sparkie-icon.png in this repository. The original meeting and artifact SVG placeholders remain in the recording slot until replaced by real media.
 
 No AI-generated images are included in this revision. The session did not expose a built-in image-generation tool; following the user's suggestion, the revision uses sourced web photography and official product assets. No image API was called.
