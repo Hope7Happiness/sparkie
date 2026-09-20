@@ -52,6 +52,31 @@ class WorkspaceStoreTests(unittest.TestCase):
         assert snapshot["artifacts"][0]["title"] == "t"
         assert snapshot["state"]["active_artifact_id"] == artifact_id
 
+    def test_reset_clears_session_content_but_keeps_the_workspace(self):
+        ws = self.store.resolve_or_create("zoom_uuid", "7271847043")
+        self.store.append_transcript(ws, utterance(ws, "hi", "Alice"))
+        task_id = self.store.create_task(ws, "research x")
+        artifact_id = self.store.create_artifact(ws, task_id=task_id)
+        self.store.set_active_artifact(ws, artifact_id)
+        self.store.set_status(ws, "ended")
+        self.store.reset(ws)
+        snapshot = self.store.snapshot(ws)
+        assert snapshot["workspace"]["status"] == "live"
+        assert snapshot["workspace"]["external_id"] == "7271847043"
+        assert snapshot["transcript"] == [] and snapshot["tasks"] == []
+        assert snapshot["artifacts"] == []
+        assert snapshot["state"]["active_artifact_id"] is None
+
+    def test_upsert_task_mirrors_external_task_ids(self):
+        ws = self.store.resolve_or_create("zoom_uuid", "u2")
+        self.store.upsert_task(ws, "zoom-task-1", "weather in Boston", "queued")
+        self.store.upsert_task(ws, "zoom-task-1", "weather in Boston", "running")
+        self.store.upsert_task(ws, "zoom-task-1", "weather in Boston", "completed",
+                               result="sunny")
+        task = self.store.snapshot(ws)["tasks"][0]
+        assert task["task_id"] == "zoom-task-1" and task["status"] == "completed"
+        assert task["result"] == "sunny" and task["finished_at"] is not None
+
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -126,6 +151,51 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         events = await collect(self.queue, "task.cancelled")
         assert events[-1]["task_id"] == task_id
 
+    async def test_mirror_task_broadcasts_live_session_lifecycle(self):
+        fields = {"task_id": "t_live_1", "request": "check Boston weather",
+                  "status": "running"}
+        self.runtime.mirror_task(self.ws, fields)
+        self.runtime.mirror_task(self.ws, {**fields, "status": "completed"})
+        first = await asyncio.wait_for(self.queue.get(), 5)
+        second = await asyncio.wait_for(self.queue.get(), 5)
+        assert [first["status"], second["status"]] == ["running", "completed"]
+        assert all(e["type"] == "task.updated" for e in (first, second))
+        task = self.store.snapshot(self.ws)["tasks"][0]
+        assert task["task_id"] == "t_live_1" and task["instruction"] == "check Boston weather"
+
+    async def test_mirror_task_completed_creates_presentable_artifact(self):
+        self.runtime.mirror_task(self.ws, {"task_id": "j1", "request": "weather",
+                                         "status": "running"})
+        await asyncio.wait_for(self.queue.get(), 5)
+        self.runtime.mirror_task(self.ws, {"task_id": "j1", "request": "weather",
+                                           "status": "completed", "result": "sunny, 56F"})
+        events = await collect(self.queue, "artifact.ready")
+        assert events[-1]["task_id"] == "j1"
+        artifact = self.store.get_artifact(events[-1]["artifact_id"])
+        assert "sunny" in artifact["content"]["markdown"]
+
+    async def test_live_mirror_filters_actions_but_keeps_present(self):
+        actions = self.runtime.ingest(
+            self.ws, utterance(self.ws, "Sparkie, research X"), live_mirror=True)
+        assert [a.kind for a in actions] == ["IGNORE"]
+        assert self.store.snapshot(self.ws)["tasks"] == []
+        self.store.create_artifact(self.ws, title="report")
+        actions = self.runtime.ingest(
+            self.ws, utterance(self.ws, "Sparkie, show us the results"), live_mirror=True)
+        assert [a.kind for a in actions] == ["PRESENT_ARTIFACT"]
+
+    async def test_artifact_meta_derives_title_and_summary(self):
+        from sparkie.agent_runtime import artifact_meta
+        title, summary = artifact_meta(
+            "```\nfenced # not a title\n```\n\n# Boston Weather Tonight\n\n"
+            "| a | b |\n|---|---|\n\n**52°F**, bring a light jacket.")
+        assert title == "Boston Weather Tonight"
+        assert summary == "52°F, bring a light jacket."
+        title, summary = artifact_meta("# Title\n\nSure!\n\nBody.")
+        assert summary == "Sure!"  # first prose line wins
+        title, summary = artifact_meta("No headings here, just the answer.")
+        assert title == "No headings here, just the answer."
+
     async def test_bot_utterances_never_trigger_actions(self):
         actions = self.runtime.ingest(
             self.ws, utterance(self.ws, "Sparkie, research this", source="bot"))
@@ -195,6 +265,50 @@ class WorkspaceServerTests(unittest.IsolatedAsyncioTestCase):
                     break
             assert {"meeting.ended", "task.started", "artifact.ready", "artifact.present"} <= seen
         assert self.store.get_workspace(ws)["status"] == "ended"
+
+    async def test_ws_task_update_mirrors_session_job(self):
+        workspace = await self.get("/api/meetings/resolve?kind=zoom_uuid&external_id=mtg3")
+        ws = workspace["workspace_id"]
+        async with connect(f"ws://127.0.0.1:{self.port}/workspaces/{ws}/events") as socket:
+            await socket.send(json.dumps(
+                {"type": "task_update", "task_id": "job_9", "request": "dig into X",
+                 "status": "running"}))
+            event = json.loads(await asyncio.wait_for(socket.recv(), 10))
+            assert event["type"] == "task.updated" and event["task_id"] == "job_9"
+        assert self.store.snapshot(ws)["tasks"][0]["status"] == "running"
+
+    async def test_resolve_reset_clears_and_notifies_subscribers(self):
+        workspace = await self.get("/api/meetings/resolve?kind=zoom_uuid&external_id=mtg4")
+        ws = workspace["workspace_id"]
+        self.store.append_transcript(ws, utterance(ws, "old session", "Alice"))
+        async with connect(f"ws://127.0.0.1:{self.port}/workspaces/{ws}/events") as socket:
+            again = await self.get(
+                "/api/meetings/resolve?kind=zoom_uuid&external_id=mtg4&reset=1")
+            assert again["workspace_id"] == ws
+            event = json.loads(await asyncio.wait_for(socket.recv(), 10))
+            assert event["type"] == "workspace.reset"
+        snapshot = await self.get(f"/api/workspaces/{ws}")
+        assert snapshot["transcript"] == []
+
+    async def test_browser_cancel_reaches_session_client(self):
+        from sparkie.workspace_client import WorkspaceClient
+        workspace = await self.get("/api/meetings/resolve?kind=zoom_uuid&external_id=mtg5")
+        ws = workspace["workspace_id"]
+        client = WorkspaceClient(f"127.0.0.1:{self.port}")
+        assert await client.open("zoom_uuid", "mtg5")
+        received, got = [], asyncio.Event()
+        def on_message(message):
+            received.append(message)
+            if message.get("type") == "task.cancelled":
+                got.set()
+        client.on_message = on_message
+        try:
+            async with connect(f"ws://127.0.0.1:{self.port}/workspaces/{ws}/events") as socket:
+                await socket.send(json.dumps({"type": "cancel_task", "task_id": "j7"}))
+                await asyncio.wait_for(got.wait(), 10)
+            assert received[-1]["task_id"] == "j7"
+        finally:
+            await client.close()
 
     async def test_unknown_workspace_socket_is_rejected(self):
         from websockets.exceptions import ConnectionClosed

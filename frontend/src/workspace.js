@@ -163,6 +163,32 @@ function renderMarkdown(source) {
       list.append(li); index += 1; continue;
     }
 
+    // Pipe table: header row, |---|---| delimiter, then body rows.
+    if (/^\s*\|.*\|/.test(line) && index + 1 < lines.length &&
+        /^\s*\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/.test(lines[index + 1])) {
+      closeBlocks();
+      const cells = row => row.trim().replace(/^\|/, '').replace(/\|$/, '')
+        .split('|').map(cell => cell.trim());
+      const table = document.createElement('table');
+      const head = document.createElement('tr');
+      for (const cell of cells(line)) {
+        const th = document.createElement('th');
+        inline(cell, th); head.append(th);
+      }
+      const thead = document.createElement('thead');
+      thead.append(head); table.append(thead);
+      const tbody = document.createElement('tbody');
+      for (index += 2; index < lines.length && /^\s*\|.*\|/.test(lines[index]); index += 1) {
+        const tr = document.createElement('tr');
+        for (const cell of cells(lines[index])) {
+          const td = document.createElement('td');
+          inline(cell, td); tr.append(td);
+        }
+        tbody.append(tr);
+      }
+      table.append(tbody); root.append(table); continue;
+    }
+
     if (stack.length && /^\s{2,}\S/.test(line)) {
       const li = stack[stack.length - 1].el.lastElementChild;
       if (li) { li.append(' '); inline(line.trim(), li); index += 1; continue; }
@@ -602,7 +628,9 @@ function upsertTask(event) {
   card.querySelector('h3').textContent = task.instruction || task.title || id;
   const reason = task.error_type || task.error;
   card.querySelector('small').textContent =
-    status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || '未知原因'}` : STATUS_LABEL[status];
+    status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || '未知原因'}`
+    : status === 'running' && task.progress ? `执行中… · ${task.progress}`
+    : STATUS_LABEL[status];
   const cancel = card.querySelector('.task-cancel');
   if ((status === 'running' || status === 'queued') && !cancel) {
     const button = document.createElement('button');
@@ -642,6 +670,7 @@ function onEvent(event) {
       entry('transcript', 'sparkie', event.text || `→ ${event.request || ''}`, 'sparkie');
       break;
     case 'task.started': case 'task.completed': case 'task.failed': case 'task.cancelled':
+    case 'task.updated':
       upsertTask(event);
       break;
     case 'artifact.ready':
@@ -656,25 +685,69 @@ function onEvent(event) {
     case 'meeting.ended':
       setState(`已结束 · ${state.workspaceId || ''}`);
       break;
+    case 'workspace.reset':
+      reloadSnapshot();
+      break;
   }
+}
+
+function clearWorkspaceUI() {
+  for (const id of ['transcript', 'tasks', 'artifacts', 'stage']) {
+    const node = $(id);
+    if (node) node.innerHTML = '';
+  }
+  state.tasks.clear();
+  state.artifacts.clear();
+  state.utterances = 0;
+  $('utterance-count').textContent = '0';
+  $('task-count').textContent = '0';
+  $('artifact-count').textContent = '0';
+  closeOverlay();
+}
+
+// A new session reusing the meeting number clears the canvas server-side;
+// drop local state and rehydrate from the fresh snapshot.
+async function reloadSnapshot() {
+  if (!state.server || !state.workspaceId) return;
+  clearWorkspaceUI();
+  try {
+    const snapshot = await (await fetch(
+      `${state.server}/api/workspaces/${state.workspaceId}`)).json();
+    loadSnapshot(snapshot);
+    setState(`已连接 · ${state.workspaceId} · 新会议`);
+  } catch (error) {
+    fail(`刷新 workspace 失败：${error.message}`);
+  }
+}
+
+// Accepts bare host:port (local dev) or a full https:// URL (tunnel/proxy) —
+// WS always uses the matching ws/wss scheme so pages served over TLS work.
+function serverBases(raw) {
+  const secure = /^(https|wss):/i.test(raw);
+  const host = String(raw).replace(/^(https?|wss?):\/\//i, '').replace(/\/+$/, '');
+  return { http: `${secure ? 'https' : 'http'}://${host}`,
+           ws: `${secure ? 'wss' : 'ws'}://${host}` };
 }
 
 $('join').onsubmit = async event => {
   event.preventDefault();
   const form = new FormData(event.target);
-  const server = String(form.get('server')).replace(/^https?:\/\//, '').replace(/\/$/, '');
-  const kind = 'zoom_uuid', external = form.get('external_id'), title = form.get('title');
+  const base = serverBases(form.get('server'));
+  const kind = 'zoom_uuid', external = form.get('external_id'),
+        title = form.get('title') || '';
+  state.socket?.close();
+  clearWorkspaceUI();
   try {
-    const response = await fetch(`http://${server}/api/meetings/resolve?` +
+    const response = await fetch(`${base.http}/api/meetings/resolve?` +
       new URLSearchParams({ kind, external_id: external, title }));
     if (!response.ok) throw new Error(`resolve ${response.status}`);
     const workspace = await response.json();
-    state.server = server;
+    state.server = base.http;
     state.workspaceId = workspace.workspace_id;
     $('ws-id').textContent = workspace.workspace_id;
-    const snapshot = await (await fetch(`http://${server}/api/workspaces/${workspace.workspace_id}`)).json();
+    const snapshot = await (await fetch(`${base.http}/api/workspaces/${workspace.workspace_id}`)).json();
     loadSnapshot(snapshot);
-    const socket = new WebSocket(`ws://${server}/workspaces/${workspace.workspace_id}/events`);
+    const socket = new WebSocket(`${base.ws}/workspaces/${workspace.workspace_id}/events`);
     socket.onmessage = ({ data }) => onEvent(JSON.parse(data));
     socket.onopen = () => setState(`已连接 · ${workspace.workspace_id}`);
     socket.onclose = () => setState('已断开');
@@ -701,40 +774,7 @@ document.addEventListener?.('keydown', event => {
   if (event.key === 'Escape') closeOverlay();
 });
 
-// Landing list: existing workspaces become one-click entries.
-(async function loadWorkspaces() {
-  try {
-    const server = document.querySelector('#join [name="server"]')?.value
-      .replace(/^https?:\/\//, '').replace(/\/$/, '');
-    if (!server) return;
-    const { workspaces } = await (await fetch(`http://${server}/api/workspaces`)).json();
-    if (!workspaces?.length) return;
-    $('recent').hidden = false;
-    const list = $('workspace-list');
-    for (const ws of workspaces) {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'workspace-row';
-      const title = document.createElement('span');
-      title.className = 'workspace-row-title';
-      title.textContent = ws.title || ws.external_id;
-      const meta = document.createElement('span');
-      meta.className = 'workspace-row-meta';
-      meta.textContent = `${ws.status} · ${ws.transcript_count} 条 · ${ws.artifact_count} artifacts`;
-      const id = document.createElement('span');
-      id.className = 'workspace-row-id';
-      id.textContent = ws.workspace_id;
-      row.append(title, meta, id);
-      row.onclick = () => {
-        const form = document.querySelector('#join');
-        form.external_id.value = ws.external_id;
-        form.title.value = ws.title || '';
-        form.requestSubmit();
-      };
-      list.append(row);
-    }
-  } catch { /* Backend offline — the join form already explains itself on submit. */ }
-})();
+
 
 // Shareable entry: /workspace.html?meeting=<zoom id> joins straight in.
 try {

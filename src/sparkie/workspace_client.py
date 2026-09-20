@@ -16,30 +16,38 @@ class WorkspaceClient:
         self.socket = None
         self.workspace_id = None
         self.enabled = True
+        self.on_message = None
         self._drain = None
 
-    async def open(self, kind, external_id, title=""):
+    async def open(self, kind, external_id, title="", reset=False):
         try:
+            params = {"kind": kind, "external_id": external_id, "title": title}
+            if reset:
+                params["reset"] = "1"
             async with httpx.AsyncClient(timeout=self.timeout) as http:
                 response = await http.get(f"http://{self.server}/api/meetings/resolve",
-                                          params={"kind": kind, "external_id": external_id,
-                                                  "title": title})
+                                          params=params)
                 response.raise_for_status()
             self.workspace_id = response.json()["workspace_id"]
             self.socket = await connect(
                 f"ws://{self.server}/workspaces/{self.workspace_id}/events",
                 open_timeout=self.timeout, close_timeout=1)
-            # Events broadcast back this way are not consumed; drain so the socket
-            # never stalls, but keep the client subscribed so state stays live.
-            self._drain = asyncio.get_running_loop().create_task(self._discard())
+            # Broadcasts (e.g. a browser cancel) are delivered to the optional
+            # on_message hook; draining also keeps the socket from stalling.
+            self._drain = asyncio.get_running_loop().create_task(self._listen())
         except Exception:
             self.enabled = False
         return self.enabled
 
-    async def _discard(self):
+    async def _listen(self):
         try:
-            async for _ in self.socket:
-                pass
+            async for raw in self.socket:
+                if self.on_message is None:
+                    continue
+                try:
+                    self.on_message(json.loads(raw))
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -53,7 +61,10 @@ class WorkspaceClient:
 
     async def utterance(self, text, speaker=None, source="human", is_final=True):
         await self.send({"type": "utterance", "text": text, "speaker": speaker,
-                         "source": source, "is_final": is_final})
+                         "source": source, "is_final": is_final, "live": True})
+
+    async def task_update(self, fields):
+        await self.send({"type": "task_update", **fields})
 
     async def end_meeting(self):
         await self.send({"type": "end_meeting"})

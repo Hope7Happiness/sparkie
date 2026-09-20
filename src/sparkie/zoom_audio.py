@@ -51,6 +51,13 @@ class ZoomAudioMeeting:
         self._cancel_id = 0
         self._cancel_waiter = None
         self.cancel_timeout = 5.0
+        self.meeting_ended = False
+        self.input_live = False
+        self.join_dropped_frames = 0
+
+    def meeting_end_observed(self):
+        """Sanitized fields if the SDK reported the meeting ended; else None."""
+        return None
 
     async def docker(self, *args):
         process = await asyncio.create_subprocess_exec('docker', *args, stdout=asyncio.subprocess.PIPE,
@@ -191,7 +198,16 @@ class ZoomAudioMeeting:
         return False
 
     def enqueue_frame(self, frame):
-        self.queue.put_nowait(frame)
+        try:
+            self.queue.put_nowait(frame)
+        except asyncio.QueueFull:
+            if self.input_live:
+                raise
+            # Frames can arrive while join() is still waiting for microphone
+            # readiness; no consumer exists yet, so keep the newest audio.
+            self.queue.get_nowait()
+            self.queue.put_nowait(frame)
+            self.join_dropped_frames += 1
 
     async def receive(self):
         try:
@@ -258,6 +274,19 @@ class ZoomAudioMeeting:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            ended = self.meeting_end_observed()
+            if ended is not None:
+                # The native side observed the meeting end and closed cleanly;
+                # the socket EOF is teardown, not a transport failure.
+                self.meeting_ended = True
+                for future in self.playbacks.values():
+                    if not future.done():
+                        future.set_exception(RuntimeError('Zoom meeting ended'))
+                if self._cancel_waiter and not self._cancel_waiter.done():
+                    self._cancel_waiter.set_exception(RuntimeError('Zoom meeting ended'))
+                self.stopped.set()
+                self.on_event('zoom_meeting_ended', **ended)
+                return
             self.failure = exc
             # Resolve control waiters before diagnostics: a broken event sink must
             # never hide the primary failure behind a second playback timeout.
@@ -270,6 +299,22 @@ class ZoomAudioMeeting:
             self.on_event('audio_failed', **failure_details(exc))
 
     async def audio(self):
+        self.input_live = True
+        # Frames buffered before the consumer existed are stale; forwarding them
+        # would flood the bounded realtime input queue with old audio.
+        stale = 0
+        while True:
+            try:
+                self.queue.get_nowait()
+                stale += 1
+            except asyncio.QueueEmpty:
+                break
+        if stale:
+            self.join_dropped_frames += stale
+            self.on_event('zoom_input_flushed', dropped_frames=stale)
+        if self._backlogged:
+            self._backlogged = False
+            self.on_event('zoom_input_recovered')
         started = time.monotonic()
         while not self.stopped.is_set() and time.monotonic() - started < self.max_seconds:
             try:
@@ -385,6 +430,7 @@ class ZoomAudioMeeting:
     def diagnostics(self):
         return {'frames_received': self.frames_received, 'bytes_received': self.bytes_received,
                 'frames_consumed': self.frames_consumed, 'max_queued_frames': self.max_queued_frames,
+                'join_dropped_frames': self.join_dropped_frames, 'meeting_ended': self.meeting_ended,
                 'max_receive_gap_ms': self.max_receive_gap_ms, 'raw_audio_saved': False, 'echo_mode': 'silence_during_playback_plus_350ms',
                 'remote_audible_latency_measured': False}
 
@@ -485,6 +531,13 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
 
     def is_self(self, speaker_id):
         return self.participants.get(speaker_id, {}).get('is_self', False)
+
+    def meeting_end_observed(self):
+        for _ in self.join_progress.read():
+            pass
+        if self.join_progress.state == 7:
+            return self.join_progress.snapshot()
+        return None
 
     def diagnostics(self):
         base = {**super().diagnostics(), 'join': self.join_progress.snapshot()}

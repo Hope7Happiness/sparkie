@@ -319,13 +319,16 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 @property BOOL recording;
 @property BOOL requested;
 @property BOOL stopping;
+@property BOOL hostMuted;
 @property int exitCode;
 @property unsigned long long frames;
 @property unsigned long long bytes;
 @property int peak;
 @property NSTimer *participantTimer;
+@property NSTimer *unmuteTimer;
 @property NSData *lastParticipants;
 - (void)publishParticipants;
+- (void)ensureUnmuted;
 - (void)shutdown;
 @end
 
@@ -439,6 +442,10 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         printf("JOIN_VOIP result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_JoinVoip userID:0 onScreen:0]);
         if (self.voice) {
             printf("UNMUTE_REQUEST result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_UnMuteAudio userID:0 onScreen:0]);
+            // The SDK accepts unmute before VoIP audio is fully connected and may
+            // silently drop it; retry until onMicStartSend reports real unmute.
+            self.unmuteTimer = [NSTimer scheduledTimerWithTimeInterval:2 target:self
+                selector:@selector(ensureUnmuted) userInfo:nil repeats:YES];
         }
         bridge_self_id = [[actions getMyself] getUserID];
         if (self.voice && !self.participantTimer) {
@@ -530,6 +537,16 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 // Re-arm the virtual microphone when the SDK resets our audio to self-muted
 // (e.g. mute-on-join applied when VoIP finishes connecting). Host-forced mutes
 // (MutedByHost / MutedAllByHost) are respected, not fought.
+- (void)ensureUnmuted {
+    if (!self.voice || self.stopping || bridge_sending) {
+        [self.unmuteTimer invalidate]; self.unmuteTimer = nil;
+        return;
+    }
+    if (self.hostMuted) return;
+    ZoomSDKMeetingActionController *actions = [[[ZoomSDK sharedSDK] getMeetingService] getMeetingActionController];
+    printf("UNMUTE_RETRY\n");
+    [actions actionMeetingWithCmd:ActionMeetingCmd_UnMuteAudio userID:0 onScreen:0];
+}
 - (void)onUserAudioStatusChange:(NSArray *)statuses {
     if (!self.voice || self.stopping) return;
     ZoomSDKMeetingActionController *actions = [[[ZoomSDK sharedSDK] getMeetingService] getMeetingActionController];
@@ -538,6 +555,8 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         if (![entry isKindOfClass:ZoomSDKUserAudioStatus.class] || [entry getUserID] != mine) continue;
         ZoomSDKAudioStatus status = [entry getStatus];
         printf("AUDIO_STATUS status=%d\n", status);
+        self.hostMuted = (status == ZoomSDKAudioStatus_MutedByHost ||
+                          status == ZoomSDKAudioStatus_MutedAllByHost);
         if (status == ZoomSDKAudioStatus_Muted) {
             printf("AUDIO_STATUS self_muted rearm=1\n");
             [actions actionMeetingWithCmd:ActionMeetingCmd_UnMuteAudio userID:0 onScreen:0];
@@ -605,6 +624,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     if (self.stopping) return;
     self.stopping = YES;
     [self.participantTimer invalidate]; self.participantTimer = nil;
+    [self.unmuteTimer invalidate]; self.unmuteTimer = nil;
     if (self.voice) {
         // Stop the sender before tearing down SDK objects. Keep the virtual source
         // installed until after leaving, so teardown cannot switch to a physical mic.

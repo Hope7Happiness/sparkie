@@ -10,34 +10,19 @@
 
   <header class="topbar">
     <a class="brand" href="/" aria-label="Sparkie 首页"><span>✳</span> sparkie</a>
+    <form id="join" class="join-bar" aria-label="连接会议">
+      <input name="server" class="server-input" value="127.0.0.1:8790" title="Backend 地址" aria-label="Backend 地址">
+      <input name="external_id" class="meeting-input" placeholder="Zoom Meeting ID" required aria-label="Zoom Meeting ID">
+      <button type="submit">进入</button>
+    </form>
     <div class="topbar-meta">
       <span class="ws-chip" title="Workspace ID"><em>WS</em><span id="ws-id">—</span></span>
       <span id="state" role="status">未连接</span>
     </div>
   </header>
+  <p id="error" role="alert"></p>
 
   <main class="app-body">
-
-    <section class="session" aria-label="连接会议">
-      <div class="session-head">
-        <p class="eyebrow">LIVE MEETING WORKSPACE</p>
-        <h1>接入一场会议</h1>
-        <p class="session-sub">填入 backend 地址与 Zoom Meeting ID，Sparkie 会实时同步转写、任务与产物。</p>
-      </div>
-      <form id="join">
-        <div class="connect">
-          <label>Backend<input name="server" value="127.0.0.1:8790"></label>
-          <label>Zoom Meeting ID<input name="external_id" placeholder="meeting uuid" required></label>
-          <label>标题<input name="title" placeholder="可选"></label>
-          <button type="submit">进入 workspace</button>
-        </div>
-      </form>
-      <p id="error" role="alert"></p>
-      <div id="recent" hidden>
-        <div class="recent-head"><h3>最近的会议</h3></div>
-        <div id="workspace-list"></div>
-      </div>
-    </section>
 
     <div id="workspace" class="workspace" hidden>
 

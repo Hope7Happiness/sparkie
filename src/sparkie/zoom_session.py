@@ -72,7 +72,8 @@ async def zoom_session(args):
         reason = 'completed'
         try:
             meeting_id = os.getenv('ZOOM_MEETING_ID') or session_id
-            if await workspace.open('zoom_uuid', meeting_id, title=f'Zoom {meeting_id}'):
+            if await workspace.open('zoom_uuid', meeting_id, reset=True,
+                                    title=f'Zoom {meeting_id}'):
                 engine.log('workspace_linked', workspace_id=workspace.workspace_id, external_id=meeting_id)
             async with asyncio.timeout(args.seconds + 165):
                 await engine.run()

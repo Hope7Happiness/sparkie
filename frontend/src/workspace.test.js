@@ -119,6 +119,25 @@ test('markdown renders headings, emphasis, lists, code and links as real nodes',
   assert.equal(anchor.rel, 'noopener noreferrer');
 });
 
+test('markdown renders pipe tables as real tables', () => {
+  const { api } = harness();
+  const md = api.renderMarkdown([
+    '| # | Task | Status |',
+    '|---|---|---|',
+    '| 1 | Research **products** | Done |',
+    '| 2 | Weather | Done |',
+    '',
+    'after the table',
+  ].join('\n'));
+  const table = md.querySelector('table');
+  assert.equal(table.querySelectorAll('th').length, 3);
+  assert.equal(table.querySelector('th').textContent, '#');
+  const cells = table.querySelectorAll('td');
+  assert.equal(cells.length, 6);
+  assert.equal(cells[1].querySelector('strong').textContent, 'products');
+  assert.equal(md.querySelector('p').textContent, 'after the table');
+});
+
 test('markdown never injects markup and drops unsafe link schemes', () => {
   const { api } = harness();
   const md = api.renderMarkdown('<script>alert(1)</script>\n\n[点我](javascript:alert(1))');
@@ -150,6 +169,21 @@ test('task cards carry a status for every lifecycle event', () => {
   assert.equal(card().dataset.status, 'failed');
   assert.equal(card().querySelector('small').textContent, '失败 · TimeoutError');
   assert.equal(document.getElementById('task-count').textContent, '1', 'one card, not four');
+});
+
+test('task.updated mirrors a live session task in place', () => {
+  const { api, document } = harness();
+  const card = () => document.querySelector('[data-task="job_9"]');
+
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', status: 'queued' });
+  assert.equal(card().dataset.status, 'queued');
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X',
+                   status: 'running', progress: '拉取数据中' });
+  assert.equal(card().querySelector('small').textContent, '执行中… · 拉取数据中');
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X', status: 'completed' });
+  assert.equal(card().dataset.status, 'completed');
+  assert.equal(card().querySelector('h3').textContent, 'dig into X');
+  assert.equal(document.getElementById('task-count').textContent, '1');
 });
 
 test('stage renders each artifact content shape', () => {

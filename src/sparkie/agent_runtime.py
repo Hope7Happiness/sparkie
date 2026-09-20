@@ -13,8 +13,36 @@ from uuid import uuid4
 from .contracts import TranscriptEvent
 from .wake import addressed_request
 
+_MARKDOWN_NOISE = re.compile(r"[*_`]+")
+
+
+def artifact_meta(markdown):
+    """Derive a display title and one-line summary from a markdown answer:
+    first heading wins for the title, else the first prose line."""
+    title = summary = None
+    in_fence = False
+    for line in str(markdown or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence or not stripped:
+            continue
+        if title is None and stripped.startswith("#"):
+            title = stripped.lstrip("#").strip()
+            continue
+        if summary is None and not stripped.startswith(("#", "|", "- ", "* ", ">")):
+            summary = stripped
+        if title and summary:
+            break
+    clean = lambda text: _MARKDOWN_NOISE.sub("", text or "").strip()
+    return (clean(title) or clean(summary) or "artifact")[:80], \
+        clean(summary or title)[:400]
+
+
 RESEARCH = re.compile(
-    r"\b(research|look\s*up|find\s+out|check\s+(?:if|whether)|search|dig\s+into)\b|调研|调查|查一下|找找", re.I)
+    r"\b(research|look\s*up|find\s+out|check\s+(?:if|whether)|search|dig\s+into"
+    r"|draft|write|prepare|summari[sz]e)\b|调研|调查|查一下|找找|写一?份|写个|总结", re.I)
 PRESENT = re.compile(r"show\s+(?:us|me|everyone|the)\b|present|display|给大家看|展示|投屏", re.I)
 
 
@@ -35,8 +63,9 @@ class AgentRuntime:
         self.store, self.bus, self.worker = store, bus, worker
         self.greeting = greeting
         self.runners = {}
+        self.mirrored_artifacts = set()
 
-    def ingest(self, workspace_id, event: TranscriptEvent):
+    def ingest(self, workspace_id, event: TranscriptEvent, live_mirror=False):
         """Persist one meeting event, broadcast the utterance, and dispatch actions.
         Returns the action list so adapters/tests can see what the agent decided."""
         row_id = self.store.append_transcript(workspace_id, event)
@@ -47,6 +76,11 @@ class AgentRuntime:
             "source": event.source})
         actions = self.observe(workspace_id, event, row_id) \
             if event.is_final and event.source == "human" else [Action("IGNORE")]
+        if live_mirror:
+            # A live session already answered/created its own tasks; only the
+            # presentation path stays so "show us" still drives every screen.
+            actions = [a for a in actions if a.kind == "PRESENT_ARTIFACT"] or \
+                [Action("IGNORE")]
         for action in actions:
             self.dispatch(workspace_id, action)
         return actions
@@ -108,6 +142,32 @@ class AgentRuntime:
         # A report produced after the meeting ended presents itself.
         if self.store.get_workspace(workspace_id)["status"] == "ended":
             self.dispatch(workspace_id, Action("PRESENT_ARTIFACT", {"artifact_id": artifact_id}))
+
+    def mirror_task(self, workspace_id, fields):
+        """Mirror a live session's TaskCenter job lifecycle into the workspace."""
+        task_id = fields.get("task_id")
+        if not task_id or not isinstance(fields.get("status"), str):
+            return
+        instruction = fields.get("instruction") or fields.get("request")
+        error = fields.get("error") or fields.get("error_type")
+        self.store.upsert_task(workspace_id, task_id, instruction,
+                               fields["status"], result=fields.get("result"),
+                               error=error)
+        self.bus.publish(workspace_id, {
+            "type": "task.updated", "task_id": task_id, "instruction": instruction,
+            "status": fields["status"], "error_type": error,
+            "progress": fields.get("progress")})
+        result = fields.get("result")
+        if fields["status"] == "completed" and result and task_id not in self.mirrored_artifacts:
+            self.mirrored_artifacts.add(task_id)
+            title, summary = artifact_meta(str(result))
+            artifact_id = self.store.create_artifact(
+                workspace_id, task_id=task_id, type="report",
+                title=title, summary=summary,
+                content={"markdown": str(result)})
+            self.bus.publish(workspace_id, {
+                "type": "artifact.ready", "artifact_id": artifact_id,
+                "task_id": task_id, "title": title, "summary": summary})
 
     def cancel_task(self, workspace_id, task_id):
         runner = self.runners.get(task_id)

@@ -39,24 +39,34 @@ class Meeting:
         self.started = asyncio.Event()
         self.release = asyncio.Event()
         self.block = False
-        self.stopped = False
+        self.stopped = asyncio.Event()
+        self.mic_ready = asyncio.Event()
+        self.mic_ready.set()
+        self.failure = None
         self.fail = False
+        self.mute_playbacks = 0
         self.stop_calls = 0
     async def join(self): pass
     async def play_audio(self, pcm, rate):
         self.packets.append((pcm, rate))
         self.started.set()
         if self.fail:
-            raise RuntimeError('SDK disconnected')
+            # A real transport break sets meeting.failure before waiters see it.
+            self.failure = RuntimeError('SDK disconnected')
+            raise self.failure
+        if self.mute_playbacks:
+            self.mute_playbacks -= 1
+            self.mic_ready.clear()
+            raise RuntimeError('Zoom microphone was muted during playback')
         if self.block:
             await self.release.wait()
         await asyncio.sleep(.001)
     async def stop_speaking(self): self.stop_calls += 1
-    async def leave(self): self.stopped = True
-    def request_stop(self): self.stopped = True
+    async def leave(self): self.stopped.set()
+    def request_stop(self): self.stopped.set()
     async def audio(self):
         for i in range(100):
-            if self.stopped:
+            if self.stopped.is_set():
                 return
             await asyncio.sleep(0)
             yield AudioFrame(i, bytes(640), 32000)
@@ -229,6 +239,22 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         await agent.handle({'type': 'response.output_audio.done', 'item_id': 'next'})
         await self.wait_drained('next')
         self.assertEqual(self.audio.outputs['next'].played_ms(), 100)
+
+    async def test_transient_mute_pauses_output_without_failing_session(self):
+        self.meeting.mute_playbacks = 1
+        self.audio.append_output('item', bytes(48000))
+        self.audio.finish_output('item')
+        await asyncio.wait_for(self.meeting.started.wait(), 1)
+        async with asyncio.timeout(2):
+            while not any(k == 'zoom_playback_muted' for k, _ in self.events):
+                await asyncio.sleep(.01)
+        self.assertIsNone(self.audio.failure)
+        self.assertFalse(self.meeting.stopped.is_set())
+        self.assertFalse(self.audio.outputs['item'].drained)
+        self.assertFalse(self.audio.outputs['item'].cancelled.is_set())
+        self.meeting.mic_ready.set()
+        await self.wait_drained('item')
+        self.assertGreater(self.audio.outputs['item'].played_ms(), 0)
 
     async def test_sdk_failure_stops_input_and_propagates(self):
         self.meeting.fail = True

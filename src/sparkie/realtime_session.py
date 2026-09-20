@@ -49,6 +49,8 @@ async def run(args):
             if event.get('text'):
                 asyncio.get_running_loop().create_task(
                     workspace.utterance(fields['text'], fields.get('source') or 'human', 'human'))
+        elif kind == 'background_task':
+            asyncio.get_running_loop().create_task(workspace.task_update(fields))
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')
@@ -209,8 +211,15 @@ async def run(args):
     try:
         external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
         kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')
-        if await workspace.open(kind, external or session_id,
+        # A reused meeting number reopens the same workspace; reset gives each
+        # join a fresh canvas instead of appending to the previous session.
+        if await workspace.open(kind, external or session_id, reset=True,
                                 title=f'Zoom {external}' if transport_name == 'zoom' else f'{transport_name} session'):
+            # A cancel pressed in the workspace UI lands here as a broadcast.
+            workspace.on_message = lambda message: (
+                center.cancel(message['task_id'])
+                if message.get('type') == 'task.cancelled' and message.get('task_id')
+                else None)
             emit('workspace_linked', workspace_id=workspace.workspace_id, external_id=external)
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('task_backend_config', backend=worker.backend, model=worker.model)
@@ -276,6 +285,8 @@ async def run(args):
             reason = 'duration_elapsed'
             emit('session_duration_elapsed', configured_duration_seconds=args.seconds,
                  message='Configured session duration reached; ending the session cleanly.')
+        if reason == 'completed' and getattr(audio, 'meeting_ended', False):
+            reason = 'meeting_ended'
         try:
             await asyncio.wait_for(asyncio.gather(dg, return_exceptions=True), 10 if participant_stt else 2)
         except TimeoutError:

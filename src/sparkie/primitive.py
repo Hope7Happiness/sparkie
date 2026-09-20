@@ -185,7 +185,7 @@ def main():
     workspace.add_argument("--host", default="127.0.0.1")
     workspace.add_argument("--port", type=int, default=8790)
     workspace.add_argument("--db", type=Path, default=Path("output/workspace.db"))
-    workspace.add_argument("--worker", choices=["codex", "demo"], default="codex",
+    workspace.add_argument("--worker", choices=["codex", "devin", "demo"], default="codex",
                            help="demo marks every artifact as simulated; codex runs real background tasks")
     args = parser.parse_args()
     if args.command == "doctor":
