@@ -568,7 +568,7 @@ class RealtimeAgent:
                     result = self.tasks.cancel(arguments.get('task_id'))
                 else:
                     result = {'error': 'unknown_tool'}
-                if (name in ('delegate_task', 'create_desktop_file', 'open_website') and
+                if (name == 'delegate_task' and
                         self.output_policy is not None and self.output_policy.allows(event.get('response_id'))
                         and result.get('task_id')):
                     self.output_policy.task_ids.add(result['task_id'])

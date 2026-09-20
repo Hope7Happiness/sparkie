@@ -81,6 +81,16 @@ async def run(args):
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
                         language=args.language, on_ready=dg_ready.set,
                         on_partial=lambda text: emit('transcript_partial', text=text))
+    participant_stt = getattr(audio, 'participant_transcription', False)
+    if participant_stt:
+        from .participant_stt import ParticipantEars
+        model = os.getenv('DEEPGRAM_MODEL') or 'nova-3'
+        ears = ParticipantEars(
+            lambda: DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
+                                model=model, language=args.language),
+            speaker_name=audio.meeting.speaker_name, is_self=audio.meeting.is_self,
+            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit)
+        ears.on_ready = dg_ready.set  # Router readiness; connections open when a participant speaks.
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -97,7 +107,8 @@ async def run(args):
         nonlocal dg_active
         handling_transcript = False
         try:
-            async for record in ears.transcribe(frames(queues[1])):
+            source = audio.participant_audio() if participant_stt else frames(queues[1])
+            async for record in ears.transcribe(source):
                 ledger.append(record)
                 emit('transcript', **asdict(record))
                 if output_policy is not None:
@@ -114,6 +125,9 @@ async def run(args):
             ledger.append(record)
             emit('transcript_degraded', **{**failure_details(exc), 'provider': 'deepgram'}, record=record)
             dg_ready.set()
+        finally:
+            if participant_stt:
+                audio.disable_participant_transcription()
     async def send_audio():
         async for frame in frames(queues[0]):
             await agent.append(frame)
@@ -126,10 +140,13 @@ async def run(args):
             if current_gate != gated:
                 record = {'type': 'coverage_gap' if current_gate else 'coverage_resumed',
                           'timestamp_ms': round(audio.captured_samples / 24), 'reason': getattr(audio, 'coverage_reason', 'speaker_echo_gate')}
-                ledger.append(record)
-                emit('transcript_coverage', **{'record': record})
+                if participant_stt:
+                    emit('realtime_input_coverage', gated=current_gate, reason='zoom_echo_gate')
+                else:
+                    ledger.append(record)
+                    emit('transcript_coverage', **{'record': record})
                 gated = current_gate
-            for queue in (queues if dg_active else queues[:1]):
+            for queue in (queues if dg_active and not participant_stt else queues[:1]):
                 try:
                     queue.put_nowait(frame)
                 except asyncio.QueueFull:
@@ -141,7 +158,7 @@ async def run(args):
                         emit('transcript_degraded', error_type='AudioBackpressure', record=record)
                     else:
                         raise ProviderError('audio_backpressure') from None
-        for queue in (queues if dg_active else queues[:1]):
+        for queue in (queues if dg_active and not participant_stt else queues[:1]):
             await queue.put(None)
     async def controls():
         reader = asyncio.StreamReader(limit=16384)
@@ -181,8 +198,9 @@ async def run(args):
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('task_backend_config', backend=worker.backend, model=worker.model)
         center.start()
-        emit('transcription_config', provider='deepgram', model=ears.model,
-             language=ears.language, sample_rate=ears.rate)
+        emit('transcription_config', provider='deepgram', model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
+             language=args.language, sample_rate=32000 if participant_stt else 24000,
+             input_mode='per_participant' if participant_stt else 'mixed')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())
         running.extend([rt, dg])
@@ -202,7 +220,8 @@ async def run(args):
         if readiness not in done:
             raise ProviderError('provider_startup_timeout')
         if dg_active:
-            emit('transcript_ready', provider='deepgram')
+            emit('transcript_ready', provider='deepgram',
+                 readiness='router' if participant_stt else 'provider_connection')
         joining = asyncio.create_task(audio.join())
         running.append(joining)
         done, _ = await asyncio.wait([joining, rt, stopper], return_when=asyncio.FIRST_COMPLETED)
@@ -241,7 +260,7 @@ async def run(args):
             emit('session_duration_elapsed', configured_duration_seconds=args.seconds,
                  message='Configured session duration reached; ending the session cleanly.')
         try:
-            await asyncio.wait_for(asyncio.gather(dg, return_exceptions=True), 2)
+            await asyncio.wait_for(asyncio.gather(dg, return_exceptions=True), 10 if participant_stt else 2)
         except TimeoutError:
             ledger.append({'type': 'coverage_gap', 'reason': 'deepgram_final_flush_timeout'})
             emit('transcript_degraded', error_type='FinalFlushTimeout')
@@ -267,7 +286,9 @@ async def run(args):
         report = {'session_id': session_id, 'exit_reason': reason, 'transport': transport_name,
                   'configured_duration_seconds': args.seconds,
                   'remote_audibility_verified': False,
-                  'model': agent.model, 'audio': audio.diagnostics(), 'transcript_records': len(ledger.records)}
+                  'model': agent.model, 'audio': audio.diagnostics(), 'transcript_records': len(ledger.records),
+                  'transcript': sorted((r for r in ledger.records if r.get('speaker_id')),
+                                       key=lambda r: (r.get('timestamp_ms', 0), r.get('event_id', '')))}
         if failure is not None:
             report['failure'] = failure
         try:

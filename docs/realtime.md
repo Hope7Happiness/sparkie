@@ -1,8 +1,8 @@
 # Realtime 本地验收
 
-网页唯一入口 `/`：浏览器收音/播放 → Realtime 实时对话，同时 → Deepgram 人类转写；Codex 或 Devin CLI 异步执行工具任务。Zoom 已通过同一会话入口接入，见下文；本轮仅完成离线验证。
+网页唯一入口 `/`：浏览器收音/播放 → Realtime 实时对话，同时 → Deepgram 人类转写；Codex 或 Devin CLI 异步执行工具任务。Zoom 已通过同一会话入口接入，见下文；真人 Zoom 验收仍待完成。
 
-Zoom Realtime 使用连续混音输入与播放门控；macOS 按参会者分流转写仍用于旧 wake / qa 路径。合并后的原生协议需要重新构建 macOS receiver。浏览器语音不依赖此接收器。
+macOS Zoom Realtime 同时接收连续混音供前台语音、分用户音轨供 Deepgram 转写，保留用户 ID 与显示名。wake/qa 为 legacy，不是本轮验收入口。新双路协议必须重新构建 macOS receiver；浏览器语音不依赖此接收器。
 
 ## 运行
 
@@ -100,9 +100,10 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 1. 从另一台参会设备说“Hey Sparkie”并提出问题，确认听到与问题相关的自然语音回答；未称呼时应持续监听但不播放。
 2. 请它调研一个需要外部信息的问题，检查出现 `background_task`，状态由 queued/running 进入 completed 或 failed。
 3. 后台进行中继续提出普通问题，确认前台可以响应；等后台完成后，检查结果通知及语音汇报。以来源/实际产物核对结果，不只看“完成”文本。
-4. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
+4. 两位参会者轮流和同时发言、同名/改名、停顿后继续，核对 transcript 的 speaker_id、speaker、timestamp_ms。检查后台任务快照仍保留这些字段。
+5. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
 
-本轮不启动真人会议。Zoom 仍沿用播放及后 350ms 的回声静音保护，期间的发言不会进入 agent，也不支持该窗口内语音打断。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
+真实 Zoom 多人验收待进行。Realtime 混音前台仍沿用播放及后 350ms 门控，不支持该窗口内语音打断；macOS 分轨转写则继续记录其他用户，过滤机器人自身 ID，远端声学回声仍可能被识别。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
 
 
 ### 终端输出背压修复
@@ -113,7 +114,7 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 
 已做真实伪终端/管道的离线回归；仍需真人重跑原场景确认，不将离线复现等同于整场会议稳定性验收。本修复不改变模型、音频采样率或 Zoom SDK 配置，无需重建原生程序。
 
-Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。
+Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。前台混音在播放及尾音 350ms 门控，不支持语音打断；macOS 分轨转写不受此门控影响；可用终端 interrupt 控制取消。
 
 ### Interrupting without losing task results
 

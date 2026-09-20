@@ -79,16 +79,15 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(m['type'] == 'conversation.item.truncate' and m['audio_end_ms'] == 0 for m in self.sent))
         self.assertEqual(self.agent.recovery['muted']['delivery_confirmed'], False)
 
-    async def test_direct_local_tasks_keep_provenance_and_pending_delivery(self):
+    async def test_delegated_actions_keep_provenance_and_pending_delivery(self):
         await self.transcript('Hey Sparkie, create a file and open the requested page')
         await self.created('actions')
-        with patch('sparkie.task_center.run_local_action', new=AsyncMock(return_value='Verified local result')):
-            for name, arguments in [('create_desktop_file', {'filename': 'test.txt', 'content': 'test'}),
-                                    ('open_website', {'url': 'https://example.com'})]:
-                await self.agent.handle({'type': 'response.function_call_arguments.done',
-                    'response_id': 'actions', 'call_id': name, 'name': name,
-                    'arguments': json.dumps(arguments)})
-            await asyncio.gather(*self.center.runners.values())
+        self.center.worker = SimpleNamespace(run=AsyncMock(return_value='Verified worker result'))
+        for index, request in enumerate(('Create a desktop file', 'Open https://example.com')):
+            await self.agent.handle({'type': 'response.function_call_arguments.done',
+                'response_id': 'actions', 'call_id': str(index), 'name': 'delegate_task',
+                'arguments': json.dumps({'request': request})})
+        await asyncio.gather(*self.center.runners.values())
         ids = list(self.center.jobs)
         self.assertEqual(set(ids), self.policy.task_ids)
         self.assertEqual([j['task_id'] for j in self.agent.pending_announcements()], ids)
