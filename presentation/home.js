@@ -1,6 +1,15 @@
 (() => {
   'use strict';
   const $ = (s) => document.querySelector(s);
+  const brandMention = document.querySelector('.brand-mention');
+  function renderBrandedText(element, text) {
+    const parts = text.split(/\bSparkie\b/g);
+    element.replaceChildren();
+    parts.forEach((part, index) => {
+      if (index) element.append(brandMention.cloneNode(true));
+      element.append(document.createTextNode(part));
+    });
+  }
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   if (!reduced.matches && 'IntersectionObserver' in window) {
     document.body.classList.add('motion-ready');
@@ -37,7 +46,7 @@
     document.querySelectorAll('.room-picker button').forEach((other) => other.setAttribute('aria-pressed', String(other === button)));
     const room = window.SPARKIE_DECK.rooms[Number(button.dataset.room)];
     $('.possibility-stage').dataset.room = button.dataset.room;
-    $('#home-room-prompt').textContent = room.prompt; $('#home-room-output').textContent = room.output;
+    renderBrandedText($('#home-room-prompt'), room.prompt); $('#home-room-output').textContent = room.output;
     if (!reduced.matches) $('.possibility-copy').animate([{opacity:.2,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:450,easing:'ease-out'});
   }));
   const video = $('#home-video'); let objectURL;
