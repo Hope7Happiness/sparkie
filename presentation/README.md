@@ -26,7 +26,7 @@ Or serve the folder:
 python3 -m http.server 8088 --directory presentation
 ```
 
-Open http://localhost:8088/ for the slides or http://localhost:8088/home.html for the homepage. The interactive deck is published at https://bowenyu066.github.io/sparky/; the project website is https://hope7happiness.github.io/sparkie/. The directory can also be hosted as static files. To use the homepage as a site's landing page, configure the static host to serve home.html at its root.
+Open http://localhost:8088/ for the slides or http://localhost:8088/home.html for the homepage. The interactive deck is published at https://bowenyu066.github.io/sparkie/; the project website is https://hope7happiness.github.io/sparkie/. The directory can also be hosted as static files. To use the homepage as a site's landing page, configure the static host to serve home.html at its root.
 
 ## Present
 
@@ -114,3 +114,5 @@ Reduced-motion preferences disable the animated choreography. Navigation does no
 ## Publishing the interactive deck
 
 Maintain the interactive presentation in this repository under presentation/. Do not copy it into ../personal_website. That repository hosts the separate standalone product homepage at /sparkie/. The deck can be served locally with the command above; publishing it elsewhere is a separate step.
+
+The old /sparky/ address redirects to /sparkie/ and preserves the slide hash and speaker-view query parameters.

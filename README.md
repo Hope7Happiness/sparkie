@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://youtu.be/-kOeUK9_kIs">Demo video</a> &nbsp; / &nbsp;
   <a href="https://hope7happiness.github.io/sparkie">Website</a> &nbsp; / &nbsp;
-  <a href="https://bowenyu066.github.io/sparky">Interactive presentation</a> &nbsp; / &nbsp;
+  <a href="https://bowenyu066.github.io/sparkie">Interactive presentation</a> &nbsp; / &nbsp;
   <a href="#quick-start">Quick start</a>
 </p>
 
