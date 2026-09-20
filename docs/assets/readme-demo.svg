@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="640" viewBox="0 0 1440 640" role="img" aria-labelledby="title desc">
-  <title id="title">Sparkie — demo video coming soon</title>
-  <desc id="desc">A forest-green and warm-paper editorial cover: Your meeting. Already moving forward. This is a placeholder illustration, not a product screenshot.</desc>
+  <title id="title">Sparkie — watch the demo</title>
+  <desc id="desc">A forest-green and warm-paper editorial cover: Your meeting. Already moving forward. Watch the Sparkie demo video.</desc>
   <defs>
     <linearGradient id="forest" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#102d26"/>
@@ -23,7 +23,7 @@
       <text x="84" y="256" font-family="Georgia, 'Times New Roman', serif" font-size="88">Your meeting.</text>
       <text x="88" y="346" font-size="66" font-weight="700" letter-spacing="-2">Already moving</text>
       <text x="88" y="424" font-size="66" font-weight="700" letter-spacing="-2">forward.</text>
-      <text x="90" y="555" font-size="23" fill="#e5b76d" letter-spacing="2">DEMO VIDEO · COMING SOON</text>
+      <text x="90" y="555" font-size="23" fill="#e5b76d" letter-spacing="2">WATCH THE DEMO</text>
     </g>
     <circle cx="1135" cy="320" r="92" fill="#f5f1e6"/>
     <path d="M1115 279 L1171 320 L1115 361 Z" fill="#204336"/>
