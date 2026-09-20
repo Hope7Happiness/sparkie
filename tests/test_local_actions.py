@@ -44,3 +44,34 @@ class LocalActionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(launch.call_args.args, ('/usr/bin/open', 'https://example.com/path?a=1&b=2'))
             with self.assertRaises(ValueError):
                 await run_local_action('open_website', {'url': 'file:///etc/passwd'})
+
+    async def test_local_html_with_spaces_opens_and_invalid_targets_never_launch(self):
+        process = AsyncMock(); process.wait.return_value = 0
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('sparkie.local_actions.shutil.which', return_value='/usr/bin/open'), \
+             patch('sparkie.local_actions.asyncio.create_subprocess_exec', return_value=process) as launch:
+            report = Path(directory) / 'research report.html'
+            report.write_text('<html><title>Report</title></html>')
+            url = report.as_uri() + '#results'
+            result = await run_local_action('open_website', {'url': url})
+            self.assertIn('not independently verified', result)
+            self.assertEqual(launch.call_args.args, ('/usr/bin/open', report.resolve().as_uri() + '#results'))
+            launch.reset_mock()
+            for invalid in ('file://remotehost/report.html', 'file:relative.html',
+                            'file:///tmp/report%00.html', 'file:///tmp/script.sh',
+                            'javascript:alert(1)', 'file:///tmp/a\n.html'):
+                with self.subTest(url=invalid), self.assertRaises(ValueError):
+                    await run_local_action('open_website', {'url': invalid})
+            with self.assertRaises(FileNotFoundError):
+                await run_local_action('open_website', {'url': (Path(directory) / 'missing.html').as_uri()})
+            launch.assert_not_called()
+
+    async def test_open_failure_explains_missing_file_in_task_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            center = TaskCenter(TranscriptLedger(Path(directory) / 'session'), object(), lambda *a, **kw: None)
+            task = center.submit('open report', action='open_website',
+                                 arguments={'url': (Path(directory) / 'missing.html').as_uri()})['task_id']
+            await center.runners[task]
+            self.assertEqual(center.status(task)['status'], 'failed')
+            self.assertIn('本地 HTML 文件不存在', center.status(task)['error_message'])
+            await center.close()

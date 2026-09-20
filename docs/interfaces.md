@@ -91,7 +91,7 @@ Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网
 
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
 `update_task(task_id, request)` 接收完整修订请求并刷新快照，保持任务 ID。queued 任务保留队列位置；running 的 Devin 任务通过队列传递修订，ACP 中断当前轮后在同一会话继续。返回 update_delivery=pending 不能宣称已执行；applied_revision 和 delivered 表示已送入后台连接。request_history 保存历史请求，连续修订以最新完整请求为准。其他 running 后端及 completed 任务拒绝更新，已发生的操作不会回滚。
-`create_desktop_file(filename, content)` 和 `open_website(url)` 使用同一任务状态/通知协议，但直接执行本机操作，不占 Codex 串行队列。文件使用独占创建并读回核验；网址仅允许 HTTP(S)，结果只确认浏览器启动请求，不保证页面加载完成。
+`create_desktop_file(filename, content)` 和 `open_website(url)` 使用同一任务状态/通知协议，但直接执行本机操作，不占 Codex 串行队列。文件使用独占创建并读回核验；地址允许 HTTP(S) 或本机已存在的 HTML 文件 URI（file:///…，扩展名 .html/.htm）；拒绝远程 file 主机、相对路径和其他本地文件类型，URL 编码的路径先解码核验再规范化。结果只确认系统启动请求，不保证页面加载完成；无效地址或本地文件缺失通过 error_message 返回可显示的原因。
 worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。取消 Codex 任务会终止对应进程；取消 Devin 当前轮保留常驻会话，结束语音会话会终止进程组。
 `task_workers.py` 选择独立 Codex / Devin 适配器，Devin 协议实现位于 `devin_acp.py`。共用 `run(request, transcript)` / `run_with_progress(request, transcript, progress)`；持久 worker 另提供 start / close，支持运行中修订时通过 updates 队列接收 `(request, snapshot, revision)`，initial_revision 表示开始运行时的修订号。`SPARKIE_TASK_BACKEND=codex|devin` 仅选择 Realtime 后台，默认 codex；DEVIN_MODEL 默认 swe-1-6-fast。前台语音及旧 Q&A SPARKIE_BACKEND 不变。
 

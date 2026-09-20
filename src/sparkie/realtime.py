@@ -26,7 +26,8 @@ TOOLS = [
      'parameters': {'type': 'object', 'properties': {'filename': {'type': 'string'}, 'content': {'type': 'string'}},
                     'required': ['filename', 'content'], 'additionalProperties': False}},
     {'type': 'function', 'name': 'open_website',
-     'description': 'Quickly open the user-specified HTTP(S) URL in their default browser. '
+     'description': 'Quickly open the user-specified HTTP(S) URL or an existing local HTML file URL (file:///…html) '
+                    'using the system default handler. '
                     'Use this instead of delegate_task when only opening a page. Ask for the URL if missing. '
                     'This launches the browser; it does not read the page or verify loading.',
      'parameters': {'type': 'object', 'properties': {'url': {'type': 'string'}},
@@ -74,7 +75,8 @@ def session_config(model):
             'code execution, or external tools, CALL delegate_task instead of saying you cannot do it or giving '
             'the user instructions to do it themselves. Delegate the objective, not just a request for advice. '
             'Exception: use create_desktop_file for simple desktop text-file creation and open_website for opening '
-            'a specified URL; these direct tools avoid the background agent queue. Use delegate_task if content needs research or analysis. '
+            'a specified web URL or an existing local HTML report via its file URL; these direct tools avoid the background agent queue. '
+            'Use delegate_task if content needs research or analysis. '
             'Examples: find current news, research a product, create a file, run code, inspect this project. '
             'After delegation, keep conversing normally while the job runs. '
             'Tell the user it is queued, never pretend its result is already available. Use task_status when asked for results. '

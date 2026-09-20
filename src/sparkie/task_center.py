@@ -100,6 +100,11 @@ class TaskCenter:
             job.update(status='failed', error_type=type(exc).__name__)
             if isinstance(exc, FileExistsError):
                 job['error_message'] = '同名文件已存在，未覆盖。请指定另一个文件名。'
+            elif job.get('action') == 'open_website':
+                if isinstance(exc, FileNotFoundError):
+                    job['error_message'] = '本地 HTML 文件不存在或不是普通文件，请确认文件路径。'
+                elif isinstance(exc, ValueError):
+                    job['error_message'] = '仅支持 HTTP/HTTPS 网址或本机已存在的 HTML 文件地址（file:///…html）。'
         finally:
             job['finished_at'] = time.time()
             self._save(job)

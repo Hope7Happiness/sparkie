@@ -3,7 +3,7 @@ import asyncio
 from pathlib import Path
 import shutil
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 
 async def run_local_action(action, arguments):
@@ -24,10 +24,25 @@ async def run_local_action(action, arguments):
         return await asyncio.to_thread(create)
     if action == 'open_website':
         url = arguments.get('url')
-        if not isinstance(url, str) or len(url) > 8192:
+        if (not isinstance(url, str) or len(url) > 8192
+                or any(ord(char) < 32 or ord(char) == 127 for char in url)):
             raise ValueError('invalid_url')
         parsed = urlsplit(url)
-        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+        if parsed.scheme == 'file':
+            if parsed.netloc not in ('', 'localhost'):
+                raise ValueError('invalid_local_html_url')
+            filename = unquote(parsed.path, errors='strict')
+            target = Path(filename)
+            if '\x00' in filename or not target.is_absolute() or target.suffix.lower() not in ('.html', '.htm'):
+                raise ValueError('invalid_local_html_url')
+            target = target.resolve()
+            if target.suffix.lower() not in ('.html', '.htm'):
+                raise ValueError('invalid_local_html_url')
+            if not target.is_file():
+                raise FileNotFoundError('local_html_not_found')
+            local = urlsplit(target.as_uri())
+            url = urlunsplit((local.scheme, local.netloc, local.path, parsed.query, parsed.fragment))
+        elif parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError('invalid_url')
         launcher = 'open' if sys.platform == 'darwin' else 'xdg-open'
         executable = shutil.which(launcher)
@@ -44,5 +59,5 @@ async def run_local_action(action, arguments):
             raise
         if code:
             raise OSError('browser_launcher_failed')
-        return f'The default browser accepted the request to open {url}. Page loading was not independently verified.'
+        return f'The system launcher accepted the request to open {url}. Page loading was not independently verified.'
     raise ValueError('unknown_local_action')
