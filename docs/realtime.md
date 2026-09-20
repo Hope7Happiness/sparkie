@@ -175,3 +175,16 @@ Focused offline validation: uv run --frozen python -m unittest discover -s tests
 终端每行一个 JSON：{"action":"mute"} 停止并清空全部播放，不取消后台任务；{"action":"unmute"} 仅允许下一条最终人类转写触发一条回答链，不恢复旧音频。也可说 “Sparkie, stop” / “不用了”等既有取消词；播放期间 Zoom 混合输入仍受回声门控，需终端或可信分离人声控制实现该窗口内取消。普通混合 VAD 不再自行打断 Zoom 回答，最终文本负责 wake/cancel。
 
 测试时分别核对：未点名讨论零输出；长回答完整；自动重新静音；后台任务归属；mute/unmute 不复活旧音频。使用同一会话观察输入/转写持续。SDK 提交不代表远端听到；需另行真人验证最终转写延迟、音质、停播残留和误唤醒。完整契约见 interfaces.md 的 Zoom output mute MVP。
+
+## 语音测试页内的成果面板
+
+无需 Zoom 或会议号。启动 Workspace 后端和语音前端：
+
+    uv run --frozen sparkie workspace --host 0.0.0.0 --port 8790 --worker devin
+    # 另一个终端
+    cd frontend
+    npm run dev
+
+打开 http://localhost:5178/，开始对话并委派任务。Artifacts 区自动绑定本轮语音会话；任务完成后展示成果，支持 Markdown/表格、图片、PDF、链接及原有下载和展示操作。「独立打开」可查看本轮完整 Workspace。刷新页面可恢复当前会话的成果；新一轮语音会话不会沿用上一轮的成果。Workspace 服务不可用时，语音及后台任务仍可使用，结果仍在任务列表中；启动 Workspace 后重新开始一轮对话即可关联。
+
+本轮验证覆盖真实浏览器页面、Workspace HTTP/WebSocket 和模拟任务结果的展示链路；不代表重新完成了真人语音、模型任务或 Zoom 验收。

@@ -307,3 +307,9 @@ Deepgram Finalize response. A pending boundary times out after 5s. Detector or
 alignment failure uses participant_input_failed and a semantic_turn_unavailable
 coverage gap, without falling back to fragmented wake requests. Actual API
 configuration, usage implications and validation are in semantic-turn-detection.md.
+
+### Browser voice artifact board
+
+The non-Zoom voice page at / embeds the existing workspace renderer in artifact-only mode. SessionController retains workspace_linked.workspace_id as workspaceId in /api/status independently of the bounded event history; it remains available after normal session end and is cleared on a new session. The page binds the iframe once per workspace, restores it on refresh, and clears the previous board while the next session connects. Voice controls and background-task cancellation/reporting remain in the parent page.
+
+/workspace.html?workspace=<id>&server=/workspace-api&embedded=1 opens an existing workspace directly, without resolving a Zoom meeting or resetting it. Embedded mode automatically presents completed artifacts and the latest artifact on initial load when no active artifact is set. Standalone navigation retains the full workspace view. The Vite /workspace-api HTTP/WebSocket proxy targets SPARKIE_WORKSPACE_SERVER (default 127.0.0.1:8790), so LAN clients use the same origin instead of connecting to their own localhost. Snapshot refresh after WebSocket subscription catches artifacts produced during initial connection. Workspace outages do not stop voice sessions; results remain in the original task list, and the board reports its connection state.

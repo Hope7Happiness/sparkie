@@ -126,6 +126,7 @@ export class SessionController {
         if (event.type === 'configuration_error') this.state.error = `缺少配置：${event.missing.join(', ')}`;
         if (event.type === 'session_failed') this.state.error = `实时会话失败（${event.error_type}），请检查连接与配置。`;
         if (event.type === 'session_created') this.outputDirectory = event.output;
+        if (event.type === 'workspace_linked') this.state.workspaceId = event.workspace_id;
         event.sequence = ++this.eventSequence;
         this.state.events.push(event);
         if (this.state.events.length > 2000) this.state.events.shift();

@@ -53,7 +53,7 @@ class Element {
   get tags() { return [...this.walk()].map(el => el.tag); }
 }
 
-function harness({ fetch = async () => { throw new Error('offline'); } } = {}) {
+function harness({ fetch = async () => { throw new Error('offline'); }, search = '' } = {}) {
   const root = new Element('body');
   const byId = new Map();
   const document = {
@@ -67,10 +67,12 @@ function harness({ fetch = async () => { throw new Error('offline'); } } = {}) {
   };
   const source = readFileSync(new URL('./workspace.js', import.meta.url), 'utf8')
     .replace(/^import '\.\/[\w-]+\.css';$/gm, '')
-    + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
+    + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay,connectWorkspace,serverBases};';
+  document.getElementById('artifact-overlay').hidden = true;
   const context = vm.createContext({
-    document, WebSocket: { OPEN: 1 }, fetch,
-    URL, Blob, FormData, console,
+    document, WebSocket: class { static OPEN = 1; constructor(url) { this.url = url; } close() {} }, fetch,
+    URL, URLSearchParams, Blob, FormData, console,
+    location: { search, origin: 'http://localhost:5178' },
   });
   vm.runInContext(source, context);
   return { api: context.api, document, root };
@@ -293,4 +295,39 @@ test('artifact list cards get a type badge matching their content', () => {
   api.upsertArtifact({ artifact_id: 'art_2', content: { pdf: 'https://example.com/a.pdf' } });
   assert.equal(document.querySelector('[data-artifact="art_2"]').querySelector('.type-badge').dataset.kind, 'pdf');
   assert.equal(api.artifactKind({ type: 'artifact.ready', content: { url: 'https://x.dev' } }), 'url');
+});
+
+test('embedded voice board presents completed artifacts without covering voice controls', async () => {
+  const { api, document } = harness({ search: '?embedded=1', fetch: async () => ({
+    ok: true, json: async () => ({ artifact_id: 'art_voice', title: 'Voice result',
+      content: { markdown: '# Task complete\n\n| Item | Result |\n| --- | --- |\n| A | Done |' } }),
+  }) });
+  api.state.server = 'http://localhost:5178/workspace-api';
+  api.onEvent({ type: 'artifact.ready', artifact_id: 'art_voice', title: 'Voice result' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(api.state.activeArtifact, 'art_voice');
+  assert.ok(stage(document).querySelector('table'));
+  assert.notEqual(document.getElementById('artifact-overlay').hidden, false);
+  api.onEvent({ type: 'artifact.present', artifact_id: 'art_voice' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.notEqual(document.getElementById('artifact-overlay').hidden, false);
+  api.clearWorkspaceUI();
+  assert.ok(stage(document).textContent.includes('成果会自动展示'));
+  assert.equal(api.state.artifacts.size, 0);
+});
+
+test('voice workspace opens by ID through same-origin proxy without resolving a Zoom meeting', async () => {
+  const requests = [];
+  const { api } = harness({ fetch: async url => {
+    requests.push(url);
+    return { ok: true, json: async () => ({ workspace: { workspace_id: 'ws_abc', generation: 3 },
+      seq: 0, tasks: [], transcript: [], artifacts: [] }) };
+  } });
+  await api.connectWorkspace(api.serverBases('/workspace-api'), { workspaceId: 'ws_abc' });
+  assert.deepEqual(requests, ['http://localhost:5178/workspace-api/api/workspaces/ws_abc']);
+  assert.equal(api.state.socket.url, 'ws://localhost:5178/workspace-api/workspaces/ws_abc/events?generation=3');
+  assert.equal(api.state.generation, 3);
+  const count = requests.length;
+  await api.connectWorkspace(api.serverBases('/workspace-api'), { workspaceId: '../../other' });
+  assert.equal(requests.length, count, 'invalid IDs cannot become request paths');
 });

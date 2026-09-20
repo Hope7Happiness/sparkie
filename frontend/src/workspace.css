@@ -253,3 +253,13 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
   #state::before,.live-dot::before,.task[data-status="running"],
   .task[data-status="running"] small::before{animation:none}
 }
+
+/* The voice page owns conversation and task controls; reuse only the artifact board. */
+.embedded-artifacts{background:var(--paper);min-height:0}
+.embedded-artifacts .app{padding:12px;max-width:none}
+.embedded-artifacts .brand,.embedded-artifacts .join-bar,.embedded-artifacts .ws-chip,.embedded-artifacts .transcript-panel,.embedded-artifacts .tasks-panel{display:none}
+.embedded-artifacts .topbar{padding:0 0 12px;margin-bottom:12px;position:static;background:none;justify-content:flex-end}
+.embedded-artifacts .workspace{grid-template-columns:minmax(0,1fr) 210px;gap:16px}
+.embedded-artifacts .stage-body{min-height:350px}
+.embedded-artifacts #error{margin:0 0 12px}
+@media(max-width:650px){.embedded-artifacts .workspace{grid-template-columns:1fr}.embedded-artifacts .rail{display:block}}

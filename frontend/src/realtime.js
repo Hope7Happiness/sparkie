@@ -4,6 +4,28 @@ let voice = null, starting = false;
 const $ = selector => document.querySelector(selector);
 let sessionId = null, rendered = 0, busy = false;
 const jobs = new Map();
+let artifactWorkspace = null;
+function renderArtifactBoard(state) {
+  const id = state.workspaceId;
+  const valid = typeof id === 'string' && /^ws_[a-f0-9]+$/.test(id);
+  const frame = $('#artifact-board'), link = $('#artifact-open'), notice = $('#artifact-notice');
+  if (valid) {
+    const url = `/workspace.html?workspace=${encodeURIComponent(id)}&server=/workspace-api`;
+    if (artifactWorkspace !== id) frame.src = `${url}&embedded=1`;
+    artifactWorkspace = id;
+    link.href = url;
+    frame.hidden = link.hidden = false;
+    notice.hidden = true;
+  } else {
+    if (artifactWorkspace) frame.removeAttribute('src');
+    artifactWorkspace = null;
+    frame.hidden = link.hidden = true;
+    notice.hidden = false;
+    notice.textContent = !state.id ? '开始对话后，任务成果会自动展示在这里。'
+      : state.status === 'starting' ? '正在连接本轮成果面板…'
+      : '成果面板未连接。语音和后台任务仍可使用，结果可在下方任务列表查看。';
+  }
+}
 async function api(route, data) {
   const response = await fetch(`/api/${route}`, data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
   const result = await response.json();
@@ -79,6 +101,7 @@ async function poll() {
     if (state.id !== sessionId) {
       sessionId = state.id; rendered = 0; jobs.clear(); $('#conversation').replaceChildren(); $('#tasks').replaceChildren(); $('#task-count').textContent = '0';
     }
+    renderArtifactBoard(state);
     const wasBusy = busy;
     busy = ['starting', 'listening', 'stopping'].includes(state.status);
     $('#state').textContent = state.audioStalled && state.status === 'listening' ? '麦克风待恢复'
