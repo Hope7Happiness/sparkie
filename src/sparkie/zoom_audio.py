@@ -1,7 +1,6 @@
 """Real Zoom PCM adapter; the SDK process sees only Zoom credentials, never provider keys."""
 import asyncio
 import contextlib
-from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -11,7 +10,7 @@ import struct
 import time
 
 from .audio import AudioFrame
-from .providers import failure_details
+from .providers import failure_details, ProviderError
 from .zoom_errors import ZoomBridgeError
 from .zoom_config import meeting_config, private_write
 
@@ -96,6 +95,8 @@ class ZoomAudioMeeting:
     def launch_failure(self):
         return None
 
+    handshake = b'cancel-v1'
+
     async def connect(self):
         while True:
             failure = self.launch_failure()
@@ -107,8 +108,8 @@ class ZoomAudioMeeting:
                 await self.writer.drain()
                 # The SDK side can accept TCP before its bridge starts listening.
                 kind, payload = await self.read_packet()
-                if kind != b'H' or payload != b'cancel-v1':
-                    self.failure = RuntimeError('Zoom bridge requires cancel-v1; rebuild the native receiver')
+                if kind != b'H' or payload != self.handshake:
+                    self.failure = RuntimeError('Zoom bridge requires ' + self.handshake.decode() + '; rebuild the native receiver')
                     raise self.failure
                 return
             except (OSError, asyncio.IncompleteReadError):
@@ -145,6 +146,9 @@ class ZoomAudioMeeting:
     def handle_metadata(self, kind, data):
         return False
 
+    def enqueue_frame(self, frame):
+        self.queue.put_nowait(frame)
+
     async def receive(self):
         try:
             while True:
@@ -162,9 +166,11 @@ class ZoomAudioMeeting:
                     if self.queue.qsize() >= 250 and not self._backlogged:
                         self._backlogged = True
                         self.on_event("audio_warning", reason="zoom_input_backlog", queued_frames=self.queue.qsize())
-                    # Preserve upstream capture-time gating only for mixed audio.
-                    gated = self.input_gate() if frame.speaker_id is None else False
-                    self.queue.put_nowait(replace(frame, pcm=bytes(len(data)) if gated else data, gated=gated))
+                    # Freeze mixed-input gating before queueing; per-user input excludes self.
+                    if kind == b'A':
+                        gated = self.input_gate()
+                        frame = AudioFrame(frame.sequence, bytes(len(data)) if gated else data, gated=gated)
+                    self.enqueue_frame(frame)
                     self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
                     if self.frames_received % 32 == 0:
                         # StreamReader may return buffered packets without suspending.
@@ -342,19 +348,28 @@ class ZoomAudioMeeting:
 class ZoomMacAudioMeeting(ZoomAudioMeeting):
     """Same loopback bridge protocol without Docker; launches the signed macOS receiver app."""
 
-    def __init__(self, runtime, binary, *, per_participant=True, **kwargs):
+    handshake = b'cancel-v1,dual-input-v1'
+
+    def __init__(self, runtime, binary, *, participant_audio=True, **kwargs):
         super().__init__(runtime, **kwargs)
+        self.participant_audio = participant_audio
+        self.mixed_audio = False
+        self.input_finished = False
+        self.participant_queue = asyncio.Queue(maxsize=500)
+        self.participant_input_done = asyncio.Event()
+        self.participant_failure = None
+        self.participant_accepting = True
+        self.participant_max_queued = 0
         self.binary = Path(binary)
         self.name = 'sparkie-zoom-macos-' + secrets.token_hex(4)
         self.process = None
         self._log = None
-        self.per_participant = per_participant
         self.participants = {}
         self.participant_names = {}
         self.participant_frames = {}
 
     def decode_audio(self, kind, data):
-        if not self.per_participant:
+        if not self.participant_audio or (self.mixed_audio and kind == b'A'):
             return super().decode_audio(kind, data)
         if kind != b'U' or len(data) <= 12 or len(data) % 2:
             raise RuntimeError('Expected macOS per-user audio; rebuild the native receiver')
@@ -365,11 +380,41 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         self.participant_frames[ident] = self.participant_frames.get(ident, 0) + 1
         if self.participant_frames[ident] == 1:
             self.on_event('zoom_participant_audio', speaker_id=ident, timestamp_ms=timestamp)
-        return AudioFrame(self.frames_received + 1, data[12:], 32000, speaker_id=ident, timestamp_ms=timestamp)
+        return AudioFrame(self.frames_received + 1, data[12:], 32000,
+                          speaker_id=ident, timestamp_ms=timestamp)
+
+    def enqueue_frame(self, frame):
+        if self.input_finished:
+            return
+        if not self.mixed_audio or frame.speaker_id is None:
+            return super().enqueue_frame(frame)
+        if not self.participant_accepting:
+            return
+        try:
+            self.participant_queue.put_nowait(frame)
+            self.participant_max_queued = max(self.participant_max_queued, self.participant_queue.qsize())
+        except asyncio.QueueFull:
+            self.participant_failure = ProviderError('Participant input queue full')
+            self.disable_participant_transcription()
+
+    def disable_participant_transcription(self):
+        self.participant_accepting = False
+        self.participant_input_done.set()
+        while not self.participant_queue.empty():
+            self.participant_queue.get_nowait()
+
+    async def participant_audio_stream(self):
+        while True:
+            if self.participant_failure:
+                raise self.participant_failure
+            if self.participant_input_done.is_set() and self.participant_queue.empty():
+                return
+            try:
+                yield await asyncio.wait_for(self.participant_queue.get(), .1)
+            except TimeoutError:
+                continue
 
     def handle_metadata(self, kind, data):
-        if not self.per_participant:
-            return False
         if kind == b'R' and not data:
             self.audio_ready.set()
             return True
@@ -397,9 +442,10 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         return self.participants.get(speaker_id, {}).get('is_self', False)
 
     def diagnostics(self):
-        if not self.per_participant:
+        if not self.participant_audio:
             return {**super().diagnostics(), 'input_mode': 'mixed'}
-        return {**super().diagnostics(), 'input_mode': 'per_participant',
+        return {**super().diagnostics(), 'input_mode': 'mixed_and_per_participant' if self.mixed_audio else 'per_participant',
+                'participant_max_queued_frames': self.participant_max_queued,
                 'echo_mode': 'exclude_sdk_self_track', 'participants': self.participants,
                 'timestamp_source': 'sdk_media_clock_with_callback_fallback',
                 'participant_frames': self.participant_frames}
@@ -415,7 +461,8 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         probe.bind(('127.0.0.1', 0))
         self.port = probe.getsockname()[1]
         probe.close()
-        config.update(voice=True, participant_audio=self.per_participant, bridge_port=self.port, bridge_token=self._token)
+        config.update(voice=True, participant_audio=self.participant_audio, mixed_audio=self.mixed_audio,
+                      bridge_port=self.port, bridge_token=self._token)
         self.runtime.mkdir(parents=True, exist_ok=True)
         config_path = self.runtime / 'config.json'
         private_write(config_path, json.dumps(config))

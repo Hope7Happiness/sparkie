@@ -2,7 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { SessionController, validateOptions } from './server.mjs';
+import { SessionController, validateOptions, allowedRequest } from './server.mjs';
+import { networkInterfaces } from 'node:os';
+
+test('LAN addresses allow same-origin API and audio while unrelated origins and hosts are rejected', () => {
+  for (const { address, family } of Object.values(networkInterfaces()).flat()) {
+    const host = `${family === 'IPv6' ? `[${address}]` : address}:5178`;
+    assert.equal(allowedRequest({ headers: { host, origin: `http://${host}` } }, 5178, true), true);
+    assert.equal(allowedRequest({ headers: { host, origin: 'https://unrelated.example' } }, 5178), false);
+    assert.equal(allowedRequest({ headers: { host } }, 5178, true), false);
+  }
+  assert.equal(allowedRequest({ headers: { host: 'unrelated.example:5178', origin: 'http://unrelated.example:5178' } }, 5178), false);
+});
 const options = { language: 'en', echoMode: 'speaker', responseMode: 'qa', seconds: 60, inputDevice: '', outputDevice: 1 };
 function harness() {
   let now = 1000;
@@ -117,5 +128,63 @@ test('bounded event history retains monotonic cursors after rollover', () => {
   for (let i = 0; i < 2010; i++) child.stdout.write('{"type":"test"}\n');
   assert.equal(controller.state.events.length, 2000);
   assert.equal(controller.state.events.at(-1).sequence, 2010);
+  child.emit('close', 0);
+});
+
+test('browser input stalls preserve tasks and recover on incoming audio without child meter events', () => {
+  const { controller, child, advance } = harness();
+  child.stdin = new PassThrough();
+  controller.start({ ...options, responseMode: 'realtime', transport: 'browser', seconds: 0 });
+  assert.equal(controller.deadlineTimer, undefined);
+  child.stdout.write('{"type":"listening_ready"}\n');
+  advance(7000); controller.snapshot(); controller.expire();
+  assert.equal(controller.state.audioStalled, true);
+  assert.match(controller.state.warning, /后台任务仍在继续/);
+  assert.deepEqual(child.signals, []);
+  controller.audioCommand({ action: 'audio_input', sequence: 0, pcm: 'AAA=' });
+  assert.equal(controller.state.audioStalled, false);
+  assert.equal(controller.state.warning, undefined);
+  for (let i = 0; i < 3; i++) {
+    advance(5000); controller.snapshot();
+    controller.audioCommand({ action: 'audio_input', sequence: i + 1, pcm: 'AAA=' });
+    controller.expire();
+  }
+  assert.deepEqual(child.signals, []);
+  controller.stop(); child.emit('close', 0);
+  assert.equal(controller.state.status, 'ended');
+});
+
+test('partial transcript replaces preview without filling final history, and clears on final/close', () => {
+  const { controller, child } = harness();
+  controller.start(options);
+  for (let i = 0; i < 2010; i++) child.stdout.write(JSON.stringify({type:'transcript_partial',text:'draft '+i})+'\n');
+  assert.equal(controller.state.partialTranscript, 'draft 2009');
+  assert.equal(controller.state.events.length, 0);
+  child.stdout.write(JSON.stringify({type:'transcript',text:'final text'})+'\n');
+  assert.equal(controller.state.partialTranscript, '');
+  assert.equal(controller.state.events.length, 1);
+  child.stdout.write(JSON.stringify({type:'transcript_partial',text:'unfinished'})+'\n');
+  child.emit('close', 0);
+  assert.equal(controller.state.partialTranscript, '');
+});
+
+test('repeated cancelled replies show a temporary hint without stopping the session', () => {
+  const { controller, child, advance } = harness();
+  controller.start(options);
+  const emit = event => child.stdout.write(JSON.stringify(event)+'\n');
+  emit({type:'listening_ready'});
+  emit({type:'user_speech_started'});
+  assert.equal(controller.state.speechActive, true);
+  assert.equal(controller.state.speechStartedAt, 1000);
+  emit({type:'user_speech_stopped'});
+  assert.equal(controller.state.speechActive, false);
+  emit({type:'realtime_response_done',status:'cancelled'});
+  assert.equal(controller.state.voiceHint, undefined);
+  advance(1000);
+  emit({type:'realtime_response_done',status:'cancelled'});
+  assert.match(controller.state.voiceHint, /打断/);
+  assert.equal(controller.state.status, 'listening');
+  emit({type:'assistant_transcript',text:'Hello'});
+  assert.equal(controller.state.voiceHint, undefined);
   child.emit('close', 0);
 });

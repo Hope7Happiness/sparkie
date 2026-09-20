@@ -49,6 +49,32 @@ class UtteranceTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_partial_is_revised_without_becoming_a_final_transcript(self):
+        class Socket:
+            def __init__(self): self.queue = asyncio.Queue()
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def send(self, payload):
+                if isinstance(payload, bytes):
+                    for event in [message('wrong word', final=False, end=False),
+                                  message('Hello', end=False),
+                                  message('world', start=1, final=False, end=False),
+                                  message('world', start=1)]:
+                        await self.queue.put(json.dumps(event))
+                else:
+                    await self.queue.put(None)
+            def __aiter__(self): return self
+            async def __anext__(self):
+                event = await self.queue.get()
+                if event is None: raise StopAsyncIteration
+                return event
+        async def frames(): yield AudioFrame(0, bytes(960))
+        socket = Socket(); partials = []
+        ears = DeepgramEars('test', 'meeting', connector=lambda *args: socket, on_partial=partials.append)
+        final = [event.text async for event in ears.transcribe(frames())]
+        self.assertEqual(partials, ['wrong word', 'Hello', 'Hello world', ''])
+        self.assertEqual(final, ['Hello world'])
+
     async def test_deepgram_tts_headerless_pcm_request(self):
         def handle(request):
             self.assertEqual(request.url.path, "/v1/speak")

@@ -12,6 +12,28 @@ from sparkie.task_center import TranscriptLedger, TaskCenter
 
 
 class TaskTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clarification_replaces_queued_task_without_duplicate_or_running_mutation(self):
+        release = asyncio.Event()
+        seen = []
+        class Worker:
+            async def run(self, request, snapshot):
+                seen.append(request)
+                await release.wait()
+                return 'done'
+        with tempfile.TemporaryDirectory() as directory:
+            center = TaskCenter(TranscriptLedger(directory), Worker(), lambda *a, **k: None)
+            first = center.submit('create file')['task_id']
+            second = center.submit('open website')['task_id']
+            await asyncio.sleep(0)
+            result = center.update(second, 'open https://bowenyu.com')
+            self.assertEqual(result['task_id'], second)
+            self.assertEqual(len(center.jobs), 2)
+            self.assertEqual(center.update(first, 'different file')['error'], 'task_already_started')
+            release.set()
+            await asyncio.gather(*center.runners.values())
+            self.assertEqual(seen, ['create file', 'open https://bowenyu.com'])
+            await center.close()
+
     async def test_queue_is_immediate_and_snapshot_does_not_clip_or_follow_future_speech(self):
         release = asyncio.Event()
         seen = []
@@ -224,4 +246,4 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
                                  'call_id': 'choice', 'name': 'remain_silent', 'arguments': '{}'})
         await self.agent.handle({'type': 'response.done', 'response': {'id': 'silent', 'status': 'completed'}})
         self.assertEqual([e['type'] for e in self.sent], ['conversation.item.create'])
-        self.assertIn('background_notification_deferred', self.events)
+        self.assertIn('realtime_silent', self.events)

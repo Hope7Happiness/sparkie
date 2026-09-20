@@ -1,9 +1,10 @@
 export class BrowserVoice {
   constructor(onFailure) { this.onFailure = onFailure; this.sequence = 0; this.closed = false; this.muted = false; this.captureEpoch = 0; }
   async prepare(inputDevice) {
+    this.inputDevice = inputDevice;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: {
-        echoCancellation: { exact: true }, noiseSuppression: true, autoGainControl: true,
+        echoCancellation: { exact: true }, noiseSuppression: true, autoGainControl: false,
         channelCount: 1, ...(inputDevice ? { deviceId: { exact: inputDevice } } : {}),
       }, video: false });
       this.settings = this.stream.getAudioTracks()[0].getSettings();
@@ -15,12 +16,48 @@ export class BrowserVoice {
       this.source = this.context.createMediaStreamSource(this.stream);
       this.source.connect(this.node); this.node.connect(this.context.destination);
       await this.context.resume();
-      this.stream.getAudioTracks()[0].onended = () => { if (!this.closed) this.fail('麦克风连接已中断。'); };
+      this.node.onprocessorerror = () => this.fail('音频处理已中断，请重新开始对话。');
+      this.context.onstatechange = () => this.reportInputState();
     } catch (error) { this.close(); throw error; }
+  }
+  async recoverInput() {
+    if (this.closed) throw new Error('会话已结束，请重新开始。');
+    // A user gesture can resume a suspended AudioContext. Reacquire the input
+    // without replacing the WebSocket, task queue, or worklet sequence.
+    await this.context.resume();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: { exact: true }, noiseSuppression: true, autoGainControl: false,
+      channelCount: 1, ...(this.inputDevice ? { deviceId: { exact: this.inputDevice } } : {}),
+    }, video: false });
+    if (this.closed || stream.getAudioTracks()[0].getSettings().echoCancellation !== true) {
+      stream.getTracks().forEach(track => track.stop());
+      throw new Error('无法恢复启用回声消除的麦克风。');
+    }
+    const source = this.context.createMediaStreamSource(stream);
+    source.connect(this.node);
+    this.source.disconnect();
+    this.stream.getTracks().forEach(track => track.stop());
+    this.stream = stream; this.source = source;
+    this.stream.getAudioTracks().forEach(track => { track.enabled = !this.muted; });
+    this.observeInput();
+    this.reportInputState();
+  }
+  observeInput() {
+    const track = this.stream.getAudioTracks()[0];
+    track.onmute = () => this.reportInputState();
+    track.onunmute = () => this.reportInputState();
+    track.onended = () => this.reportInputState();
+  }
+  reportInputState() {
+    if (this.closed || this.socket?.readyState !== WebSocket.OPEN) return;
+    const track = this.stream.getAudioTracks()[0];
+    this.send({ action: 'audio_settings', ...track.getSettings(), sampleRate: this.context.sampleRate,
+      contextState: this.context.state, trackState: track.readyState, trackMuted: track.muted,
+      trackEnabled: track.enabled, deviceLabel: track.label });
   }
   async connect(sessionId) {
     this.sessionId = sessionId;
-    this.socket = new WebSocket(`ws://${location.host}/audio?session=${encodeURIComponent(sessionId)}`);
+    this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/audio?session=${encodeURIComponent(sessionId)}`);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('音频连接超时。')), 5000);
       this.socket.onopen = () => { clearTimeout(timer); resolve(); };
@@ -41,8 +78,8 @@ export class BrowserVoice {
         this.node.port.postMessage({ type: 'output', item_id: message.item_id, generation: message.generation, pcm }, [pcm.buffer]);
       }
     };
-    this.send({ action: 'audio_settings', echoCancellation: this.settings.echoCancellation,
-      noiseSuppression: this.settings.noiseSuppression, sampleRate: this.context.sampleRate });
+    this.reportInputState();
+    this.observeInput();
     this.node.port.onmessage = ({ data }) => {
       if (this.closed) return;
       if (data.type === 'capture') {
@@ -61,6 +98,7 @@ export class BrowserVoice {
     this.captureEpoch++;
     this.stream?.getAudioTracks().forEach(track => { track.enabled = !this.muted; });
     this.node?.port.postMessage({ type: 'mute', muted: this.muted, epoch: this.captureEpoch });
+    this.reportInputState();
   }
   send(message) {
     if (this.closed) return;

@@ -5,8 +5,8 @@
 #import <ZoomSDK/ZoomSDK.h>
 #import <ZoomSDK/ZoomSDKRawDataAudioSourceController.h>
 #include <arpa/inet.h>
-#include <errno.h>
 #include <libkern/OSByteOrder.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -21,8 +21,10 @@ static _Atomic int bridge_client = -1;
 static _Atomic BOOL bridge_sending = NO, bridge_playing = NO;
 static _Atomic unsigned bridge_generation = 0;
 static _Atomic long long bridge_gate_until = 0;
+static BOOL bridge_mixed_audio = NO;
 static char bridge_token[65];
 static int bridge_port;
+static BOOL bridge_participant_audio = YES;
 static _Atomic unsigned bridge_self_id = 0;
 static long long bridge_audio_origin;
 static long long bridge_sdk_origin = -1, bridge_sdk_offset;
@@ -216,7 +218,7 @@ static void *bridge_serve(void *unused) {
         [bridge_outgoing removeAllObjects];
         pthread_mutex_unlock(&out_mutex);
         bridge_client = fd;
-        bridge_emit('H', "cancel-v1", 9);
+        bridge_emit('H', "cancel-v1,dual-input-v1", (unsigned)strlen("cancel-v1,dual-input-v1"));
         if (bridge_sending) bridge_emit('M', NULL, 0);
         pthread_t writer;
         pthread_create(&writer, NULL, bridge_writer, (void *)(intptr_t)fd);
@@ -276,20 +278,6 @@ static void bridge_set_sending(BOOL value) {
         bridge_emit('N', NULL, 0);
     }
 }
-static void bridge_audio(ZoomSDKAudioRawData *data) {
-    if (bridge_client < 0) return;
-    const char *buffer = [data getBuffer];
-    unsigned int rate = [data getSampleRate], channels = [data getChannelNum], size = [data getBufferLen];
-    if (!buffer || channels != 1 || rate != 32000 || size % 2 || size > 64000) {
-        bridge_error("invalid_input_format");
-        return;
-    }
-    NSMutableData *pcm = [[NSMutableData alloc] initWithLength:size];
-    // Self-echo gate: silence input while playing and for 350 ms afterwards.
-    if (!bridge_playing && bridge_millis() >= bridge_gate_until) memcpy(pcm.mutableBytes, buffer, size);
-    bridge_emit('A', pcm.bytes, size);
-}
-
 // Prefer the SDK media clock so delayed/batched callbacks do not compress time.
 // The SDK returns zero when a timestamp is unavailable; only then estimate from callback time.
 static long long bridge_timestamp(ZoomSDKAudioRawData *data) {
@@ -328,7 +316,6 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 @property NSDictionary *config;
 @property ZoomSDKAudioRawDataHelper *audio;
 @property BOOL voice;
-@property BOOL participantAudio;
 @property BOOL recording;
 @property BOOL requested;
 @property BOOL stopping;
@@ -358,7 +345,8 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
             }
         }
         self.voice = [self.config[@"voice"] boolValue];
-        self.participantAudio = [self.config[@"participant_audio"] boolValue];
+        bridge_participant_audio = self.config[@"participant_audio"] ? [self.config[@"participant_audio"] boolValue] : YES;
+        bridge_mixed_audio = [self.config[@"mixed_audio"] boolValue] || !bridge_participant_audio;
         if (self.voice) {
             id port = self.config[@"bridge_port"];
             NSString *token = self.config[@"bridge_token"];
@@ -450,7 +438,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
             printf("UNMUTE_REQUEST result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_UnMuteAudio userID:0 onScreen:0]);
         }
         bridge_self_id = [[actions getMyself] getUserID];
-        if (self.voice && self.participantAudio && !self.participantTimer) {
+        if (self.voice && !self.participantTimer) {
             self.participantTimer = [NSTimer scheduledTimerWithTimeInterval:1 target:self
                 selector:@selector(publishParticipants) userInfo:nil repeats:YES];
         }
@@ -463,7 +451,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     }
 }
 - (void)publishParticipants {
-    if (!self.voice || !self.participantAudio || bridge_client < 0) return;
+    if (!self.voice || bridge_client < 0) return;
     ZoomSDKMeetingActionController *actions = [[[ZoomSDK sharedSDK] getMeetingService] getMeetingActionController];
     bridge_self_id = [[actions getMyself] getUserID];
     NSMutableArray *users = [NSMutableArray new];
@@ -475,7 +463,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
         [users addObject:@{@"user_id": ident, @"name": name, @"is_self": @([user isMySelf])}];
     }
     NSData *data = [NSJSONSerialization dataWithJSONObject:users options:NSJSONWritingSortedKeys error:nil];
-    if (data.length > 64000) { bridge_error("invalid_input_format"); return; }
+    if (data.length > 64000) { bridge_error("Participant metadata exceeds bridge limit"); return; }
     if (data && ![data isEqualToData:self.lastParticipants]) {
         bridge_emit('J', data.bytes, (unsigned)data.length);
         self.lastParticipants = data;
@@ -555,13 +543,22 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     const char *buffer = [data getBuffer];
     unsigned int size = [data getBufferLen];
     if (!buffer || !size) return;
-    if (self.voice && !self.participantAudio) bridge_audio(data);
-    // Establish the common media clock even before a participant speaks.
-    if (self.voice && self.participantAudio) (void)bridge_timestamp(data);
-    // Mixed callback is only a health heartbeat; it never enters transcription.
-    if (self.voice && self.participantAudio && bridge_millis() - bridge_last_heartbeat >= 1000) {
-        bridge_last_heartbeat = bridge_millis();
-        bridge_emit('R', NULL, 0);
+    if (self.voice && bridge_participant_audio) {
+        // Mixed callbacks only establish the clock and report health in per-user mode.
+        (void)bridge_timestamp(data);
+        if (bridge_millis() - bridge_last_heartbeat >= 1000) {
+            bridge_last_heartbeat = bridge_millis();
+            bridge_emit('R', NULL, 0);
+        }
+    }
+    if (self.voice && bridge_mixed_audio && bridge_client >= 0) {
+        if ([data getChannelNum] != 1 || [data getSampleRate] != 32000 || size % 2 || size > 64000) {
+            bridge_error("invalid_input_format");
+            return;
+        }
+        NSMutableData *pcm = [[NSMutableData alloc] initWithLength:size];
+        if (!bridge_playing && bridge_millis() >= bridge_gate_until) memcpy(pcm.mutableBytes, buffer, size);
+        bridge_emit('A', pcm.bytes, size);
     }
     @synchronized (self) {
         self.frames++; self.bytes += size;
@@ -579,7 +576,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 // Required deprecated method remains empty to avoid double ingestion; target SDK 7.1.5 uses userID.
 - (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data nodeID:(unsigned int)nodeID {}
 - (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {
-    if (self.voice && self.participantAudio) bridge_user_audio(data, userID);
+    if (self.voice && bridge_participant_audio) bridge_user_audio(data, userID);
 }
 - (void)onShareAudioRawDataReceived:(ZoomSDKAudioRawData *)data {}
 - (void)onShareAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {}

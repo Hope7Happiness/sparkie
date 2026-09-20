@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { networkInterfaces } from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
 import { readFile } from 'node:fs/promises';
 
@@ -11,11 +12,26 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const python = path.join(root, '.venv/bin/python');
 const runFile = promisify(execFile);
 
+export function allowedRequest(req, port, requireOrigin = false) {
+  const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `0.0.0.0:${port}`]);
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const { address, family } of addresses || []) {
+      hosts.add(`${family === 'IPv6' ? `[${address}]` : address}:${port}`);
+    }
+  }
+  const { host, origin } = req.headers;
+  return hosts.has(host) && (origin
+    ? origin === `http://${host}` || origin === `https://${host}`
+    : !requireOrigin);
+}
+
 export function validateOptions(value) {
   if (!value || !['en', 'zh-CN'].includes(value.language) ||
       !['speaker', 'headphones'].includes(value.echoMode) ||
       !['wake', 'qa', 'realtime'].includes(value.responseMode) ||
-      !Number.isInteger(value.seconds) || value.seconds < 10 || value.seconds > 300) {
+      !Number.isInteger(value.seconds) ||
+      !((value.seconds >= 10 && value.seconds <= 300) ||
+        (value.seconds === 0 && value.transport === 'browser' && value.responseMode === 'realtime'))) {
     throw new Error('请选择问答模式、语言、播放方式和 10–300 秒的时长。');
   }
   if (value.transport !== undefined && !['browser', 'local'].includes(value.transport)) throw new Error('Invalid transport');
@@ -58,6 +74,7 @@ export class SessionController {
     this.lastSeen = this.clock();
     this.lastAudioAt = null;
     this.captureActive = false;
+    this.recentCancellations = [];
     const child = this.spawnChild(python, args, { cwd: root, stdio: [options.responseMode === 'realtime' ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     this.child = child;
     child.stdin?.on('error', () => { this.state.warning = '控制连接已结束。'; });
@@ -82,6 +99,29 @@ export class SessionController {
           this.state.gated = event.gated;
           this.state.timingReliable &&= event.timing_reliable;
           return;
+        }
+        if (event.type === 'transcript_partial') {
+          // Provisional text is replaceable UI state, never final history or task context.
+          this.state.partialTranscript = event.text || '';
+          return;
+        }
+        if (event.type === 'transcript' || event.type === 'transcript_degraded') this.state.partialTranscript = '';
+        if (event.type === 'user_speech_started') {
+          this.state.speechActive = true;
+          this.state.speechStartedAt = this.clock();
+        }
+        if (event.type === 'user_speech_stopped') this.state.speechActive = false;
+        if (event.type === 'realtime_response_done' && event.status === 'cancelled') {
+          this.recentCancellations = this.recentCancellations.filter(t => this.clock() - t < 15000);
+          this.recentCancellations.push(this.clock());
+          if (this.recentCancellations.length >= 2) {
+            this.state.voiceHint = '回复连续被新的声音打断；说完后稍停一下，或试用耳机。';
+            this.voiceHintUntil = this.clock() + 15000;
+          }
+        }
+        if (event.type === 'assistant_transcript') {
+          this.state.voiceHint = undefined;
+          this.recentCancellations = [];
         }
         if (event.type === 'configuration_error') this.state.error = `缺少配置：${event.missing.join(', ')}`;
         if (event.type === 'session_failed') this.state.error = `实时会话失败（${event.error_type}），请检查连接与配置。`;
@@ -116,19 +156,33 @@ export class SessionController {
       this.state.level = 0;
       this.state.gated = false;
       this.captureActive = false;
+      this.state.partialTranscript = '';
+      this.state.speechActive = false;
+      this.state.voiceHint = undefined;
       if (signal === 'SIGKILL') this.state.error ||= '音频进程卡住，已强制停止。请重新开始测试；本轮未正常结束。';
       this.state.status = code === 0 && !this.state.error ? 'ended' : 'failed';
       if (this.state.status === 'failed') this.state.error ||= '测试失败：请检查 Deepgram 配置、网络、音频设备和麦克风权限；问答模式还需有效的 Codex 登录及模型配置。详细错误类型见事件记录。';
       this.state.exitCode = code;
       this.state.exitSignal = signal || null;
     });
-    this.deadlineTimer = setTimeout(() => this.stop('timeout'), (options.seconds + 45) * 1000);
-    this.deadlineTimer.unref?.();
+    if (options.seconds > 0) {
+      this.deadlineTimer = setTimeout(() => this.stop('timeout'), (options.seconds + 45) * 1000);
+      this.deadlineTimer.unref?.();
+    }
     return this.state;
   }
   audioCommand(command) {
     if (!this.child || this.state.options?.transport !== 'browser') throw new Error('No browser audio session');
     if (!['audio_input', 'audio_progress', 'audio_settings'].includes(command.action)) throw new Error('Invalid audio command');
+    // Live audio also renews the page lease when background-tab timers are throttled.
+    this.lastSeen = this.clock();
+    if (command.action === 'audio_input') {
+      this.lastAudioAt = this.clock();
+      if (this.state.audioStalled) {
+        this.state.audioStalled = false;
+        this.state.warning = undefined;
+      }
+    }
     if (this.child.stdin.writableLength > 256000) { this.stop('audio-input-backpressure'); return; }
     this.child.stdin.write(JSON.stringify(command) + '\n');
   }
@@ -145,20 +199,25 @@ export class SessionController {
       this.state.stopReason = reason;
       this.child.kill('SIGTERM');
       const child = this.child;
-      this.killTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
+      // Provider sockets can each spend a few seconds flushing/closing.
+      this.killTimer = setTimeout(() => child.kill('SIGKILL'), 10000);
       this.killTimer.unref?.();
     }
     return this.state;
   }
   expire() {
+    if (this.clock() >= this.voiceHintUntil) this.state.voiceHint = undefined;
     if (this.child && this.clock() - this.lastSeen > 15000) this.stop('page-disconnected');
     if (this.child && this.state.status === 'listening' && this.captureActive && this.lastAudioAt !== null) {
       const gap = this.clock() - this.lastAudioAt;
       if (gap > 3000) {
         this.state.level = 0;
-        this.state.warning = '麦克风输入已停滞，正在检查音频连接。';
+        this.state.audioStalled = true;
+        this.state.warning = this.state.options.transport === 'browser'
+          ? '麦克风输入暂时中断，后台任务仍在继续。请点“恢复麦克风”。'
+          : '麦克风输入已停滞，正在检查音频连接。';
       }
-      if (gap > 6000) {
+      if (gap > 6000 && this.state.options.transport !== 'browser') {
         this.state.error = '连续 6 秒没有收到麦克风音频，已停止本轮。请重新开始或切换音频设备。';
         this.stop('audio-stalled');
       }
@@ -175,7 +234,7 @@ export function localApi(port = 5178) {
       server.httpServer?.on('upgrade', (req, socket, head) => {
         const url = new URL(req.url, 'http://localhost');
         if (url.pathname !== '/audio') return;
-        if (![ `http://127.0.0.1:${port}`, `http://localhost:${port}` ].includes(req.headers.origin) ||
+        if (!allowedRequest(req, port, true) ||
             !controller.child || controller.state.options?.transport !== 'browser' ||
             url.searchParams.get('session') !== controller.state.id || controller.audioSocket) {
           socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return;
@@ -205,10 +264,8 @@ export function localApi(port = 5178) {
           res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
           res.end(JSON.stringify(data));
         };
-        const origin = req.headers.origin;
-        const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-        if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host) || (origin && !allowed.has(origin))) {
-          return send(403, { error: '仅允许本机页面访问。' });
+        if (!allowedRequest(req, port)) {
+          return send(403, { error: '仅允许通过本机地址同源访问。' });
         }
         try {
           if (req.method === 'GET' && req.url === '/status') return send(200, controller.snapshot());

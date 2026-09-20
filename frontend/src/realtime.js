@@ -18,17 +18,36 @@ function entry(label, text, gap = false) {
   const body = document.createElement('p'); body.textContent = text;
   div.append(title, body); feed.append(div); feed.scrollTop = feed.scrollHeight;
 }
-const statuses = { queued: '等待处理', running: 'Codex 正在思考', completed: '结果已就绪', failed: '处理失败', cancelled: '已取消' };
+function renderPartial(text) {
+  const feed = $('#conversation');
+  let draft = feed.querySelector('.partial');
+  if (!text) { draft?.remove(); return; }
+  feed.querySelector('.empty')?.remove();
+  if (!draft) {
+    draft = document.createElement('div'); draft.className = 'entry partial';
+    const label = document.createElement('small'); label.textContent = '你 · 正在转写';
+    draft.append(label, document.createElement('p'));
+  }
+  if (draft.querySelector('p').textContent !== text) {
+    draft.querySelector('p').textContent = text;
+    feed.append(draft); feed.scrollTop = feed.scrollHeight;
+  }
+}
+const statuses = { queued: '等待处理', running: '正在处理', completed: '结果已就绪', failed: '处理失败', cancelled: '已取消' };
 function renderJobs() {
   const area = $('#tasks'); area.replaceChildren();
   $('#task-count').textContent = jobs.size;
   for (const job of jobs.values()) {
     const card = document.createElement('article'); card.className = 'task';
-    const status = document.createElement('small'); status.textContent = `${statuses[job.status] || job.status}`;
+    const status = document.createElement('small'); status.textContent =
+      `${statuses[job.status] || job.status}${job.backend && job.model ? ` · ${job.backend} / ${job.model}` : ''}`;
     const title = document.createElement('h3'); title.textContent = job.request;
     card.append(status, title);
     if (job.result) { const result = document.createElement('p'); result.textContent = job.result; card.append(result); }
-    if (job.error_type) { const e = document.createElement('p'); e.textContent = `任务未完成，请稍后重试。`; card.append(e); }
+    if (job.error_type) { const e = document.createElement('p'); e.textContent = job.error_message || '任务未完成，请查看具体请求后重试。'; card.append(e); }
+    if (job.progress && job.status === 'running') {
+      const progress = document.createElement('p'); progress.textContent = job.progress; card.append(progress);
+    }
     if (['queued', 'running', 'completed'].includes(job.status)) {
       const button = document.createElement('button'); button.className = 'secondary'; button.disabled = !busy;
       button.textContent = job.status === 'completed' ? '播报结果' : '取消任务';
@@ -62,18 +81,24 @@ async function poll() {
     }
     const wasBusy = busy;
     busy = ['starting', 'listening', 'stopping'].includes(state.status);
-    $('#state').textContent = { idle: '准备就绪', starting: '正在连接', listening: '正在聆听', stopping: '正在结束', ended: '已结束', failed: '连接失败' }[state.status] || state.status;
+    $('#state').textContent = state.audioStalled && state.status === 'listening' ? '麦克风待恢复'
+      : { idle: '准备就绪', starting: '正在连接', listening: '正在聆听', stopping: '正在结束', ended: '已结束', failed: '连接失败' }[state.status] || state.status;
     $('#start').hidden = busy; $('#stop').hidden = !busy; $('#interrupt').hidden = !busy;
+    $('#recover').hidden = !busy || !state.audioStalled;
     $('#start').disabled = busy || starting; $('#stop').disabled = !busy || state.status === 'stopping'; $('#interrupt').disabled = state.status !== 'listening';
     $('#setup').querySelectorAll('select').forEach(el => el.disabled = busy);
     $('#level').style.width = `${Math.min(100, (state.level || 0) * 400)}%`;
     if (state.error) $('#error').textContent = state.error;
-    if (busy) $('#notice').textContent = state.status === 'starting' ? '正在连接…' : state.status === 'stopping' ? '正在结束…' : state.gated ? '正在回复' : '我在听';
+    if (busy) $('#notice').textContent = state.warning || state.voiceHint ||
+      (state.status === 'starting' ? '正在连接…' : state.status === 'stopping' ? '正在结束…' :
+        state.speechActive ? (Date.now() - state.speechStartedAt > 8000 ? '正在接收声音，等待你说完' : '听到声音了') :
+        state.gated ? '正在回复' : '我在听');
     else if (state.id) $('#notice').textContent = '聊完了，随时继续。';
     renderMute();
     for (const event of state.events) {
       if (event.sequence > rendered) { processEvent(event); rendered = event.sequence; }
     }
+    renderPartial(busy ? state.partialTranscript : '');
     if (wasBusy !== busy && jobs.size) renderJobs();
     if (!busy && !starting && voice && state.id === voice.sessionId) { voice.close(); voice = null; }
   } catch (exc) { error(exc); }
@@ -107,6 +132,12 @@ $('#setup').onsubmit = async event => {
   } finally { starting = false; $('#start').disabled = busy; }
 };
 $('#stop').onclick = () => { voice?.close(); voice = null; api('stop', {}).catch(error); };
+$('#recover').onclick = async () => {
+  const button = $('#recover'); button.disabled = true;
+  try { await voice?.recoverInput(); $('#error').textContent = ''; }
+  catch (exc) { error(exc); }
+  finally { button.disabled = false; }
+};
 $('#mute').onclick = () => { voice?.setMuted(!voice.muted); renderMute(); if (!voice?.muted) $('#notice').textContent = '我在听'; };
 $('#interrupt').onclick = () => api('control', { action: 'interrupt' }).catch(error);
 $('#devices').onclick = () => devices().catch(error);
