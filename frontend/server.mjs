@@ -26,7 +26,7 @@ export function allowedRequest(req, port, requireOrigin = false) {
 }
 
 export function validateOptions(value) {
-  if (!value || !['en', 'zh-CN'].includes(value.language) ||
+  if (!value || !['en-US', 'en', 'zh-CN'].includes(value.language) ||
       !['speaker', 'headphones'].includes(value.echoMode) ||
       !['wake', 'qa', 'realtime'].includes(value.responseMode) ||
       !Number.isInteger(value.seconds) ||

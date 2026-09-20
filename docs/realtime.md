@@ -90,7 +90,7 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 
 ```bash
 uv sync --frozen
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600
 ```
 
 需要 `OPENAI_API_KEY`（Realtime）、`DEEPGRAM_API_KEY`（并行转写）、既有 Codex CLI 登录和 Zoom 配置。默认 Realtime 模型沿用 `OPENAI_REALTIME_MODEL`，后台沿用 `CODEX_MODEL`。不会用固定 “I'm here.” 代替语音 agent，也不会调用 Deepgram TTS。`--response-mode wake` 仅用于诊断。
@@ -112,12 +112,12 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 
 ~~~bash
 uv run --frozen python scripts/zoom-sanity.py build --platform macos
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600 --response-mode realtime
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
 ~~~
 
-1. 用两个独立 Zoom 端参会，先戴耳机排除远端扬声器回声。说“Sparkie，详细介绍这个方案”，在回答过程中开口“我们先讨论一下”。预期先停播，普通讨论结束后保持安静；不要求等取消词或最终转写才停。
-2. 再唤醒，播放时说“Sparkie，只讲结论”。预期停掉旧音频，完整保留新的请求，听完之后生成新回答；没有旧句子续播或两段音频重叠。
-3. 说“Sparkie，stop”或“取消”，保持安静时不恢复。随后新的 Sparkie 唤醒可重新开口。
+1. 用两个独立 Zoom 端参会，先戴耳机排除远端扬声器回声。说“Sparkie, explain this proposal in detail”，在回答过程中开口“Let’s discuss this first”。预期先停播，普通讨论结束后保持安静；不要求等取消词或最终转写才停。
+2. 再唤醒，播放时说“Sparkie, just give us the conclusion”。预期停掉旧音频，完整保留新的请求，听完之后生成新回答；没有旧句子续播或两段音频重叠。
+3. 说“Sparkie, stop”或“cancel”，保持安静时不恢复。随后新的 Sparkie 唤醒可重新开口。
 4. 两位参会者重叠发言，任何一位开始都能停止 Sparkie；有效请求的回答等待所有活动音轨结束。没人说话时，Sparkie 不能仅因自身 SDK 音轨而停止。
 5. 在终端输入一行 {"action":"mute"} 检查停止；再输入 {"action":"unmute"} 后说不带唤醒词的请求，只有下一轮获准回复。打断前后的后台任务 ID/状态应保持连续。
 6. 核对 events.jsonl 的 zoom_human_speech_started → realtime_interrupted → transcript → zoom_human_speech_stopped → zoom_response_requested，以及 cancelled response 的迟到音频被丢弃。语音开始事件与模型事件可能因网络异步交错；只有远端听音/经同意的录音才能测量真实停止延迟。

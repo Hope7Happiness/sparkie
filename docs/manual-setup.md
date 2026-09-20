@@ -27,7 +27,7 @@
 
 ## Deepgram 与 OpenAI
 
-Deepgram：在 [Console](https://console.deepgram.com/) 建立项目并生成 API key，确认账户有测试额度。程序使用 `Authorization: Token ...` 连接流式服务。当前预设 Nova-3、`zh-CN`；英文 demo 改为 `en`。中文和中英混说的实际识别率需要测试，不能仅凭支持语言列表保证效果。[认证](https://developers.deepgram.com/guides/fundamentals/authenticating)、[流式转录](https://developers.deepgram.com/docs/live-streaming-audio)、[语言支持](https://developers.deepgram.com/docs/models-languages-overview)
+Deepgram：在 [Console](https://console.deepgram.com/) 建立项目并生成 API key，确认账户有测试额度。程序使用 `Authorization: Token ...` 连接流式服务。当前预设 Nova-3、`en-US`；后续运行与验收统一使用美式英语。中文和中英混说的实际识别率需要测试，不能仅凭支持语言列表保证效果。[认证](https://developers.deepgram.com/guides/fundamentals/authenticating)、[流式转录](https://developers.deepgram.com/docs/live-streaming-audio)、[语言支持](https://developers.deepgram.com/docs/models-languages-overview)
 
 OpenAI：在 [API Platform](https://platform.openai.com/) 创建项目 API key，确认可调用的模型、用量限制和 API 额度。`OPENAI_MODEL` 填项目实际可用的模型 ID，不默认假定权限。首个固定“我在”闭环不调用 OpenAI；该 adapter 用于下一阶段上下文问答。[官方 quickstart](https://developers.openai.com/api/docs/quickstart)
 
@@ -35,7 +35,7 @@ OpenAI：在 [API Platform](https://platform.openai.com/) 创建项目 API key�
 
 STT 和 TTS 共用现有 Deepgram key。当前使用 `aura-2-thalia-en`，请求 `/v1/speak`，输出无容器的 PCM16 mono 32kHz，再保存为 WAV 或交给会议音频层。固定回复为 **I'm here.**。已用真实 key 生成 `output/deepgram/reply.wav`，不再要求 ElevenLabs API key 或 Voice ID。[TTS 接口](https://developers.deepgram.com/docs/text-to-speech)、[输出格式](https://developers.deepgram.com/docs/tts-media-output-settings)
 
-Deepgram 官方 TTS 支持列表目前没有中文；Aura-2 列出英、西、德、法、荷、意、日七种语言，Flux TTS 当前为英文。本原型先用 Aura REST 固定短句，STT 的 `zh-CN` 配置保留。**中文语音识别能力不代表支持中文语音合成。** 英文模型收到中文回复会明确报错，不静默输出错误读音。[TTS 语言列表](https://developers.deepgram.com/docs/tts-models-languages-overview)
+Deepgram 官方 TTS 支持列表目前没有中文；Aura-2 列出英、西、德、法、荷、意、日七种语言，Flux TTS 当前为英文。本原型先用 Aura REST 固定短句，STT 默认使用 `en-US`。**中文语音识别能力不代表支持中文语音合成。** 英文模型收到中文回复会明确报错，不静默输出错误读音。[TTS 语言列表](https://developers.deepgram.com/docs/tts-models-languages-overview)
 
 ## 本机 Codex 后端
 

@@ -26,7 +26,7 @@ bash scripts/web.sh
 网页默认启用，也可运行：
 
 ```bash
-bash scripts/local.sh --language en --seconds 120 --response-mode qa
+bash scripts/local.sh --language en-US --seconds 120 --response-mode qa
 ```
 
 沿用 `SPARKIE_BACKEND=codex` 的现有 CLI 登录，默认明确指定 **`gpt-5.6-terra`、`medium`**，可在项目 `.env` 的 `CODEX_MODEL`、`CODEX_REASONING_EFFORT` 修改。启动后页面显示实际配置。不会修改全局 Codex 配置；不传入项目 API keys，推理在临时只读目录运行，不启用搜索或执行工具。可选 OpenAI API 后端仍由 `.env` 配置，不自动切换模型或后端。
@@ -50,14 +50,14 @@ bash scripts/local.sh --language en --seconds 120 --response-mode qa
 ```bash
 uv sync --frozen
 uv run --frozen sparkie devices
-bash scripts/local.sh --language en --seconds 60
+bash scripts/local.sh --language en-US --seconds 60
 ```
 
 等待 `listening_ready` 后说 **Sparkie** 或 **Sparkie, are you there?**，停顿后应听到 **I'm here.**。CLI 默认 `--response-mode wake` 不调用 Codex/OpenAI，不需要 Zoom。Ctrl+C 停止；会话最长为 `--seconds` 指定的时间。真实麦克风音频发送给 Deepgram；只保存 transcript 与事件，不保存原始麦克风录音。
 
 可用 `--input-device 0 --output-device 1` 选择设备，编号以本机 `devices` 结果为准。macOS 首次运行可能需要在“系统设置 → 隐私与安全性 → 麦克风”允许启动程序访问。Linux 需要系统 PortAudio 库。
 
-默认扬声器模式在回复播放期间和结束后 350ms 将识别输入置为静音，避免声音回流。这个窗口内不支持语音打断，也不会转录用户的话；不是完整 AEC。戴耳机时加 `--echo-mode headphones` 可保持输入识别。中文输入加 `--language zh-CN`，回复仍为英文。
+默认扬声器模式在回复播放期间和结束后 350ms 将识别输入置为静音，避免声音回流。这个窗口内不支持语音打断，也不会转录用户的话；不是完整 AEC。戴耳机时加 `--echo-mode headphones` 可保持输入识别。运行与验收统一使用 `--language en-US`，回复为英文。
 
 每次运行输出到 `output/local/<session-id>/`：`events.jsonl` 实时记录，`run.json` 保存总结。`playback_timing` 使用最后一个识别词结束时间与音频设备预计 DAC 播放时间估算，不是独立声学测量。发生输入丢帧或输出欠载时不报告延迟数值；持续输入丢帧或队列积压会报错。设备原生 blocksize 与 200ms 目标缓冲用于降低调度抖动；电平计算与警告日志放在实时回调之外。
 

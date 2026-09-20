@@ -219,7 +219,7 @@ class Utterances:
 
 class DeepgramEars:
     """Streaming adapter for a future real AudioMeeting. No network in simulation."""
-    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="zh-CN", connector=deepgram_connect, on_ready=None, on_partial=None, speech_events=False):
+    def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="en-US", connector=deepgram_connect, on_ready=None, on_partial=None, speech_events=False):
         self.key, self.meeting_id, self.rate = key, meeting_id, rate
         self.model, self.language, self.connector = model, language, connector
         self.on_ready = on_ready

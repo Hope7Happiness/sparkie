@@ -338,7 +338,7 @@ def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument('--transport', choices=['local', 'browser', 'zoom'], default='local')
-    parser.add_argument('--language', choices=['en', 'zh-CN'], default='en')
+    parser.add_argument('--language', choices=['en-US', 'en', 'zh-CN'], default='en-US')
     parser.add_argument('--seconds', type=int, default=120)
     parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')
     parser.add_argument('--input-device')

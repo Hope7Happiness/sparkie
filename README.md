@@ -6,7 +6,7 @@
 
 提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**旧 Zoom 问答链路已有一次真实会议收听实测；新 Realtime + Codex 链路已接入代码，真人验收待完成。**
 
-Legacy 本地语音诊断入口：`bash scripts/local.sh --language en --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
+Legacy 本地语音诊断入口：`bash scripts/local.sh --language en-US --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
 
 ```bash
 uv sync --frozen
@@ -43,7 +43,7 @@ macOS Meeting SDK 7.1.5 提供每位参会者的独立音轨给 Deepgram；分�
     uv sync --frozen
     uv run --frozen python scripts/zoom-sanity.py build --platform macos
     uv run --frozen python scripts/zoom-sanity.py check --platform macos
-    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600 --response-mode realtime
+    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
 
 本轮原生协议已更新，必须重建接收器。主持人接纳 Sparkie 并允许读取原始音频所需的录制权限。默认模式就是 realtime。输出位于 output/zoom/<session>/：transcript.jsonl 保存含 speaker_id / speaker 的逐条转写，tasks.json 保存后台任务，run.json 的 transcript 按会议时间排序。
 
@@ -57,4 +57,4 @@ macOS Meeting SDK 7.1.5 提供每位参会者的独立音轨给 Deepgram；分�
 
 仅需复查旧固定回复时，可显式运行：
 
-    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en --seconds 60 --response-mode wake
+    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 60 --response-mode wake
