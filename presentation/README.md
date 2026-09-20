@@ -26,7 +26,7 @@ Or serve the folder:
 python3 -m http.server 8088 --directory presentation
 ```
 
-Open http://localhost:8088/ for the slides or http://localhost:8088/home.html for the homepage. The interactive deck is published at https://bowenyu066.github.io/sparky/; the project website is https://hope7happiness.github.io/sparky. The directory can also be hosted as static files. To use the homepage as a site's landing page, configure the static host to serve home.html at its root.
+Open http://localhost:8088/ for the slides or http://localhost:8088/home.html for the homepage. The interactive deck is published at https://bowenyu066.github.io/sparky/; the project website is https://hope7happiness.github.io/sparkie/. The directory can also be hosted as static files. To use the homepage as a site's landing page, configure the static host to serve home.html at its root.
 
 ## Present
 
@@ -50,9 +50,9 @@ Open speaker view from P or the split-panel toolbar icon, then share only the au
 
 The interactive scenarios and waveforms are **illustrations**; clicking them does not run an agent, join a meeting, record audio or call a model. The homepage retains six inspiration choices. The slide deck now separates two contextual inspiration dialogues from three practical playbooks, with documented versus worked-scenario status visible. The landscape shows overlapping focuses; it does not imply that competitors cannot execute work.
 
-## Replace the real-media placeholders
+## Demo media and product captures
 
-The demo is configured to https://youtu.be/-kOeUK9_kIs. Click Play to load the YouTube player, or use Open on YouTube. Both slides and the local homepage accept a YouTube URL or a local video path. Meeting and artifact stills remain labelled placeholders until replaced.
+The demo is configured to https://youtu.be/-kOeUK9_kIs. Click Play to load the YouTube player, or use Open on YouTube. Both slides and the local homepage accept a YouTube URL or a local video path. The play cover uses the real local voice workspace capture; it is labelled as a product preview, not a Zoom video frame. The adjacent About Sparkie report is from that separate local session and opens at full size when clicked. The Sparkie comparison also uses the real workspace screenshot. Editorial scene photos and conceptual diagrams remain illustrations.
 
 1. Put a real session recording and a real artifact screenshot in assets/. Use shareable, reviewed media rather than an unreviewed session dump.
 2. Edit media-config.js. Example:
@@ -60,8 +60,15 @@ The demo is configured to https://youtu.be/-kOeUK9_kIs. Click Play to load the Y
 ```js
 window.SPARKIE_MEDIA = {
   demoVideo: 'assets/zoom-demo.mp4',
+  demoPoster: 'assets/zoom-still.png',
+  demoPosterAlt: 'Still from the supplied Zoom recording.',
+  demoPosterLabel: 'Zoom recording',
   meetingImage: 'assets/zoom-still.png',
-  artifactImage: 'assets/actual-outline.png'
+  meetingImageAlt: 'Still from the supplied Zoom recording.',
+  artifactImage: 'assets/actual-outline.png',
+  artifactImageAlt: 'The outline generated in this recorded session.',
+  artifactLabel: 'Outline from this recording',
+  artifactTitle: 'Demo outline'
 };
 ```
 
@@ -91,4 +98,4 @@ View Transitions require browser support; other browsers fall back to ordinary s
 
 ## Publishing the interactive deck
 
-The personal-site repository serves a static copy of this directory from public/sparky/. Its Astro build copies those files to /sparky/ without changing the deck or its relative assets. The directory index is the interactive presentation; home.html remains a separate optional page. Sync the presentation files into that directory before deploying changes to the personal site.
+Maintain the interactive presentation in this repository under presentation/. Do not copy it into ../personal_website. That repository hosts the separate standalone product homepage at /sparkie/. The deck can be served locally with the command above; publishing it elsewhere is a separate step.

@@ -114,7 +114,8 @@
       const product = story.market[beat];
       $('#product-link').href = product.url;
       setImage('#product-image', product.image, product.fallback); setImage('#product-icon', product.icon);
-      $('#product-image').alt = beat === 3 ? 'Editorial collaboration photograph, illustrating Sparkie’s focus.' : product.name + ' official website or official product image.';
+      $('#product-image').alt = beat === 3 ? 'Actual Sparkie local voice workspace showing the transcript, completed tasks and report.' : product.name + ' official website or official product image.';
+      $('#product-link').classList.toggle('workspace-portrait', beat === 3);
       setText('#product-name', product.name);
       setText('#product-solves-label', product.solvesLabel || 'They deliver');
       setText('#product-gap-label', product.gapLabel || 'Still missing');
@@ -232,20 +233,29 @@
       } catch { setText('#slide-announcement', 'Use your browser fullscreen command.'); }
     };
     const video = $('#demo-video'); let objectURL;
-    demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#video-placeholder'), error:$('#media-error')});
+    const media = window.SPARKIE_MEDIA || {};
+    demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#video-placeholder'), error:$('#media-error'), poster:media.demoPoster, posterAlt:media.demoPosterAlt, posterLabel:media.demoPosterLabel});
     const loadVideo = (src) => demoPlayer.load(src);
     $('#choose-video').onclick = $('#replace-video').onclick = () => $('#video-input').click();
     $('#video-input').onchange = (event) => {
       const file = event.target.files[0]; if (!file) return; if (objectURL) URL.revokeObjectURL(objectURL);
       objectURL = URL.createObjectURL(file); loadVideo(objectURL); event.target.value = '';
     };
-    const media = window.SPARKIE_MEDIA || {}; if (media.demoVideo) loadVideo(media.demoVideo);
+    if (media.demoVideo) loadVideo(media.demoVideo);
     [['meetingImage','#meeting-image','meeting-placeholder.svg'],['artifactImage','#artifact-image','artifact-placeholder.svg']].forEach(([key, selector, fallback]) => {
       if (!media[key]) return; const img = $(selector);
       img.onerror = () => { img.onerror = null; img.src = 'assets/' + fallback; img.alt = 'Media placeholder.'; if (key === 'artifactImage') setText('#artifact-label', 'File placeholder'); };
-      if (key === 'artifactImage') setText('#artifact-label', 'The result.');
-      img.src = media[key]; img.alt = key === 'meetingImage' ? 'Real Zoom meeting capture.' : 'Actual generated project artifact.';
+      if (key === 'artifactImage') setText('#artifact-label', media.artifactLabel || 'Project artifact');
+      img.src = media[key]; img.alt = media[key + 'Alt'] || (key === 'meetingImage' ? 'Configured recording preview.' : 'Generated project artifact.');
     });
+    $('#open-artifact').onclick = () => {
+      demoPlayer.pause();
+      $('#artifact-full-image').src = $('#artifact-image').src;
+      $('#artifact-full-image').alt = $('#artifact-image').alt;
+      setText('#artifact-preview-title', media.artifactTitle || 'Project artifact');
+      setText('#artifact-preview-caption', $('#artifact-label').textContent);
+      $('#artifact-preview').showModal();
+    };
     addEventListener('beforeunload', () => { if (objectURL) URL.revokeObjectURL(objectURL); });
     let touch;
     $('#deck').addEventListener('touchstart', (event) => {

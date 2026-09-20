@@ -1,7 +1,7 @@
 /* Shared player for a YouTube demo or a local recording. */
 (() => {
   'use strict';
-  window.createSparkieDemoPlayer = ({video, placeholder, error}) => {
+  window.createSparkieDemoPlayer = ({video, placeholder, error, poster, posterAlt, posterLabel}) => {
     const host = document.createElement('div');
     host.className = 'youtube-demo'; host.hidden = true;
     video.after(host);
@@ -21,10 +21,21 @@
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'youtube-demo-play';
       button.setAttribute('aria-label', 'Play the Sparkie demo video');
+      if (poster) {
+        const image = document.createElement('img');
+        image.className = 'youtube-demo-poster'; image.src = poster; image.alt = posterAlt || '';
+        image.onerror = () => image.remove();
+        button.append(image);
+      }
       const mark = document.createElement('span'); mark.className = 'youtube-play-mark';
       mark.textContent = '▶'; mark.setAttribute('aria-hidden', 'true');
       const label = document.createElement('strong'); label.textContent = 'Watch Sparkie in action';
       button.append(mark, label);
+      if (posterLabel) {
+        const caption = document.createElement('small');
+        caption.className = 'youtube-demo-caption'; caption.textContent = posterLabel;
+        button.append(caption);
+      }
       button.onclick = () => {
         iframe = document.createElement('iframe');
         iframe.title = 'Sparkie — real Zoom demo';

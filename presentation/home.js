@@ -66,7 +66,8 @@
     if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) screenshotDialog.close();
   });
   const video = $('#home-video'); let objectURL;
-  const demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#home-demo-placeholder'), error:$('#home-media-error')});
+  const media = window.SPARKIE_MEDIA || {};
+  const demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#home-demo-placeholder'), error:$('#home-media-error'), poster:media.demoPoster, posterAlt:media.demoPosterAlt, posterLabel:media.demoPosterLabel});
   const loadVideo = (src) => demoPlayer.load(src);
   $('#home-choose-video').onclick = () => $('#home-video-input').click();
   $('#home-video-input').onchange = (event) => {

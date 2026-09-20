@@ -6,7 +6,7 @@ Target: **6:10**. Ten slides, **28 presentation items**, including a 60-second r
 
 Press Right or Space to reveal the next item; only after the final item does it advance to the next slide. Left reverses that sequence. Page Down / Page Up skip whole slides. The on-screen arrows, touch swipes and speaker-view arrows follow the same item sequence. P opens a separate speaker view synchronized to the current slide and item.
 
-Do not read all visible dialogue verbatim. Give the scene its premise, let the next line appear, then land the request. The photos are editorial scene illustrations; product captures are official websites. Illustrative dialogue and artifact structures are not real-session evidence.
+Do not read all visible dialogue verbatim. Give the scene its premise, let the next line appear, then land the request. The photos are editorial scene illustrations; competitor captures are official websites; the Sparkie comparison shows the actual local voice workspace. Illustrative dialogue and artifact structures are not real-session evidence.
 
 ## Run of show
 
@@ -25,13 +25,13 @@ Do not read all visible dialogue verbatim. Give the scene its premise, let the n
 
 ## Demo preparation
 
-Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. The longer session follows the [continuous three-person rehearsal script](demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
+The supplied YouTube demo (https://youtu.be/-kOeUK9_kIs) is configured in media-config.js. Click Play to load it. Its cover is a real local voice workspace capture, not a frame from that video. The adjacent About Sparkie report is from a separate local voice session; click it to read the full capture. A local recording or a matching video still can also be configured. The longer session follows the [continuous three-person rehearsal script](demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
 
 - Rehearse the same Zoom session and workspace. Keep the actual Tasks panel visible during role discussion. Status and tool-action text are event-driven; do not add a fictional percentage, ETA, or streaming document preview.
 - Ask the worker to save demo-outline.md **and return the complete Markdown body**. Ask for the full body again after the role update. The live artifact contains the task result; a file path or “saved” message does not display the document.
 - After a ready result, say “Sparkie, show us the outline.” After the follow-up completes, say “Sparkie, show us the updated outline.” Verify that the selected artifact is the intended result; presentation selects the latest ready artifact. If the embedded board already shows it, skip the redundant request. If voice presentation fails, use Present on the correct card and describe the fallback accurately.
 - Browser artifact presentation and sharing that browser window into Zoom are distinct steps. Rehearse the actual sharing path and confirm that another participant sees the intended content. Do not infer remote visibility from the local panel.
-- Select the key moments for the 60-second excerpt; this is a playback budget, not an end-to-end performance claim. Label shortened waits and retain the actual agent voice. Until media is supplied, identify the slot as planned and keep the placeholder label.
+- Select the key moments for the 60-second excerpt; this is a playback budget, not an end-to-end performance claim. Label shortened waits and retain the actual agent voice. The player shows the supplied recording in full; it does not automatically trim it to 60 seconds.
 - Begin with human greetings and an audio check. Admit Sparkie from the real Zoom waiting room before discussing the features. Do not attribute pre-admission speech to its context.
 - Discuss name-based response, interruption, prior context, participation when invited, and background file work before requesting the outline. Keep turns short. An optional interruption is only a demonstration when the original reply is still audible and actually yields.
 - The closing reveal and punchline are undecided. The rehearsal currently stops after checking the updated plan; do not give away a self-referential reveal in dialogue or ask the agent to invent the ending.
@@ -58,13 +58,13 @@ Granola gives us meeting memory. What is missing from that notepad experience is
 
 Here is a product review. One person favors guided onboarding, another a simpler checklist. Now the instruction to Sparkie has meaning: compare those options using the discussion as context. Change the room to a customer call. The customer moves reporting ahead of the dashboard. The follow-up should reflect that shift, without inventing a deadline. These are illustrative conversations. The point is that a useful request grows out of the shared discussion, rather than starting as a blank chat prompt.
 
-**On stage:** Six beats: three dialogue turns in each of two scenes. Read only the key line from each beat. Names identify roles, not real people. Use the next slide for real-session evidence.
+**On stage:** Six beats: three dialogue turns in each of two scenes. Read only the key line from each beat. Names identify roles, not real people. Use the next slide for the supplied demo recording and a separate real local-session report.
 
 ## 05 — Watch the work happen. (60s)
 
 The team is preparing a demo video. They greet each other, admit Sparkie from the Zoom waiting room, then discuss what to demonstrate: responding when called, yielding to interruptions, using prior context, joining the discussion, and working on files while people talk. Sparkie drafts the outline while the team agrees roles. They inspect the artifact, confirm the division of work, and request the update. Watch the real task events and inspect the actual result.
 
-**On stage:** Select real moments from the longer rehearsal: waiting-room admission, feature discussion, addressed response, task activity, artifact review, and updated roles. The 60-second slot is an edited excerpt, not an execution-time promise. Show an interruption only if it actually occurs while the agent is speaking and succeeds. Label shortened waits and manual fallbacks. The final reveal is undecided; do not introduce it during the discussion or the clip setup.
+**On stage:** Play the supplied YouTube demo. The adjacent About Sparkie report is from a separate local voice session; click it to inspect the full capture. For an edited excerpt, select real moments from the longer rehearsal: waiting-room admission, feature discussion, addressed response, task activity, artifact review, and updated roles. The 60-second slot is an edited excerpt, not an execution-time promise. Show an interruption only if it actually occurs while the agent is speaking and succeeds. Label shortened waits and manual fallbacks. The final reveal is undecided; do not introduce it during the discussion or the clip setup.
 
 ## 06 — Two rhythms. One teammate. (35s)
 

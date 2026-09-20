@@ -26,14 +26,14 @@ These are screenshots of public product websites, not screenshots of independent
 
 ## Repository art
 
-sparkie-mark.svg uses the presentation’s existing four-point star geometry, with the forest-green and amber brand colors. It is the shared mark for the homepage, presentation and favicons. The older sparkie-icon.png is retained as a legacy asset, reused from docs/assets/sparkie-icon.png in this repository. The original meeting and artifact SVG placeholders remain in the recording slot until replaced by real media.
+sparkie-mark.svg uses the presentation’s existing four-point star geometry, with the forest-green and amber brand colors. It is the shared mark for the homepage, presentation and favicons. The older sparkie-icon.png is retained as a legacy asset, reused from docs/assets/sparkie-icon.png in this repository. The original meeting and artifact SVG placeholders are retained only as missing-image fallbacks; the deck defaults to actual product captures.
 
 No AI-generated images are included in this revision. The session did not expose a built-in image-generation tool; following the user's suggestion, the revision uses sourced web photography and official product assets. No image API was called.
 
 
 ## Product interface captures
 
-The homepage uses four captures in product/, taken September 20, 2026 from the
+The homepage and presentation use captures in product/, taken September 20, 2026 from the
 running Sparkie workspace UI and an existing, completed local browser voice
 session. They contain actual saved transcript, task and report data. No model
 was called to prepare these captures and no task status or transcript text was
@@ -53,4 +53,4 @@ remote Zoom participant saw an artifact. Scenario prompts on the homepage
 remain illustrative; the adjacent screenshot is labelled as an example report.
 
 The homepage now uses these product captures instead of the editorial photos
-and meeting/document placeholders. The slide deck retains its own media slots.
+and meeting/document placeholders. The deck uses workspace.webp for the Sparkie comparison and labelled video cover, and report.webp for the expandable artifact preview. These remain separate from the supplied YouTube recording; no claim is made that the report was created in that video.
