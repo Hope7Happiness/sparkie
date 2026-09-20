@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sparkie · Workspace</title>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Sparkie 首页"><span>✳</span> sparkie</a>
+    <div class="topbar-meta">
+      <span class="ws-chip" title="Workspace ID"><em>WS</em><span id="ws-id">—</span></span>
+      <span id="state" role="status">未连接</span>
+    </div>
+  </header>
+
+  <main class="app-body">
+
+    <section class="session" aria-label="连接会议">
+      <div class="session-head">
+        <p class="eyebrow">LIVE MEETING WORKSPACE</p>
+        <h1>接入一场会议</h1>
+        <p class="session-sub">填入 backend 地址与 Zoom Meeting ID，Sparkie 会实时同步转写、任务与产物。</p>
+      </div>
+      <form id="join">
+        <div class="connect">
+          <label>Backend<input name="server" value="127.0.0.1:8790"></label>
+          <label>Zoom Meeting ID<input name="external_id" placeholder="meeting uuid" required></label>
+          <label>标题<input name="title" placeholder="可选"></label>
+          <button type="submit">进入 workspace</button>
+        </div>
+      </form>
+      <p id="error" role="alert"></p>
+      <div id="recent" hidden>
+        <div class="recent-head"><h3>最近的会议</h3></div>
+        <div id="workspace-list"></div>
+      </div>
+    </section>
+
+    <div id="workspace" class="workspace" hidden>
+
+      <div class="main-col">
+
+        <section class="panel stage-panel">
+          <div class="section-title">
+            <h2>当前 artifact<span class="hint">STAGE</span></h2>
+            <span class="live-dot">正在展示</span>
+          </div>
+          <div id="stage" class="stage-body">
+            <p class="empty">说 “Sparkie, show us …” 把产物投到这里。</p>
+          </div>
+        </section>
+
+        <section class="panel transcript-panel">
+          <div class="section-title">
+            <h2>会议转写<span class="hint">LIVE</span></h2>
+            <span class="count"><span id="utterance-count">0</span> 条</span>
+          </div>
+          <div id="transcript" class="feed">
+            <p class="empty">等待 RTMS / ingest 输入。</p>
+          </div>
+          <form id="simulate" aria-label="模拟发言">
+            <input name="speaker" value="You" aria-label="发言人">
+            <input name="text" placeholder="模拟一句会议发言，例如：Sparkie, research related work" required>
+            <button>发送</button>
+          </form>
+        </section>
+
+      </div>
+
+      <aside class="rail">
+
+        <section class="panel list-panel tasks-panel">
+          <div class="section-title">
+            <h2>任务<span class="hint">TASKS</span></h2>
+            <span class="count"><span id="task-count">0</span></span>
+          </div>
+          <div id="tasks" class="list">
+            <p class="empty">研究类请求会在这里排队执行。</p>
+          </div>
+        </section>
+
+        <section class="panel list-panel artifacts-panel">
+          <div class="section-title">
+            <h2>Artifacts<span class="hint">OUTPUT</span></h2>
+            <span class="count"><span id="artifact-count">0</span></span>
+          </div>
+          <div id="artifacts" class="list">
+            <p class="empty">任务完成会产出 artifact。</p>
+          </div>
+        </section>
+
+      </aside>
+
+    </div>
+
+  </main>
+</div>
+
+<div id="artifact-overlay" hidden aria-label="全屏展示">
+  <div id="overlay-card"></div>
+  <button id="overlay-return" type="button">← 返回 workspace · Esc</button>
+</div>
+<script type="module" src="/src/workspace.js"></script>
+</body>
+</html>

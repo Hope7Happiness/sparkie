@@ -41,6 +41,9 @@ async def run(args):
         event = {'type': kind, 'elapsed_ms': round((time.monotonic() - started) * 1000), **fields}
         if kind in ('assistant_transcript', 'realtime_interrupted'):
             ledger.append({**event, 'source': 'bot', 'note': 'Generated reply text; interruption events mark unplayed content.'})
+            if kind == 'assistant_transcript' and event.get('text'):
+                asyncio.get_running_loop().create_task(
+                    workspace.utterance(event['text'], 'sparkie', 'bot'))
         elif kind == 'human_turn_committed':
             ledger.append({**event, 'event_id': 'control:' + fields['turn_id']})
         line = json.dumps(event, ensure_ascii=False)
@@ -73,6 +76,10 @@ async def run(args):
         from .zoom_output import ZoomOutputPolicy
         # EventOutput is initialized below before any asynchronous session work.
         output_policy = ZoomOutputPolicy(audio, lambda *a, **k: None)
+    # Mirror the session into a meeting workspace when the server is reachable;
+    # every client failure degrades to a no-op so the meeting is unaffected.
+    from .workspace_client import WorkspaceClient
+    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
                           output_policy=output_policy)
@@ -115,6 +122,8 @@ async def run(args):
                     handling_transcript = True
                     await agent.human_transcript(asdict(record))
                     handling_transcript = False
+                if record.is_final:
+                    await workspace.utterance(record.text, record.speaker, 'human')
         except Exception as exc:
             if handling_transcript:
                 stop.set()
@@ -195,6 +204,11 @@ async def run(args):
         output_policy.emit = emit
         emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
     try:
+        external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
+        kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')
+        if await workspace.open(kind, external or session_id,
+                                title=f'Zoom {external}' if transport_name == 'zoom' else f'{transport_name} session'):
+            emit('workspace_linked', workspace_id=workspace.workspace_id, external_id=external)
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('task_backend_config', backend=worker.backend, model=worker.model)
         center.start()
@@ -293,7 +307,9 @@ async def run(args):
             report['failure'] = failure
         try:
             emit('session_stopped', **report)
+            await workspace.end_meeting()
         finally:
+            await workspace.close()
             await console.close()
             report['event_output'] = console.diagnostics()
             if console.required and (console.failure or console.dropped):
