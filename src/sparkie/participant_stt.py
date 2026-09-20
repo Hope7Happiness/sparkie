@@ -62,7 +62,7 @@ class ParticipantEars:
                 async with aclosing(ears.transcribe(padded_audio(state))) as stream:
                     async for event in stream:
                         if isinstance(event, SpeechActivity):
-                            speaking = event.phase == 'started'
+                            speaking = event.phase in ('candidate', 'started')
                             await output.put(replace(event, speaker_id=ident, stream_id=stream_id,
                                                      timestamp_ms=state['origin'] + event.timestamp_ms))
                             continue

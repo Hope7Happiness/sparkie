@@ -85,6 +85,7 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
                 if isinstance(payload, bytes):
                     events = [{'type': 'SpeechStarted', 'timestamp': 0, 'channel': [0]},
                               message('Sparkie, hello'), message('Sparkie, hello'),
+                              message('Sparkie, hello', final=False, end=False),
                               {'type': 'SpeechStarted', 'timestamp': 0, 'channel': [0]},
                               {'type': 'SpeechStarted', 'timestamp': 2, 'channel': [0]},
                               {'type': 'UtteranceEnd', 'channel': [0, 1]}]
@@ -100,8 +101,8 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         ears = DeepgramEars('unused', 'm', connector=lambda *args: socket, speech_events=True)
         events = [e async for e in ears.transcribe(frames())]
         self.assertEqual([e.phase if isinstance(e, SpeechActivity) else e.text for e in events],
-                         ['started', 'Sparkie, hello', 'stopped', 'started', 'stopped'])
-        self.assertIsInstance(events[1], TranscriptEvent)
+                         ['candidate', 'started', 'Sparkie, hello', 'stopped', 'candidate', 'stopped'])
+        self.assertIsInstance(events[2], TranscriptEvent)
         self.assertIn('vad_events=true', deepgram_url(32000, 'nova-3', 'en'))
 
     async def test_deepgram_tts_headerless_pcm_request(self):

@@ -16,8 +16,8 @@ class TranscriptEvent:
 
 @dataclass(frozen=True)
 class SpeechActivity:
-    """Provider VAD boundary, ordered with final transcripts on a participant stream."""
-    phase: Literal["started", "stopped"]
+    """Candidate VAD or text-confirmed speech, ordered with final transcripts."""
+    phase: Literal["candidate", "started", "stopped"]
     timestamp_ms: int = 0
     speaker_id: str | None = None
     stream_id: str | None = None

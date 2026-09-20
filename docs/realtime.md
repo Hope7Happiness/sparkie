@@ -108,6 +108,14 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600
 
 ### 分轨打断验收
 
+输出策略边界修复：原始 Deepgram VAD 现在只暂缓播放 350ms，期间保留已生成音频；首个包含文字的 interim/final 才正式取消。350ms 内没有确认则继续剩余 PCM，重复噪声不延长该窗口；当前已提交的 100ms 包不能撤回，窗口后晚到的文字确认仍可打断。显式 mute/stop 不自动恢复。分轨仅排除 SDK 自身音轨，不能保证消除真人麦克风重新录入的扬声器回声；可识别成文字的回声仍可能触发正式打断，实机扬声器验收不可省略。
+
+后台结果播报从一次性通知队列唤醒改成检查持久 pending 状态：普通人声只暂时让出发言，结束后安静 750ms 即可重新报告已授权任务的完成/失败结果；明确静音则等新的唤醒或手动报告。unmute 的下一轮权限不会被后台结果抢走，已 offered/confirmed 的结果不会自动重复。取消任务等指令不再被 stop/cancel 前缀误判成静音；关闭输出链后迟到的工具调用也不会执行。
+
+扬声器验证建议：先说 “Hey Sparky, explain the proposal in detail”，播放时制造一次短噪声，观察 zoom_barge_in_pending → zoom_barge_in_false_alarm 后从剩余音频恢复；再说出清晰语句，确认正式停播。随后委派一个只读后台任务，期间继续讨论，确认任务结束后在安静时主动报告，无须再次唤醒。最后测试明确 “Hey Sparky, stop” 不会在 350ms 后恢复。
+
+2026-09-19 本轮验证：246 项 Python 测试及 primitive/demo 离线检查通过；续播测试逐字节核对剩余 PCM，覆盖重复候选、迟到确认、明确静音、通知重试与手动打断后的显式报告。真实 en-US 会话 20260919T230707-517aad7e 在 15404ms 就绪；疑似打断 62642→62992ms、67822→68173ms 后恢复保留音频；后台任务在 119073ms 完成，119153ms 自动打开结果播报，120050ms 首次提交播报音频。用户对扬声器下的误打断续播、真人打断与后台自动汇报测试回复“Good”。这些时间是本地日志时钟；未测量远端停止延迟，也不构成通用声学回声消除的证明。本轮 Python 修复无需重建原生 receiver；最终补充的手动 interrupt/report 控制边界仅由离线测试覆盖。
+
 启动回归修复（2026-09-19）：多音轨合并后的麦克风设置改成了非静音入会，实测出现 source 已初始化却没有 onMicStartSend；Python 等待发送就绪时，A 混音无人消费，约 10 秒堆满，U 分轨却能提前触发无法播放的回答。现恢复原先的静音入会 → 安装外部音源 → 取消静音顺序，移除自动反复取消静音，并在 join 完成前明确丢弃 A/U 音频，记录 zoom_startup_audio_discarded 和 startup_frames_discarded。请在 listening_ready 后开始唤醒测试。
 
 232 项 Python 测试及 primitive/demo 离线检查通过；新增用例重现超过 1000 帧的启动积压，并验证麦克风缺失时正确超时、延迟就绪后两路输入恢复。原生接收器重建及签名检查通过。真实会话 20260919T223648-a87f017f 已出现 zoom_microphone_ready（75941 ms）、listening_ready（78164 ms）和首次 zoom_playback_submitted（91734 ms）；随后混音持续被消费，未再出现此次启动积压。本轮用户已明确确认在 Zoom 另一端能听到回复；会话在就绪后运行满 180 秒，以 duration_elapsed 正常结束，进程退出码为 0。此确认仅覆盖实际发声及本次启动回归，远端听到的打断停止延迟仍待验收；程序内 remote_audibility_verified 不自动改为 true。
@@ -119,10 +127,10 @@ uv run --frozen python scripts/zoom-sanity.py build --platform macos
 ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
 ~~~
 
-1. 用两个独立 Zoom 端参会，先戴耳机排除远端扬声器回声。说“Sparkie, explain this proposal in detail”，在回答过程中开口“Let’s discuss this first”。预期先停播，普通讨论结束后保持安静；不要求等取消词或最终转写才停。
+1. 用两个独立 Zoom 端参会，按实际使用场景用扬声器测试。说“Sparkie, explain this proposal in detail”，在回答过程中发出短噪声：预期暂停后在 350ms 窗口结束时继续剩余音频。再开口“Let’s discuss this first”：原始 VAD 先暂停，首个有效 interim/final 确认后取消，普通讨论不授权新回复。耳机仅作为区分声学回声的对照测试。
 2. 再唤醒，播放时说“Sparkie, just give us the conclusion”。预期停掉旧音频，完整保留新的请求，听完之后生成新回答；没有旧句子续播或两段音频重叠。
 3. 说“Sparkie, stop”或“cancel”，保持安静时不恢复。随后新的 Sparkie 唤醒可重新开口。
-4. 两位参会者重叠发言，任何一位开始都能停止 Sparkie；有效请求的回答等待所有活动音轨结束。没人说话时，Sparkie 不能仅因自身 SDK 音轨而停止。
+4. 两位参会者重叠发言，任何一位确认发言都能取消 Sparkie；有效请求的回答等待所有确认发言的音轨结束。只有噪声候选的音轨不能永久阻塞回复。没人说话时，Sparkie 不能仅因自身 SDK 音轨而停止。
 5. 在终端输入一行 {"action":"mute"} 检查停止；再输入 {"action":"unmute"} 后说不带唤醒词的请求，只有下一轮获准回复。打断前后的后台任务 ID/状态应保持连续。
 6. 核对 events.jsonl 的 zoom_human_speech_started → realtime_interrupted → transcript → zoom_human_speech_stopped → zoom_response_requested，以及 cancelled response 的迟到音频被丢弃。语音开始事件与模型事件可能因网络异步交错；只有远端听音/经同意的录音才能测量真实停止延迟。
 

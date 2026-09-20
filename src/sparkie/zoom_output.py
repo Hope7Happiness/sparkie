@@ -1,11 +1,16 @@
 """Local Zoom output policy. No SDK, provider calls, timers, or input gating."""
 import re
-from .wake import ADDRESS, CANCEL, addressed_request
+from .wake import ADDRESS, addressed_request
 
 # Only explicit sentence boundaries, never commas or arbitrary name mentions.
 SENTENCE_END = re.compile(r'[。！？!?]+|[.]+(?=\s|$)')
 # Observed zh-CN rendering. Preserve the existing exact name/end boundary rules.
 COMPACT_HELLO = re.compile(r'^hello(?=spark(?:ie|y)(?=$|[\s,，:：.!?。！？]|[\u4e00-\u9fff]))', re.I)
+# Stop speaking is an output command; "stop the server" / "cancel the task"
+# are addressed requests for the agent, not reasons to silently discard a turn.
+DISMISSAL = re.compile(
+    r"^(?:stop(?:[ ,]+(?:talking|speaking|please|for now))?|please\s+stop(?:\s+(?:talking|speaking))?|"
+    r"never\s*mind|cancel|be\s+quiet|没事|不用了|取消|算了)(?=$|[.!?。！？])", re.I)
 
 
 class ZoomOutputPolicy:
@@ -41,9 +46,9 @@ class ZoomOutputPolicy:
             match = ADDRESS.match(candidate)
             rest = candidate[match.end():].strip(' ,，:：.!?。！？') if match else candidate
             # Bare dismissal is accepted only at the original segment start.
-            if CANCEL.search(rest) and (match or number == 0):
+            if DISMISSAL.search(rest) and (match or number == 0):
                 decision = 'mute'
-            elif addressed_request(candidate) is not None:
+            elif match is not None or addressed_request(candidate) is not None:
                 decision = 'wake'
             else:
                 continue

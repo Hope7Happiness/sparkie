@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import struct
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from sparkie.contracts import SpeechActivity, TranscriptEvent
 from sparkie.participant_stt import ParticipantEars
 from sparkie.providers import DeepgramEars
 from sparkie.realtime import RealtimeAgent
-from sparkie.realtime_zoom_audio import RealtimeZoomAudio
+from sparkie.realtime_zoom_audio import PCMResampler, RealtimeZoomAudio
 from sparkie.task_center import TaskCenter, TranscriptLedger
 from sparkie.zoom_output import ZoomOutputPolicy
 from test_semantic_interruption import Bridge
@@ -62,7 +63,7 @@ class ZoomBargeInTests(unittest.IsolatedAsyncioTestCase):
         await self.delta('old', 'old-audio')
         await asyncio.wait_for(self.bridge.entered.wait(), 1)
 
-    async def test_self_filtered_provider_vad_stops_before_final_and_new_wake_uses_fresh_audio(self):
+    async def test_self_filtered_interim_speech_stops_before_final_but_vad_alone_does_not(self):
         await self.playing()
         messages, frames = asyncio.Queue(), asyncio.Queue()
         connections = []
@@ -87,6 +88,11 @@ class ZoomBargeInTests(unittest.IsolatedAsyncioTestCase):
             await messages.put({'type': 'SpeechStarted', 'timestamp': 0, 'channel': [0]})
             start = await asyncio.wait_for(pending, 1)
             await self.agent.participant_speech(start)
+            self.assertEqual(self.bridge.cancelled, 0)
+            self.assertIsNotNone(self.policy.chain)
+            await messages.put(message('Sparkie', final=False, end=False))
+            confirmed = await asyncio.wait_for(anext(stream), 1)
+            await self.agent.participant_speech(confirmed)
             self.assertEqual(self.bridge.cancelled, 1)
             self.assertEqual(self.audio.buffered, 0)
             self.assertTrue(self.audio.outputs['old-audio'].cancelled.is_set())
@@ -113,6 +119,55 @@ class ZoomBargeInTests(unittest.IsolatedAsyncioTestCase):
             pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
             await stream.aclose()
+
+    async def test_interrupted_task_announcement_retries_without_a_new_completion_event(self):
+        job = {'task_id': 'eligible', 'status': 'completed', 'result': 'Verified result'}
+        self.center.jobs['eligible'] = job
+        self.center._save(job)
+        self.policy.task_ids.add('eligible')
+        self.agent.ready.set()
+        notifier = asyncio.create_task(self.agent.notify_tasks())
+        try:
+            async with asyncio.timeout(1):
+                while self.creates() == 0: await asyncio.sleep(.01)
+            await self.created('notice')
+            await self.delta('notice', 'result')
+            await asyncio.wait_for(self.bridge.entered.wait(), 1)
+            await self.activity('started')
+            self.assertEqual(job['announcement']['state'], 'pending')
+            self.assertTrue(self.center.notifications.empty())
+            await self.transcript('We are discussing the options.', 'discussion')
+            await self.activity('stopped')
+            await self.done('notice')
+            self.agent.last_user_stop = 0
+            async with asyncio.timeout(1):
+                while self.creates() < 2: await asyncio.sleep(.01)
+            self.assertEqual(job['announcement']['attempt'], 2)
+            self.assertFalse(self.policy.notifications_paused)
+        finally:
+            notifier.cancel()
+            await asyncio.gather(notifier, return_exceptions=True)
+
+    async def test_completion_after_ack_interruption_is_not_permanently_muted(self):
+        await self.playing()
+        await self.activity('started')
+        await self.transcript('I am talking to another participant.', 'ordinary')
+        await self.activity('stopped')
+        await self.done('old')
+        job = {'task_id': 'eligible', 'status': 'failed', 'error_type': 'ExampleError'}
+        self.center.jobs['eligible'] = job
+        self.center._save(job)
+        self.policy.task_ids.add('eligible')
+        self.agent.ready.set()
+        self.agent.last_user_stop = 0
+        notifier = asyncio.create_task(self.agent.notify_tasks())
+        try:
+            async with asyncio.timeout(1):
+                while self.creates() < 2: await asyncio.sleep(.01)
+            self.assertEqual(job['announcement']['state'], 'offered')
+        finally:
+            notifier.cancel()
+            await asyncio.gather(notifier, return_exceptions=True)
 
     async def test_ordinary_barge_in_stops_without_reopening_and_preserves_context_once(self):
         await self.playing()
@@ -177,6 +232,82 @@ class ZoomBargeInTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.agent.user_speaking)
         self.assertFalse(self.agent.awaiting_turn)
         self.assertEqual(self.creates(), 0)
+
+    async def test_noise_candidates_cannot_cancel_playback_or_block_a_real_speaker(self):
+        await self.playing()
+        for _ in range(3):
+            await self.activity('candidate', 'zoom:20:noise')
+            await self.activity('stopped', 'zoom:20:noise')
+        self.assertEqual(self.bridge.cancelled, 0)
+        self.assertIsNotNone(self.policy.chain)
+        self.assertFalse(self.agent.user_speaking)
+        await self.activity('started')
+        self.assertEqual(self.bridge.cancelled, 1)
+        await self.activity('candidate', 'zoom:20:noise')
+        await self.transcript('Hey Sparky, summarize.', 'new-wake')
+        await self.activity('stopped')
+        await self.done('old')
+        self.assertEqual(self.creates(), 2)
+        self.assertFalse(self.policy.notifications_paused)
+
+    async def test_unconfirmed_noise_resumes_remaining_pcm_after_350ms_without_regenerating(self):
+        await self.transcript('Hey Sparky, explain.', 'wake')
+        await self.created('old')
+        pcm = b''.join(struct.pack('<h', i - 2400) for i in range(4800))
+        await self.agent.handle({'type': 'response.output_audio.delta', 'response_id': 'old',
+            'item_id': 'old-audio', 'delta': base64.b64encode(pcm).decode()})
+        await asyncio.wait_for(self.bridge.entered.wait(), 1)
+        await self.agent.handle({'type': 'response.output_audio.done',
+                                'response_id': 'old', 'item_id': 'old-audio'})
+        await self.activity('candidate')
+        self.assertTrue(self.audio.paused_for_candidate)
+        self.bridge.release.set()
+        await asyncio.sleep(.2)
+        self.assertEqual(len(self.bridge.packets), 1)
+        self.assertFalse(self.audio.outputs['old-audio'].drained)
+        # A second VAD pulse cannot keep extending the confirmation deadline.
+        await self.activity('candidate', 'zoom:20:noise')
+        await asyncio.sleep(.2)
+        self.assertFalse(self.audio.paused_for_candidate)
+        self.assertTrue(self.audio.outputs['old-audio'].drained)
+        self.assertEqual(len(b''.join(self.bridge.packets)), 12800)
+        self.assertEqual(b''.join(self.bridge.packets), PCMResampler(24000, 32000).feed(pcm, final=True))
+        self.assertEqual(self.bridge.cancelled, 0)
+        self.assertEqual(self.creates(), 1)
+        self.assertFalse(any(m['type'] in ('response.cancel', 'conversation.item.truncate') for m in self.sent))
+        self.assertEqual(sum(k == 'zoom_barge_in_false_alarm' for k, _ in self.events), 1)
+
+    async def test_confirmed_speech_or_explicit_mute_cancels_resume_timer(self):
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit):
+                # Each case owns a fresh response and packet.
+                await self.transcript('Hey Sparky, explain.', 'wake-' + str(explicit))
+                rid = 'r-' + str(explicit)
+                await self.created(rid)
+                await self.delta(rid, rid)
+                await self.activity('candidate')
+                self.assertIsNotNone(self.agent.candidate_pause_timer)
+                if explicit:
+                    await self.agent.control({'action': 'mute'})
+                else:
+                    await self.activity('started')
+                    await self.activity('stopped')
+                self.assertIsNone(self.agent.candidate_pause_timer)
+                await self.done(rid)
+                packets = len(self.bridge.packets)
+                await asyncio.sleep(.4)
+                self.assertEqual(len(self.bridge.packets), packets)
+                self.assertTrue(self.audio.outputs[rid].cancelled.is_set())
+        self.assertFalse(any(k == 'zoom_barge_in_false_alarm' for k, _ in self.events))
+
+    async def test_late_confirmed_speech_still_interrupts_after_false_alarm_resume(self):
+        await self.playing()
+        await self.activity('candidate')
+        await asyncio.sleep(.4)
+        self.assertFalse(self.audio.paused_for_candidate)
+        await self.activity('started')
+        self.assertTrue(self.audio.outputs['old-audio'].cancelled.is_set())
+        self.assertEqual(self.bridge.cancelled, 1)
 
     async def test_idle_discussion_defers_task_notification_until_speech_ends_without_dismissing_it(self):
         job = {'task_id': 'eligible', 'status': 'completed', 'result': 'Verified offline result'}

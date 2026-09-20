@@ -232,7 +232,7 @@ async def run(args):
              language=args.language, sample_rate=32000 if participant_stt else 24000,
              input_mode='per_participant' if participant_stt else 'mixed',
              foreground_input='participant_final_text' if participant_stt else 'mixed_audio',
-             barge_in='participant_deepgram_vad' if participant_stt else 'mixed_input')
+             barge_in='participant_interim_text' if participant_stt else 'mixed_input')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())
         running.extend([rt, dg])

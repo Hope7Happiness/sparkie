@@ -263,6 +263,7 @@ class DeepgramEars:
                 sequence = 0
                 previous_partial = ''
                 speaking = False
+                candidate = False
                 last_vad_start = -1
                 async for raw in ws:
                     message = json.loads(raw)
@@ -270,14 +271,19 @@ class DeepgramEars:
                     alternatives = channel.get('alternatives', []) if isinstance(channel, dict) else []
                     words = alternatives[0].get('transcript', '').strip() if alternatives else ''
                     key = (message.get('start'), message.get('duration'), words)
-                    replayed_final = bool(message.get('is_final') and key in utterances.seen)
+                    # A late interim replay of a finalized segment must not
+                    # interrupt the answer to that same segment either.
+                    replayed_final = key in utterances.seen
                     vad_start = message.get('type') == 'SpeechStarted'
                     timestamp = message.get('timestamp', 0)
                     if vad_start:
                         vad_start = timestamp > last_vad_start
                         last_vad_start = max(last_vad_start, timestamp)
-                    has_words = bool(words) and not replayed_final
-                    if self.speech_events and not speaking and (vad_start or has_words):
+                    has_words = any(c.isalnum() for c in words) and not replayed_final
+                    if self.speech_events and not candidate and not speaking and vad_start:
+                        candidate = True
+                        queue.put_nowait(SpeechActivity('candidate', round(timestamp * 1000)))
+                    if self.speech_events and not speaking and has_words:
                         speaking = True
                         timestamp = message.get('timestamp', message.get('start', 0))
                         queue.put_nowait(SpeechActivity('started', round(timestamp * 1000)))
@@ -297,9 +303,10 @@ class DeepgramEars:
                         sequence += 1
                         timestamp_ms = round(utterances.end_seconds * 1000)
                         queue.put_nowait(TranscriptEvent(self.meeting_id, f"dg-{sequence}", timestamp_ms, text))
-                    if self.speech_events and speaking and not replayed_final and (text or message.get('speech_final') or
+                    if self.speech_events and (speaking or candidate) and not replayed_final and (text or message.get('speech_final') or
                             message.get('type') == 'UtteranceEnd'):
                         speaking = False
+                        candidate = False
                         queue.put_nowait(SpeechActivity('stopped', round(utterances.end_seconds * 1000)))
 
             async def supervise():
