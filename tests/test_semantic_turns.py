@@ -255,7 +255,8 @@ class SemanticAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.creates(), 0)
         await self.deliver(buffer.boundary(3800))
         await asyncio.gather(*self.agent.wake_tasks)
-        self.router.classify.assert_awaited_once_with('Hey Sparkie, could you check the README?')
+        self.router.classify.assert_awaited_once_with(
+            'Hey Sparkie, could you check the README?', context=[], speaker=None, speaker_id='zoom:10')
         self.assertEqual(self.creates(), 1)
         self.assertFalse(self.agent.user_speaking)
 
