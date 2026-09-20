@@ -14,7 +14,7 @@
 </head>
 <body>
 <div class="shell">
-<header class="masthead"><div class="brand"><span>✳</span> sparkie / 演示讲稿</div><p>EN 台词 · 中文提示 · 建议稿 v2</p></header>
+<header class="masthead"><div class="brand"><span>✳</span> sparkie / 演示讲稿</div><p>EN 台词 · 中文提示 · 建议稿 v3</p></header>
 <div class="toolbar">
 <nav class="tabs" aria-label="讲稿视图"><a href="#overview/0" data-role="overview">所有人并列</a><a href="#hope/0" data-role="hope">@Hope7Happiness</a><a href="#yifan/0" data-role="yifan">@YIFANK</a><a href="#bowen/0" data-role="bowen">@bowenyu066</a></nav>
 <div class="tools"><label id="compact-control" hidden><input type="checkbox" id="compact">精简队友</label><button id="focus" aria-pressed="false">大字</button><span id="clock" class="timer">00:00</span><button id="timer-toggle">开始计时</button><button id="timer-reset">归零</button><button id="copy-script">复制</button><button id="print">打印</button><button id="download">下载 HTML</button></div>
@@ -22,46 +22,372 @@
 <section class="intro"><div><h1 id="view-title">一场会议，一起把 Demo 做出来。</h1><p id="view-subtitle">所有台词连续展开。按编号从上往下读，Sparkie 说完再接话。</p></div><select class="jump" id="jump" aria-label="跳到讲稿段落"></select></section>
 <div class="columns" id="columns" aria-label="发言人列"></div>
 <main id="script-board"></main>
-<details class="prep"><summary>彩排准备与收尾设置 <span id="checked-count"></span></summary><div class="prep-grid"><div><div id="checklist" class="checklist"></div><button id="reset-checks">清空勾选</button></div><div><label for="closing-mode">纪要收尾方式</label><br><select id="closing-mode"><option value="explicit">先请 Sparkie 生成纪要，再结束会议</option><option value="automatic">结束会议后自动生成（须先彩排通过）</option></select><p>等前台说完再接话；后台执行时继续讨论。文件完成后再展示，如有失败按现场情况处理。</p><p>先确认任务视图与本轮会话相连。必要时直接打开执行器返回的文件路径。双麦克风转写页不能代替完整 Zoom → Realtime → Devin 链路。</p><p>计时仅用于彩排记录，不自动翻页。页面不连接模型或会议；各设备独立滚动。</p></div></div></details>
+<details class="prep"><summary>彩排准备与展示提示 <span id="checked-count"></span></summary><div class="prep-grid"><div><div id="checklist" class="checklist"></div><button id="reset-checks">清空勾选</button></div><div><strong>最后展示同一份完整提纲</strong><p>先讨论角色，再结合实际提纲确认分工，最后把分工追加到 demo-outline.md。保存并核对后，用这份计划收尾。</p><p>等前台说完再接话；后台执行时继续讨论。文件完成后再展示，如有失败按现场情况处理。</p><p>先确认任务视图与本轮会话相连。必要时直接打开执行器返回的文件路径。双麦克风转写页不能代替完整 Zoom → Realtime → Devin 链路。</p><p>计时仅用于彩排记录，不自动翻页。页面不连接模型或会议；各设备独立滚动。</p></div></div></details>
 <div id="status" class="status" role="status" aria-live="polite"></div>
 <div id="print-content" class="print-only"></div>
 <footer class="footer">角色和分工为建议，录制前由本人确认。Agent 表达示例供接话参考，现场以真实回答与产物为准；勾选不是运行证据。下载后可直接用浏览器打开。</footer>
 </div>
 <script>
 'use strict';
-const roles={hope:{name:'@Hope7Happiness',initial:'H',job:'串场与推进',detail:'交代场景，邀请 Sparkie 参与，确认实际结果后再推进。',watch:'重点看：上一位是否说完、Agent 是否完成回复、当前产物是否真的更新。'},yifan:{name:'@YIFANK',initial:'Y',job:'提出需求与修改',detail:'提出一种开场方案，委派生成任务，再给出一个能核对的修改。',watch:'重点看：任务是否已受理、修改是否针对同一份文件、转写是否覆盖了你的要求。'},bowen:{name:'@bowenyu066',initial:'B',job:'用户视角与产物核对',detail:'提出另一种开场方案，接住后台等待，并负责切到真实产物。',watch:'重点看：任务状态、产物路径和内容。只在核对后使用“已完成”的台词。'}};
-const sceneData=[
-{id:'opening',title:'一起计划这支 Demo',short:'开场',budget:'约 12 秒',purpose:'一句话说清楚场景，把 Sparkie 留在会议画面中。',cue:'会议与音频已就绪，录制开始；不要把 SDK 启动等待放进开场。',lines:[['hope','Okay, let’s figure out how to show Sparkie. It’s in the meeting with us, so let’s plan the demo together.','我们来想想怎么展示 Sparkie。它也在会议里，就一起把 demo 计划出来。','保持 Zoom 三人 + Sparkie 画面，不在这里介绍技术栈。']],expect:['此段是面对观众的介绍，Sparkie 应保持安静，不插入无关回应。','画面中的 Sparkie 必须是本轮真实参会者。'],screen:'Zoom 会议画面，能看见三位成员及 Sparkie。',gate:'观众知道“这场会议正在制作自己的 demo”，进入真实讨论。',wait:'开场前就完成入会、准入、音频权限与一次唤醒检查。若未就绪，暂停录制，不带着连接问题往下讲。'},
-{id:'discussion',title:'从哪里讲起',short:'两种观点',budget:'约 20 秒',purpose:'讨论怎么开场，让第一次接触产品的观众也能看懂。',cue:'@Hope7Happiness 的开场结束后，按顺序接话，不重叠。',lines:[['yifan','I’d start with the architecture, so people understand how it works.','我想先讲架构，让观众理解系统怎么工作。','提出第一种观点，不叫 Sparkie。'],['bowen','I’d rather open on a real meeting. Let people see it do something useful.','我想从真实会议和有用的结果开始，更容易看出价值。','明确表达另一种观点。'],['hope','Most viewers won’t know what Sparkie is. We need to make the value obvious.','观众大多还不知道 Sparkie 是什么，需要一开始就看懂它的价值。','补充观众背景，自然转向 Sparkie 征求意见。']],expect:['两种开场观点与“观众第一次接触产品”的背景进入会议上下文。','普通讨论不应自动触发助手长篇回复。','转写应保留正确发言人；不要把两人的意见合并为已达成的决策。'],screen:'仍以会议为主；可短暂展示带身份的真实转写。',gate:'两种意见都说清楚；如转写有关键缺字，用自然复述补清楚。',wait:'这里不需要等待 Agent。保持自然对话，避免同时说话。'},
-{id:'context',title:'问问 Sparkie 的意见',short:'上下文理解',budget:'约 15 秒 + 等回复',purpose:'验证“它听过整场讨论”，而不只是回答最后一句。',cue:'两种意见都已说完。用句首 Sparkie 唤醒，一次只问一个问题。',lines:[['hope','Sparkie, which idea do you prefer?','Sparkie，你更喜欢哪个想法？','提问后停止说话，等到它的声音完全结束。']],expect:['自然接住前文，对架构开场或真实会议开场给出偏好；不要求先复述两种方案。','理由应贴合第一次接触产品的观众；推荐哪一种不设固定答案。','把建议与人类已确认的决定区分开，不虚构大家已经同意。'],example:'I’d open with the meeting. Seeing a task get done makes the value clear before you explain how it works.',screen:'会议画面；保留助手完整的实际回复。',gate:'回复能自然接上刚才的讨论，理由与观众背景相关即可，不要求背诵上下文。',wait:'先留 3–5 秒自然停顿作为主持节奏。若持续无回应，检查是否收到唤醒转写；确认没有在回复后才重问一次，不连续催问。'},
-{id:'delegate',title:'先做一份提纲',short:'委派提纲',budget:'约 18 秒 + 等确认',purpose:'明确决定后，把可验证的文件任务交给后台。',cue:'Sparkie 的意见说完。先由人明确采用的方案，再单独唤醒委派。',lines:[['hope','Let’s do the meeting first, then a quick look at how it works.','决定以真实会议开场，架构简短带过。','这是建议台词；只有团队同意后才说。说完交给 @YIFANK。'],['yifan','Sparkie, can you turn that into a video outline? Include what we say and what we show, and save it as demo-outline.md in the project.','把刚才定的方向整理成视频提纲，写清楚说什么、展示什么，保存到项目里的 demo-outline.md。','文件名可以逐字清晰读出。不要额外要求联网调研，以保持这一轮任务聚焦。']],expect:['前台用一句短话确认委派，不在语音里朗读长提纲。','真实后台任务从 queued/running 开始；Devin 能读取带发言人信息的本轮转写。','产物体现会议开场、架构简述，以及适合初次接触产品的观众的讲法；保存到请求的文件。'],example:'I’ll draft the outline and save it in the project.',screen:'切到已彩排确认的真实任务视图；看到任务进行中再继续讨论。',gate:'确认任务已受理，就进入下一步，不等它做完。',wait:'如果听到了确认但看不到任务，先核对实际任务日志/入口。不要再次发送相同创建请求，以免生成重复任务。'},
-{id:'parallel',title:'接着聊画面怎么拍',short:'并行讨论',budget:'约 20 秒 · 可弹性延长',purpose:'用真实讨论自然覆盖后台延迟，展示会议不会被任务阻塞。',cue:'任务已受理；先等简短确认语结束，再继续人类讨论。',lines:[['bowen','While that’s running, what should we put on screen?','后台执行时，我们继续决定画面怎么安排。','任务仍在运行时使用这句；若已经完成，改说“Let’s decide what viewers should see.”'],['hope','The meeting first, then the task, then the finished outline.','先展示会议，再展示任务，最后展示完成的提纲。','三段画面顺序说清楚即可。'],['yifan','Let’s keep the task panel visible, so people can see it working while we talk.','把任务面板留在画面里，让观众看见我们讨论时任务也在执行。','补充讨论，不重复下任务。它是否更新正在执行的任务需单独确认，不默认快照含后续发言。']],expect:['后台真实继续执行，前台与转写继续工作。','任务未完成时，不声称文件已经就绪。','若助手主动汇报完成，先让它说完，跳到结果核对，不机械读完过渡台词。'],screen:'会议小窗与任务进行中的状态同时可见；不要展示伪造的进度。',gate:'任务真实完成则进入结果；仍在执行则使用备用讨论句，或留真实等待。',wait:'若 15–20 秒后还在执行，@bowenyu066 可说下面这句。仍未完成时，只在助手空闲时问一次进度；不反复委派。',filler:['bowen','The most important thing is that viewers can see a real result, not just hear us describe it.'],recovery:'Sparkie, is the outline still in progress?'},
-{id:'result',title:'一起看提纲',short:'结果落地',budget:'约 18 秒 + 等汇报',purpose:'把“我做好了”转化为观众能检查的真实产物。',cue:'收到真实完成事件或完成汇报后，由 @bowenyu066 打开本轮文件。',lines:[['bowen','Sparkie, how’s the outline looking?','Sparkie，提纲怎么样了？','如果它刚刚已经主动汇报过，就跳过这句，直接打开文件。'],['hope','Nice, we can record from this.','不错，可以照着这个录了。','只在文件打开且内容符合要求后说这句；否则指出实际缺项。']],expect:['简短说明实际完成的提纲，详细内容留在文件/任务面板。','demo-outline.md 确实存在且属于本轮，包含开场、画面操作、结尾，符合刚才确认的方向。','不能把旧文件、预设内容或仅有成功文字当作完成证据。'],example:'The outline is ready. It opens on the meeting, then shows the task and the finished result.',screen:'打开本轮 demo-outline.md 的编辑器预览或已验证接通的产物视图。留几秒给观众看。',gate:'现场核对文件路径与关键内容。只在符合要求时进入修改。',wait:'如果任务已完成但界面未显示产物，直接打开工具返回的真实文件路径；如果实际失败，说明失败并重试具体任务，不把失败包装成完成。'},
-{id:'revision',title:'再改一句结尾',short:'语音迭代',budget:'约 15 秒 + 等保存',purpose:'展示输出能继续迭代，并留下一个肉眼可见的修改。',cue:'当前提纲已打开。先提出唯一明确的修改，再等待保存完成。',lines:[['yifan','Sparkie, let’s end with “Meetings that move work forward.” Can you add that to the outline?','用“Meetings that move work forward”结尾，请加到刚才的提纲里。','说完先等确认，不继续叠加新的修改。'],['bowen','That gives us a clear ending.','这样结尾就清楚了。','可在简短确认后作为自然讨论句；等任务完成，再刷新真实文件并指向新增句子。']],expect:['理解“same outline”指向此前的 demo-outline.md。','同一份文件新增指定结尾句，其余已确认的方向保留。','保留此前已经确认的开场方向；不另建一份无关文件。'],example:'I’ll update the same outline with that closing line.',screen:'保留文件画面，完成后刷新，展示新增的结尾句。',gate:'实际文件里出现指定句子。只凭口头确认不能通过。',wait:'不要在它还没完成时说“更新好了”。若任务延迟，保留一次真实等待；如果总时长紧张，可在录制前选择精简版本，整体跳过本步。'},
-{id:'owners',title:'谁来负责',short:'确认分工',budget:'约 18 秒',purpose:'给纪要明确证据；三个角色先确认再认领。',cue:'提纲修改完成。以下是建议的录制分工；本人不同意时现场换成真实安排。',lines:[['hope','For this recording, I’ll handle the opening and transitions.','这次录制的开场和串场由我负责。','正式录制前本人确认这项分工。'],['yifan','I’ll capture the meeting and task views.','我负责录制会议和任务画面。','正式录制前本人确认；同设备录制限制提前处理。'],['bowen','I’ll check the outline and capture the final artifact.','我负责核对提纲并录制最终产物画面。','正式录制前本人确认。没有实际约定截止时间就不要补造。']],expect:['每项分工准确对应真正发言的人；必须以会议中实际说出的内容为依据。','不会根据 GitHub 用户名、开发角色或默认时间猜测负责人/截止日期。'],screen:'回到三人会议画面，或旁边展示带身份的转写。',gate:'三人真实确认分工，转写已包含关键内容，再生成纪要。',wait:'一句一句说。若同一台设备共用麦克风，先明确说出自己的名字；不能依赖单一 Zoom 用户 ID 自动分出三个人。'},
-{id:'closing',title:'带着成果收尾',short:'纪要与收尾',budget:'约 15 秒 + 等产物',purpose:'最后的画面显示这场会议真正留下了什么。',cue:'分工已确认。默认先显式生成纪要，再结束会议；自动会后纪要只有彩排通过才使用。',lines:[['hope','Sparkie, can you save our plan and who’s doing what in demo-recap.md?','把刚才的计划和分工保存到 demo-recap.md。','默认路径：等生成完成、打开文件核对，再说最后一句并结束会议。'],['bowen','Great, we’ve got our outline. Let’s record it.','提纲有了，我们开始录吧。','仅在真实提纲已展示后说；若纪要尚未完成，不宣称已有纪要。']],expect:['默认路径：生成真实 demo-recap.md；确认的开场、任务结果和三位成员实际认领的分工有据可查。','只包含实际讨论和实际成功的任务；未明确的日期留空，未完成的任务如实标注。','自动路径：结束会议后生成本轮真实报告；只有该链路已彩排通过时才以“自动纪要”演示。'],example:'The plan and everyone’s roles are saved in the recap.',screen:'最终画面优先展示 demo-outline.md；纪要生成且核对后再展示真实纪要。',gate:'文件可打开且与真实会议一致。录制停止后再结束仍需保留的会议/进程。',wait:'默认不要先结束会议，否则正在执行的任务可能被取消。若没有时间等纪要，诚实收在已经完成的提纲，不口头宣布自动纪要已完成。'}
+const roles = {
+  "hope": {
+    "name": "@Hope7Happiness",
+    "initial": "H",
+    "job": "串场与推进",
+    "detail": "确认演示方向，参与分工讨论，邀请 Sparkie 核对并记录大家的安排。",
+    "watch": "先确认方向，再讨论分工；等真实提纲和角色补充完成后收尾。"
+  },
+  "yifan": {
+    "name": "@YIFANK",
+    "initial": "Y",
+    "job": "提出需求与认领录制",
+    "detail": "委派视频提纲，认领会议与任务录制，并确认素材如何交接。",
+    "watch": "提纲先生成，分工随后补充；核对录制任务与本人确认一致。"
+  },
+  "bowen": {
+    "name": "@bowenyu066",
+    "initial": "B",
+    "job": "用户视角与产物核对",
+    "detail": "提出用户视角，认领成果展示与剪辑，打开并核对最终提纲。",
+    "watch": "先打开真实提纲，再核对末尾的角色分工；完成后把最终文件留在画面里。"
+  }
+};
+const sceneData = [
+  {
+    "id": "opening",
+    "title": "一起计划这支 Demo",
+    "short": "开场",
+    "budget": "约 12 秒",
+    "purpose": "一句话说清楚场景，把 Sparkie 留在会议画面中。",
+    "cue": "会议与音频已就绪，录制开始；不要把 SDK 启动等待放进开场。",
+    "lines": [
+      [
+        "hope",
+        "Okay, let’s figure out how to show Sparkie. It’s in the meeting with us, so let’s plan the demo together.",
+        "我们来想想怎么展示 Sparkie。它也在会议里，就一起把 demo 计划出来。",
+        "保持 Zoom 三人 + Sparkie 画面，不在这里介绍技术栈。"
+      ]
+    ],
+    "expect": [
+      "此段是面对观众的介绍，Sparkie 应保持安静，不插入无关回应。",
+      "画面中的 Sparkie 必须是本轮真实参会者。"
+    ],
+    "screen": "Zoom 会议画面，能看见三位成员及 Sparkie。",
+    "gate": "观众知道“这场会议正在制作自己的 demo”，进入真实讨论。",
+    "wait": "开场前就完成入会、准入、音频权限与一次唤醒检查。若未就绪，暂停录制，不带着连接问题往下讲。"
+  },
+  {
+    "id": "discussion",
+    "title": "从哪里讲起",
+    "short": "两种观点",
+    "budget": "约 20 秒",
+    "purpose": "讨论怎么开场，让第一次接触产品的观众也能看懂。",
+    "cue": "@Hope7Happiness 的开场结束后，按顺序接话，不重叠。",
+    "lines": [
+      [
+        "yifan",
+        "I’d start with the architecture, so people understand how it works.",
+        "我想先讲架构，让观众理解系统怎么工作。",
+        "提出第一种观点，不叫 Sparkie。"
+      ],
+      [
+        "bowen",
+        "I’d rather open on a real meeting. Let people see it do something useful.",
+        "我想从真实会议和有用的结果开始，更容易看出价值。",
+        "明确表达另一种观点。"
+      ],
+      [
+        "hope",
+        "Most viewers won’t know what Sparkie is. We need to make the value obvious.",
+        "观众大多还不知道 Sparkie 是什么，需要一开始就看懂它的价值。",
+        "补充观众背景，自然转向 Sparkie 征求意见。"
+      ]
+    ],
+    "expect": [
+      "两种开场观点与“观众第一次接触产品”的背景进入会议上下文。",
+      "普通讨论不应自动触发助手长篇回复。",
+      "转写应保留正确发言人；不要把两人的意见合并为已达成的决策。"
+    ],
+    "screen": "仍以会议为主；可短暂展示带身份的真实转写。",
+    "gate": "两种意见都说清楚；如转写有关键缺字，用自然复述补清楚。",
+    "wait": "这里不需要等待 Agent。保持自然对话，避免同时说话。"
+  },
+  {
+    "id": "context",
+    "title": "问问 Sparkie 的意见",
+    "short": "上下文理解",
+    "budget": "约 15 秒 + 等回复",
+    "purpose": "验证“它听过整场讨论”，而不只是回答最后一句。",
+    "cue": "两种意见都已说完。用句首 Sparkie 唤醒，一次只问一个问题。",
+    "lines": [
+      [
+        "hope",
+        "Sparkie, which idea do you prefer?",
+        "Sparkie，你更喜欢哪个想法？",
+        "提问后停止说话，等到它的声音完全结束。"
+      ]
+    ],
+    "expect": [
+      "自然接住前文，对架构开场或真实会议开场给出偏好；不要求先复述两种方案。",
+      "理由应贴合第一次接触产品的观众；推荐哪一种不设固定答案。",
+      "把建议与人类已确认的决定区分开，不虚构大家已经同意。"
+    ],
+    "example": "I’d open with the meeting. Seeing a task get done makes the value clear before you explain how it works.",
+    "screen": "会议画面；保留助手完整的实际回复。",
+    "gate": "回复能自然接上刚才的讨论，理由与观众背景相关即可，不要求背诵上下文。",
+    "wait": "先留 3–5 秒自然停顿作为主持节奏。若持续无回应，检查是否收到唤醒转写；确认没有在回复后才重问一次，不连续催问。"
+  },
+  {
+    "id": "delegate",
+    "title": "先做一份提纲",
+    "short": "委派提纲",
+    "budget": "约 25 秒 + 等确认",
+    "purpose": "明确决定后，把可验证的文件任务交给后台。",
+    "cue": "听完 Sparkie 的意见，确认开场方向，并把这支视频需要做的事说清楚；暂时不分配给个人。",
+    "lines": [
+      [
+        "hope",
+        "Let’s do the meeting first, then a quick look at how it works.",
+        "先展示真实会议，再简短解释怎么实现。",
+        "团队同意后再确认这个方向；若 Sparkie 推荐不同，先回应它的理由。"
+      ],
+      [
+        "bowen",
+        "So we need someone to walk viewers through it, someone to record the meeting and the task, and someone to show the result and edit the video.",
+        "需要有人讲解、有人录会议与任务画面、有人展示结果并剪成视频。",
+        "先把整组工作讲清楚；等提纲在后台执行时，再认领各自的部分。"
+      ],
+      [
+        "yifan",
+        "Sparkie, can you turn that into a video outline? Include what we say and what we show, and save it as demo-outline.md in the project.",
+        "把刚才的方向整理成视频提纲，写清楚说什么、展示什么，保存到项目里的 demo-outline.md。",
+        "文件名清晰读出；这里先要提纲，角色分工稍后讨论并补入。"
+      ]
+    ],
+    "expect": [
+      "一句短话确认委派，后台开始生成真实提纲。",
+      "提纲根据刚才确认的方向组织讲解、会议与任务画面、成果展示；此时不猜测谁来负责。",
+      "任务启动后的分工讨论不一定进入初始任务快照，后面会明确要求追加到同一文件。"
+    ],
+    "example": "I’ll draft the outline and save it in the project.",
+    "screen": "切到已彩排确认的真实任务视图；看到任务进行中再继续讨论。",
+    "gate": "确认任务已受理，就进入下一步，不等它做完。",
+    "wait": "如果听到了确认但看不到任务，先核对实际任务日志/入口。不要再次发送相同创建请求，以免生成重复任务。"
+  },
+  {
+    "id": "parallel",
+    "title": "提纲在写，我们先分工",
+    "short": "并行讨论分工",
+    "budget": "约 20 秒 · 可弹性延长",
+    "purpose": "后台整理提纲，三个人继续讨论刚才列出的工作由谁承担。",
+    "cue": "等委派确认说完，开始认领分工。如果提纲提前完成，先听完汇报，再把三个人的分工说完整。",
+    "lines": [
+      [
+        "hope",
+        "While that’s running, I can handle the intro and walk people through what’s happening.",
+        "它写提纲的时候，我们先分工。我来开场并带着观众看整个过程。",
+        "仅在本人同意时认领。若任务已完成，改说“Let’s split up the work. I can handle the intro and walk people through what’s happening.”"
+      ],
+      [
+        "yifan",
+        "I’ll record the meeting and the task panel, so we can show it working while we talk.",
+        "我录会议和任务面板，让观众看见讨论时任务也在执行。",
+        "认领前面已经提到的录制工作，不另外启动一个任务。"
+      ],
+      [
+        "bowen",
+        "Then I’ll show the finished result and edit everything together.",
+        "那我来展示最后的成果，再把视频剪到一起。",
+        "认领成果展示和剪辑；三人都说完后，再请 Sparkie 一起核对。"
+      ]
+    ],
+    "expect": [
+      "后台继续完成提纲，新的分工讨论同时进入本轮转写。",
+      "把讲解、会议与任务录制、成果展示与剪辑对应到实际认领的人；不推断未提及的截止日期。",
+      "即使提纲提前完成，也保留这段分工讨论；不把后续分工已自动写入初稿当作前提。"
+    ],
+    "screen": "会议画面与真实任务状态并列；观众能看到任务在做，大家也在继续定计划。",
+    "gate": "三人都已明确认领；提纲实际完成后打开文件，再结合提纲讨论分工是否完整。",
+    "wait": "如果提纲先完成，让 Sparkie 说完，再接回尚未说完的分工。分工聊完仍在执行时，可以讨论录制交接；不要重复创建提纲。",
+    "filler": [
+      "yifan",
+      "Let’s keep the task panel on screen until the result is ready, so the handoff is easy to follow."
+    ],
+    "recovery": "Sparkie, how’s the outline coming along?"
+  },
+  {
+    "id": "result",
+    "title": "一起看提纲",
+    "short": "结果落地",
+    "budget": "约 18 秒 + 等汇报",
+    "purpose": "把“我做好了”转化为观众能检查的真实产物。",
+    "cue": "分工已说完整，提纲也真实完成。打开本轮文件，看它是否覆盖刚才讨论的演示流程。",
+    "lines": [
+      [
+        "bowen",
+        "Sparkie, how’s the outline looking?",
+        "Sparkie，提纲怎么样了？",
+        "它刚主动汇报过就跳过这句，直接打开本轮 demo-outline.md。"
+      ],
+      [
+        "hope",
+        "That’s the flow we had in mind.",
+        "对，就是我们想要的流程。",
+        "只在看过真实提纲、确认方向一致后说；若有缺项，先指出实际问题。"
+      ]
+    ],
+    "expect": [
+      "简短汇报实际完成的提纲，文件可以打开并查看。",
+      "提纲体现讨论中确认的方向和画面；不要求初稿已包含任务启动之后才讨论的分工。",
+      "前台随后能够结合实际任务结果和最新会议转写讨论角色安排。"
+    ],
+    "example": "The outline is ready. It opens on the meeting, then shows the task and the finished result.",
+    "screen": "打开本轮 demo-outline.md 的编辑器预览或已验证接通的产物视图。留几秒给观众看。",
+    "gate": "真实提纲已打开且方向符合讨论；接着请 Sparkie 看看刚才的分工是否覆盖这份提纲。",
+    "wait": "如果任务已完成但界面未显示产物，直接打开工具返回的真实文件路径；如果实际失败，说明失败并重试具体任务，不把失败包装成完成。"
+  },
+  {
+    "id": "roles_review",
+    "title": "结合提纲，一起看看分工",
+    "short": "讨论角色安排",
+    "budget": "约 20 秒 + 等建议",
+    "purpose": "让 Sparkie 把任务执行期间听到的分工与刚完成的提纲联系起来，自然参与讨论。",
+    "cue": "保留提纲画面。直接问刚才的分工是否合适，不重新向 Sparkie 念一遍所有角色。",
+    "lines": [
+      [
+        "hope",
+        "Sparkie, does that split make sense for this outline, or are we missing anything?",
+        "Sparkie，按这个提纲，这样分工合适吗？有没有漏掉什么？",
+        "等它用刚才的分工和真实提纲作答。建议不必与示例一致。"
+      ],
+      [
+        "hope",
+        "Sounds good. I’ll take the narration.",
+        "可以，我来负责讲解。",
+        "在实际同意建议后确认；如果它提出新工作，先讨论，再由本人认领。"
+      ],
+      [
+        "yifan",
+        "I’ll send the screen recording over for the edit.",
+        "我录完就把屏幕录像交过来剪辑。",
+        "确认录制和剪辑之间的交接，不承诺没有讨论过的期限。"
+      ],
+      [
+        "bowen",
+        "And I’ll handle the result and the final cut.",
+        "我负责成果展示和最后的剪辑。",
+        "本人同意后确认；若调整分工，下一步以实际确认的版本为准。"
+      ]
+    ],
+    "expect": [
+      "理解“that split”指任务执行期间三人的认领，并结合刚生成的 outline 讨论覆盖情况。",
+      "可以指出缺项或交接问题，也可以认为分工足够；不为了演示固定制造遗漏。",
+      "建议与已确认安排分开。新增职责只有本人同意后才算认领，未决定的事项保持待定。"
+    ],
+    "example": "That covers the outline: narration, the meeting and task recording, then the result and the edit. Just make sure the recordings reach the person doing the final cut.",
+    "screen": "真实提纲保持可见，会议继续；这一段重点是一起定安排，不是再创建文件。",
+    "gate": "大家回应了实际建议并确认各自承担的工作，再让 Sparkie 把最终分工写入提纲。",
+    "wait": "若提到的角色有误，相关成员自然纠正自己的部分。若它发现真实缺项，讨论清楚由谁负责；不要照读“Sounds good”跳过未解决的问题。"
+  },
+  {
+    "id": "save_roles",
+    "title": "把刚确认的分工补进提纲",
+    "short": "完善同一份提纲",
+    "budget": "约 10 秒 + 等保存",
+    "purpose": "把最新会议决定追加到已有产物，让一份文件同时回答拍什么和谁来做。",
+    "cue": "分工讨论结束，大家已确认。明确让 Sparkie 修改刚才那份 outline。",
+    "lines": [
+      [
+        "hope",
+        "Sparkie, add the roles we just agreed on to the end of the outline, so everything’s in one place.",
+        "把刚才定下来的分工加到提纲最后，这样所有安排都在一份文件里。",
+        "说完等确认与实际保存完成，不重复口述所有分工，也不另建纪要任务。"
+      ]
+    ],
+    "expect": [
+      "先简短确认，再把最新确认的角色和职责追加到同一个 demo-outline.md 末尾。",
+      "后台依据本轮最新转写中的确认结果更新文件；保留原有提纲，不能只用初次委派时的旧快照。",
+      "若沿用这份建议稿，末尾应对应 @Hope7Happiness 的开场与讲解、@YIFANK 的会议与任务录制及素材交接、@bowenyu066 的成果展示与剪辑；有现场调整时以实际确认的版本为准。",
+      "未约定的日期不补造；实际保存成功后再汇报完成。"
+    ],
+    "example": "I’ll add the agreed roles to the end of the outline.",
+    "screen": "保留提纲或真实更新任务状态。完成后刷新同一文件，滚动到末尾的角色与职责。",
+    "gate": "同一文件里确实出现了与刚才确认一致的分工；仅有口头确认不能进入完成收尾。",
+    "wait": "等待更新时留自然停顿，或核对已有提纲的镜头顺序。若更新失败，修正实际问题再重试；不要先结束会议，以免取消尚未保存的任务。",
+    "recovery": "Sparkie, has the outline been updated?"
+  },
+  {
+    "id": "closing",
+    "title": "一份完整计划，自然收尾",
+    "short": "展示计划并收尾",
+    "budget": "约 10 秒",
+    "purpose": "最终画面停在同一份提纲和确认分工上，这场会议已经把录制计划准备好。",
+    "cue": "等更新完成且文件已核对，再接最后两句。画面从提纲正文滚到末尾分工，稍作停留。",
+    "lines": [
+      [
+        "bowen",
+        "There we go. What we’re filming, and who’s doing each part.",
+        "好了，拍什么、各自负责哪一块，都在这里了。",
+        "只有真实文件里既有提纲又有正确分工时说；把末尾的分工留在画面中。"
+      ],
+      [
+        "hope",
+        "Great. Let’s record it.",
+        "好，那就开录吧。",
+        "自然结束这场计划会议；留几秒产物画面，再停止 demo 录制和结束会议。"
+      ]
+    ],
+    "expect": [
+      "最终 demo-outline.md 包含实际生成的提纲与后来确认的分工，两部分来自同一场会议。",
+      "Sparkie 不需要再启动任务或补一段总结；如果刚汇报更新完成，等它说完再收尾。"
+    ],
+    "screen": "最后停在 demo-outline.md：视频结构 + 末尾角色分工。可回到会议画面结束，不再切到另一个纪要文件。",
+    "gate": "提纲及分工都已保存、展示并核对，演示完成后再结束会议。",
+    "wait": "如果角色补充还没保存，停留在上一步。只有一份初稿时不能使用“who’s doing each part”的完成台词。"
+  }
 ];
-const preflight=[['meeting','Zoom 已入会、音频收发与一次英文唤醒已实测；录制时无需等待启动。'],['names','三个 Zoom 显示名与 GitHub 用户名一致，或已明确说出姓名；耳机和麦克风已检查。'],['voices','三人确认建议角色与分工，英文台词读顺；Sparkie 说话时不抢话。'],['tasks','用本轮配置验证过真实委派 → 完成 → 打开产物 → 修改同一文件。'],['files','确认演示目录中没有会被覆盖的重要同名文件；准备好真实任务和文件预览入口。'],['closing','选择纪要收尾方式；自动会后纪要须实测，未验证则使用显式生成。'],['capture','讲稿放副屏或手机；观众只看会议、任务与真实产物，不录这份提词页面。']];
+const preflight = [
+  [
+    "meeting",
+    "Zoom 已入会、音频收发与一次英文唤醒已实测；录制时无需等待启动。"
+  ],
+  [
+    "names",
+    "三个 Zoom 显示名与 GitHub 用户名一致，或已明确说出姓名；耳机和麦克风已检查。"
+  ],
+  [
+    "voices",
+    "三人确认建议角色与分工，英文台词读顺；Sparkie 说话时不抢话。"
+  ],
+  [
+    "tasks",
+    "用本轮配置验证真实委派 → 完成 → 结合最新讨论补充分工到同一文件。"
+  ],
+  [
+    "files",
+    "确认演示目录中没有会被覆盖的重要同名文件；准备好真实任务和文件预览入口。"
+  ],
+  [
+    "closing",
+    "分工以三人实际确认的版本为准；最后展示完整提纲，更新完成前不结束会议。"
+  ],
+  [
+    "capture",
+    "讲稿放副屏或手机；观众只看会议、任务与真实产物，不录这份提词页面。"
+  ]
+];
 
 const $ = selector => document.querySelector(selector);
 const escape = text => String(text).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const originalHTML = '<!doctype html>\n' + document.documentElement.outerHTML;
 const roleIds = Object.keys(roles);
-let role = 'overview', step = 0, elapsed = 0, started = null, closingMode = 'explicit', checks = {};
+let role = 'overview', step = 0, elapsed = 0, started = null, checks = {};
 try {
   checks = JSON.parse(localStorage.getItem('sparkie-demo-checks-v1') || '{}');
   if (!checks || typeof checks !== 'object') checks = {};
-  closingMode = localStorage.getItem('sparkie-demo-closing-v1') === 'automatic' ? 'automatic' : 'explicit';
 } catch {}
 function announce(text) { $('#status').textContent = text; }
-function activeScene(index) {
-  const source = sceneData[index];
-  if (index !== 8 || closingMode !== 'automatic') return source;
-  return {...source, lines: [['hope', 'That’s our plan. Let’s wrap up the meeting.', '方案定了，我们结束会议吧。', '仅在自动纪要链路已彩排通过时使用；确认后台任务结束后再结束会议。'], source.lines[1]],
-    cue: '先确认任务完成。自动纪要链路已彩排通过时，结束会议后展示本轮真实报告。',
-    expect: ['结束会议后生成本轮真实纪要，准确记录实际确认的方向与分工；未约定的截止时间留空。'],
-    example: '', gate: '本轮报告确实生成后再展示；未生成就收在已经完成的提纲。'};
-}
+function activeScene(index) { return sceneData[index]; }
 function lineHTML(line, sceneIndex, index, row) {
   const [id, en, cn, action] = line;
   const emphasis = role === 'overview' ? '' : id === role ? ' mine' : ' other';
@@ -146,8 +472,6 @@ function countChecks() { $('#checked-count').textContent = ' · ' + preflight.fi
 function saveChecks() { try {localStorage.setItem('sparkie-demo-checks-v1',JSON.stringify(checks));} catch {} countChecks(); }
 document.querySelectorAll('[data-check]').forEach(el => el.onchange = () => {checks[el.dataset.check] = el.checked; saveChecks();});
 $('#reset-checks').onclick = () => {checks = {}; document.querySelectorAll('[data-check]').forEach(el => el.checked = false); saveChecks();};
-$('#closing-mode').value = closingMode;
-$('#closing-mode').onchange = e => {closingMode = e.target.value; try {localStorage.setItem('sparkie-demo-closing-v1',closingMode);} catch {} render(position());};
 function paintClock() {
   const seconds = Math.floor((elapsed + (started === null ? 0 : performance.now() - started)) / 1000);
   $('#clock').textContent = String(Math.floor(seconds/60)).padStart(2,'0') + ':' + String(seconds%60).padStart(2,'0');
