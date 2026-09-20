@@ -43,6 +43,15 @@ def failure_details(exc):
         'Zoom cancellation acknowledgement timed out': ('zoom', 'cancel_ack_timeout'),
         'Zoom cancellation aborted': ('zoom', 'cancel_aborted'),
         'Zoom bridge requires cancel-v1; rebuild the native receiver': ('zoom', 'bridge_rebuild_required'),
+        'semantic_realtime_error': ('openai', 'semantic_realtime_error'),
+        'semantic_realtime_closed': ('openai', 'semantic_realtime_closed'),
+        'semantic_configuration_not_applied': ('openai', 'semantic_configuration_not_applied'),
+        'semantic_deepgram_error': ('deepgram', 'semantic_deepgram_error'),
+        'semantic_deepgram_closed': ('deepgram', 'semantic_deepgram_closed'),
+        'semantic_alignment_missing_words': ('deepgram', 'semantic_alignment_missing_words'),
+        'semantic_transcript_alignment_timeout': ('session', 'semantic_transcript_alignment_timeout'),
+        'semantic_turn_buffer_limit': ('session', 'semantic_turn_buffer_limit'),
+        'semantic_provider_close_timeout': ('session', 'semantic_provider_close_timeout'),
     }
     provider, reason = reasons.get(str(exc), ('unknown', 'unclassified'))
     result = {'error_type': type(exc).__name__, 'provider': provider, 'reason': reason}

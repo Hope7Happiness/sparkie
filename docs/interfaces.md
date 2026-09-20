@@ -282,3 +282,26 @@ available), zoom_wake_decision (semantic_router/local_control), and
 zoom_wake_decision_discarded for late returns. Provider response bodies and
 thoughts are not logged. See fast-wake-router-research.md for live-call evidence
 and the remaining user-run Zoom validation.
+
+### Semantic completion before Zoom wake routing
+
+Zoom per-participant sessions default to SPARKIE_TURN_DETECTION=semantic_vad
+(legacy deepgram is explicitly selectable). SemanticTurnEars pairs Deepgram
+finalized word timestamps with a separate Realtime semantic_vad/low detector for
+each non-self participant. Both receive the same padded audio timeline. Only an
+aligned complete turn becomes TranscriptEvent; Deepgram speech_final fragments
+no longer call human_transcript individually in this mode. Fast text-confirmed
+SpeechActivity.started still interrupts immediately, independently of completion.
+
+SpeechActivity.stream_id may contain an adapter-local turn suffix. ParticipantEars
+prefixes it with the participant and provider-stream serial instead of replacing
+it, and tracks each active suffix separately. This prevents a late old stopped
+event from clearing a new turn by the same speaker. Unsuffixed adapters keep their
+existing IDs. Semantic mode supplies paced silence when callbacks stop and closes
+idle provider streams after 15s; legacy mode keeps its previous 1.5s policy.
+
+Alignment uses finalized result coverage or the audio frontier acknowledged by a
+Deepgram Finalize response. A pending boundary times out after 5s. Detector or
+alignment failure uses participant_input_failed and a semantic_turn_unavailable
+coverage gap, without falling back to fragmented wake requests. Actual API
+configuration, usage implications and validation are in semantic-turn-detection.md.
