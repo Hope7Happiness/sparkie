@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tasks(
   task_id TEXT PRIMARY KEY,
   meeting_id TEXT NOT NULL,
   instruction TEXT NOT NULL,
+  artifact_title TEXT,
   status TEXT NOT NULL DEFAULT 'queued',
   created_from_transcript_id INTEGER,
   result TEXT,
@@ -71,6 +72,9 @@ class WorkspaceStore:
         # Existing workspace databases retain their meeting IDs and history.
         if 'generation' not in {row[1] for row in self.db.execute('PRAGMA table_info(meetings)')}:
             self.db.execute('ALTER TABLE meetings ADD COLUMN generation INTEGER NOT NULL DEFAULT 0')
+            self.db.commit()
+        if 'artifact_title' not in {row[1] for row in self.db.execute('PRAGMA table_info(tasks)')}:
+            self.db.execute('ALTER TABLE tasks ADD COLUMN artifact_title TEXT')
             self.db.commit()
 
     def close(self):
@@ -155,17 +159,19 @@ class WorkspaceStore:
             (status, result, error, time.time(), task_id))
         self.db.commit()
 
-    def upsert_task(self, workspace_id, task_id, instruction, status, result=None, error=None):
+    def upsert_task(self, workspace_id, task_id, instruction, status, result=None, error=None,
+                    artifact_title=None):
         """Mirror an external session's task lifecycle; task_id is owned by the caller."""
         finished = time.time() if status in ('completed', 'failed', 'cancelled') else None
         self.db.execute(
-            "INSERT INTO tasks(task_id, meeting_id, instruction, status, result, error, created_at, finished_at)"
-            " VALUES(?,?,?,?,?,?,?,?)"
+            "INSERT INTO tasks(task_id, meeting_id, instruction, status, result, error, created_at, finished_at, artifact_title)"
+            " VALUES(?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(task_id) DO UPDATE SET status=excluded.status,"
+            " artifact_title=COALESCE(excluded.artifact_title, artifact_title),"
             " result=COALESCE(excluded.result, result), error=COALESCE(excluded.error, error),"
             " finished_at=COALESCE(excluded.finished_at, finished_at)",
             (task_id, workspace_id, instruction or task_id, status, result, error,
-             time.time(), finished))
+             time.time(), finished, artifact_title))
         self.db.commit()
 
     # -- artifacts ---------------------------------------------------------------

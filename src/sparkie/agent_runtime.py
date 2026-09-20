@@ -172,9 +172,10 @@ class AgentRuntime:
             error = "Document preview unavailable: " + str(fields["artifact_error"])
         self.store.upsert_task(workspace_id, task_id, instruction,
                                fields["status"], result=fields.get("result"),
-                               error=error)
+                               error=error, artifact_title=fields.get('artifact_title'))
         self.bus.publish(workspace_id, {
             "type": "task.updated", "task_id": task_id, "instruction": instruction,
+            "artifact_title": fields.get("artifact_title"),
             "status": fields["status"], "error_type": error,
             "progress": fields.get("progress"), "artifact_error": fields.get("artifact_error")})
         result = fields.get("result")
@@ -184,9 +185,10 @@ class AgentRuntime:
                 and not fields.get("artifact_error") and key not in self.mirrored_artifacts):
             self.mirrored_artifacts.add(key)
             content = artifact["content"] if artifact else {"markdown": str(result)}
-            title, summary = artifact_meta(content.get("markdown", ""))
+            title, summary = artifact_meta(content.get("markdown", result or ""))
+            title = fields.get("artifact_title") or title
             artifact_id = self.store.create_artifact(
-                workspace_id, task_id=task_id, type="report",
+                workspace_id, task_id=task_id, type=artifact.get('type', 'report') if artifact else 'report',
                 title=title, summary=summary,
                 content=content)
             self.bus.publish(workspace_id, {

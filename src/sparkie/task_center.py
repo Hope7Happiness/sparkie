@@ -111,12 +111,17 @@ class TaskCenter:
                       basis='explicit_human_confirmation')
         return True
 
-    def submit(self, request):
+    def submit(self, request, artifact_title=None):
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:
             return {'error': 'invalid_request'}
+        if artifact_title is not None:
+            if not isinstance(artifact_title, str) or not artifact_title.strip() or len(artifact_title) > 80:
+                return {'error': 'invalid_artifact_title'}
+            artifact_title = ' '.join(artifact_title.split())
         task_id = uuid4().hex[:12]
         snapshot = self.ledger.snapshot()
-        job = {'task_id': task_id, 'request': request, 'status': 'queued', 'created_at': time.time(),
+        job = {'task_id': task_id, 'request': request, 'artifact_title': artifact_title,
+               'status': 'queued', 'created_at': time.time(),
                'transcript_records': len(snapshot), 'snapshot': snapshot,
                'context_note': 'All finalized transcript available at delegation; newer speech is not included. '
                                'The request also carries speech heard directly by Realtime.'}
@@ -125,6 +130,7 @@ class TaskCenter:
         self._save(job)
         self.runners[task_id] = asyncio.create_task(self._run(job))
         return {'task_id': task_id, 'status': 'queued', 'awaiting_background': True,
+                'artifact_title': artifact_title,
                 'transcript_records': len(snapshot), 'context_note': job['context_note']}
 
     async def _run(self, job):

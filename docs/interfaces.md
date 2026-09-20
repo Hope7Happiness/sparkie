@@ -340,22 +340,28 @@ Validation: 301 Python tests, 34 frontend tests, frontend build and both offline
 ### Worker document content versus completion summary
 
 This extends the earlier summary-only task_update contract. For a generated Markdown
-file, Devin and Codex workers declare their primary deliverable in one fenced
+file or raster image, Devin and Codex workers declare their primary deliverable in one fenced
 sparkie-artifact block containing JSON with a path field. The shared task_artifacts
 processor strips the declaration from the completion summary and snapshots the
 UTF-8 file on the worker host before completion is emitted. Ordinary prose paths
 and incoming workspace socket messages never trigger local file reads.
 
-The file must resolve inside the worker workspace or the user's Desktop, have a
-.md/.markdown extension, be a nonempty regular UTF-8 file, and fit in 128 KiB.
-Symlinks resolving outside those roots are rejected. One primary document is
+The file must resolve inside the worker workspace or the user's Desktop and be a
+regular file. Markdown (.md/.markdown) must be nonempty UTF-8 and fit in 128 KiB.
+Raster images (.png/.jpg/.jpeg/.webp/.gif) must fit in 2 MiB and their file signatures
+must match their declared extension; SVG/HTML are not image deliverables. Images
+are snapshotted as data URLs in content.image, with the original filename for
+download. The workspace socket accepts up to 4 MiB per message to carry base64
+images; the voice console/event stream carries metadata only, keeping media out of
+its bounded audio/control pipe. Full snapshots remain in tasks.json and artifacts.
+Symlinks resolving outside those roots are rejected. One primary deliverable is
 supported per task. Reading happens off the voice event loop. This is an explicit
 worker output contract, not automatic discovery of files changed by shell tools;
 workers must emit the declaration for file deliverables.
 
-background_task/task_update now optionally carries artifact={content:{markdown},
-source_path}. The workspace stores that content and derives its title from the
-document, while the task result stays the concise completion summary. Task status
+background_task/task_update now optionally carries artifact={type,content:{markdown}
+or {image,filename},source_path}. The workspace stores that content while the task
+result stays the concise completion summary. Task status
 and spoken-result notifications include only source_path metadata, not the full
 document. Inline text answers without a declaration keep their existing rendering.
 An invalid/unreadable declared document produces artifact_error, shown in the task
@@ -372,3 +378,30 @@ not new live-model or Zoom acceptance.
 
 Validation: 306 Python tests, 34 frontend tests, frontend build, primitive.sh and
 demo.sh passed for this document-content change.
+
+### Artifact names and direct previews
+
+Realtime delegate_task now requires artifact_title, a short user-facing name
+(1–80 characters) chosen before delegation. Execution details stay in request.
+TaskCenter persists and emits the name from queued onward; the workspace migrates
+existing task tables with a nullable artifact_title column. Both waiting cards and
+task lists show this name, including after refresh, and use a neutral Task output
+fallback for older unnamed tasks instead of exposing execution prompts. The final
+artifact keeps the supplied name in its catalog; older tasks derive one from their
+content. This does not select or auto-present an artifact.
+
+Markdown stage/fullscreen views render the document itself, without another title
+and summary wrapped around it; catalog cards retain metadata. Markdown downloads
+also preserve the original body. Image downloads export the image itself.
+The latest Boston test reproduced duplicate preview metadata and the PNG rejection
+unsupported_document_type. Regression coverage includes naming through the Realtime
+tool before the worker runs, title persistence, legacy database migration, a media
+payload above the former 1 MiB socket limit, exact Markdown exports and wrapper-free
+previews. Browser verification of the reported test confirmed one Markdown title
+in both previews, and byte-for-byte delivery and actual decoding of its existing
+1334 × 1050 PNG. An isolated synthetic task exercised named waiting cards over
+real HTTP/WebSocket and refresh; no new model or Zoom acceptance was performed.
+309 Python tests, 36 frontend tests, frontend build and both offline demos passed.
+For the suite, SPARKIE_WORKSPACE_SERVER=127.0.0.1:1 prevented session fixtures from
+mirroring into the running live workspace service; workspace integration tests
+still use their own isolated server ports.

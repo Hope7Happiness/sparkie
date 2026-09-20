@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -7,7 +8,7 @@ import unittest
 
 from sparkie.agent_runtime import AgentRuntime
 from sparkie.event_bus import EventBus
-from sparkie.task_artifacts import materialize_result, MAX_DOCUMENT_BYTES
+from sparkie.task_artifacts import materialize_result, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES
 from sparkie.task_center import TaskCenter, TranscriptLedger
 from sparkie.workspace import WorkspaceStore
 
@@ -17,6 +18,27 @@ def completion(path):
 
 
 class DocumentTests(unittest.TestCase):
+    def test_image_snapshot_uses_browser_media_not_markdown_wrapper(self):
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8ZkAAAAASUVORK5CYII=')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'chart.png'
+            path.write_bytes(png)
+            output = materialize_result(completion(path), directory)
+            path.unlink()
+            self.assertEqual(output['artifact']['type'], 'image')
+            content = output['artifact']['content']
+            self.assertNotIn('markdown', content)
+            self.assertTrue(content['image'].startswith('data:image/png;base64,'))
+            self.assertEqual(base64.b64decode(content['image'].split(',')[1]), png)
+            self.assertEqual(content['filename'], 'chart.png')
+            for data in (b'<html>not an image</html>', png + b'x' * MAX_IMAGE_BYTES):
+                path.write_bytes(data)
+                self.assertIn('artifact_error', materialize_result(completion(path), directory))
+            svg = Path(directory) / 'chart.svg'
+            svg.write_text('<svg/>')
+            self.assertEqual(materialize_result(completion(svg), directory)['artifact_error'],
+                             'unsupported_document_type')
+
     def test_explicit_document_is_snapshotted_and_plain_paths_are_not_read(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'report with spaces.md'
@@ -64,6 +86,39 @@ class DocumentTests(unittest.TestCase):
 
 
 class DocumentPipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_realtime_names_output_before_worker_runs_and_title_survives_completion(self):
+        from unittest.mock import AsyncMock
+        from sparkie.realtime import RealtimeAgent
+        with tempfile.TemporaryDirectory() as directory:
+            store = WorkspaceStore(Path(directory) / 'board.db')
+            runtime = AgentRuntime(store, EventBus())
+            ws = store.create_workspace('fixture', 'named')
+            release = asyncio.Event()
+            class Worker:
+                async def run(self, *args):
+                    await release.wait()
+                    return '# Actual report heading\n\nActual contents'
+            center = TaskCenter(TranscriptLedger(Path(directory) / 'ledger'), Worker(),
+                                lambda kind, **fields: runtime.mirror_task(ws, fields))
+            agent = RealtimeAgent('fixture', None, center, lambda *a, **k: None)
+            agent.send = AsyncMock()
+            try:
+                await agent.handle({'type': 'response.function_call_arguments.done', 'response_id': 'fixture',
+                    'call_id': 'name', 'name': 'delegate_task', 'arguments': json.dumps({
+                        'request': 'Research lots of execution details not suitable for display',
+                        'artifact_title': 'Boston weather report'})})
+                job = next(iter(center.jobs.values()))
+                self.assertEqual(store.snapshot(ws)['tasks'][0]['artifact_title'], 'Boston weather report')
+                self.assertEqual(job['status'], 'queued')
+                release.set()
+                await center.runners[job['task_id']]
+                self.assertEqual(store.snapshot(ws)['artifacts'][0]['title'], 'Boston weather report')
+                self.assertEqual(center.status(job['task_id'])['artifact_title'], 'Boston weather report')
+                self.assertEqual(center.submit('test', artifact_title='x' * 81)['error'], 'invalid_artifact_title')
+            finally:
+                await center.close()
+                store.close()
+
     async def test_worker_file_reaches_board_without_changing_presentation_or_voice_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             store = WorkspaceStore(Path(directory) / 'board.db')

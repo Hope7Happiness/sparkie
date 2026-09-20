@@ -53,6 +53,9 @@ async def run(args):
                     workspace.utterance(fields['text'], fields.get('source') or 'human', 'human'))
         elif kind == 'background_task':
             asyncio.get_running_loop().create_task(workspace.task_update(fields))
+            # Media belongs on the workspace channel, never the voice/audio pipe.
+            if fields.get('artifact'):
+                event['artifact'] = {k: v for k, v in fields['artifact'].items() if k != 'content'}
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')

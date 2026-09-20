@@ -63,7 +63,7 @@ function renderJobs() {
     const card = document.createElement('article'); card.className = 'task';
     const status = document.createElement('small'); status.textContent =
       `${statuses[job.status] || job.status}${job.backend && job.model ? ` · ${job.backend} / ${job.model}` : ''}`;
-    const title = document.createElement('h3'); title.textContent = job.request;
+    const title = document.createElement('h3'); title.textContent = job.artifact_title || '任务成果';
     card.append(status, title);
     if (job.result) { const result = document.createElement('p'); result.textContent = job.result; card.append(result); }
     if (job.artifact_error) { const e = document.createElement('p'); e.textContent = '文档展示失败：' + job.artifact_error; card.append(e); }

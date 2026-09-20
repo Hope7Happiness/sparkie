@@ -27,6 +27,7 @@ from .agent_runtime import AgentRuntime, artifact_meta, utterance
 from .event_bus import EventBus
 from .task_center import CodexTaskWorker
 from .workspace import WorkspaceStore
+from .task_artifacts import MAX_ARTIFACT_MESSAGE_BYTES
 
 EVENTS_PATH = re.compile(r"^/workspaces/(ws_[0-9a-f]+)/events$")
 WORKSPACE_PATH = re.compile(r"^/api/workspaces/(ws_[0-9a-f]+)$")
@@ -141,7 +142,8 @@ class WorkspaceServer:
 
 async def serve_workspace(store, bus, runtime, host="127.0.0.1", port=8790):
     app = WorkspaceServer(store, bus, runtime)
-    server = await serve(app.handle, host, port, process_request=app.process_request)
+    server = await serve(app.handle, host, port, process_request=app.process_request,
+                         max_size=MAX_ARTIFACT_MESSAGE_BYTES)
     return server
 
 
@@ -167,8 +169,8 @@ async def workspace_session(args):
             if output.get('artifact_error'):
                 raise ValueError(output['artifact_error'])
             content = output.get('artifact', {}).get('content', {'markdown': output['result']})
-            title, summary = artifact_meta(content['markdown'])
-            return {"type": "report", "title": title,
+            title, summary = artifact_meta(content.get('markdown', output['result']))
+            return {"type": output.get('artifact', {}).get('type', 'report'), "title": title,
                     "summary": summary, "content": content}
     else:
         async def task_worker(instruction, transcript):

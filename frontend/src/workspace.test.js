@@ -67,7 +67,7 @@ function harness({ fetch = async () => { throw new Error('offline'); }, search =
   };
   const source = readFileSync(new URL('./workspace.js', import.meta.url), 'utf8')
     .replace(/^import '\.\/[\w-]+\.css';$/gm, '')
-    + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay,connectWorkspace,serverBases};';
+    + '\nglobalThis.downloads=[];saveBlob=(filename,text,mime)=>downloads.push({filename,text,mime});globalThis.api={downloads,downloadArtifact,loadSnapshot,state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay,connectWorkspace,serverBases};';
   document.getElementById('artifact-overlay').hidden = true;
   const context = vm.createContext({
     document, WebSocket: class { static OPEN = 1; constructor(url) { this.url = url; } close() {} }, fetch,
@@ -212,14 +212,15 @@ test('task.updated mirrors a live session task in place', () => {
   const { api, document } = harness();
   const card = () => document.querySelector('[data-task="job_9"]');
 
-  api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', status: 'queued' });
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', artifact_title: 'Research X', status: 'queued' });
   assert.equal(card().dataset.status, 'queued');
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X',
                    status: 'running', progress: 'fetching data' });
   assert.equal(card().querySelector('small').textContent, 'Running… · fetching data');
   api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X', status: 'completed' });
   assert.equal(card().dataset.status, 'completed');
-  assert.equal(card().querySelector('h3').textContent, 'dig into X');
+  assert.equal(card().querySelector('h3').textContent, 'Research X');
+  assert.ok(!card().textContent.includes('dig into X'));
   assert.equal(document.getElementById('task-count').textContent, '1');
 });
 
@@ -273,7 +274,8 @@ test('fullscreen overlay shows the artifact and offers a way back', () => {
                     content: { markdown: '## 概览\n\n- 要点一' } });
   assert.equal(overlay.hidden, false);
   const card = document.getElementById('overlay-card');
-  assert.equal(card.querySelector('h2').textContent, '季度报告');
+  assert.equal(card.querySelector('h2').textContent, '概览');
+  assert.equal(card.querySelector('.stage-summary'), null);
   assert.ok(card.textContent.includes('要点一'), 'markdown rendered inside the overlay');
 
   api.closeOverlay();
@@ -342,11 +344,14 @@ test('generation animation tracks real task lifecycle and preserves current pres
   const { api, document } = harness({ search: '?embedded=1' });
   api.renderStage({ artifact_id: 'art_existing', title: 'Keep reading', content: { markdown: 'Current document' } });
   const progress = document.getElementById('artifact-generating');
-  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'queued', instruction: 'Weather report' });
+  api.onEvent({ type: 'task.updated', task_id: 'first', status: 'queued',
+                instruction: 'Private execution prompt with detailed instructions', artifact_title: 'Weather report' });
   assert.equal(progress.hidden, false);
-  assert.ok(progress.textContent.includes('等待生成文档'));
+  assert.ok(progress.textContent.includes('等待生成'));
+  assert.ok(progress.textContent.includes('Weather report'));
+  assert.ok(!progress.textContent.includes('Private execution prompt'));
   api.onEvent({ type: 'task.updated', task_id: 'first', status: 'running', instruction: 'Weather report' });
-  assert.ok(progress.textContent.includes('正在生成文档'));
+  assert.ok(progress.textContent.includes('正在生成'));
   assert.ok(progress.querySelector('.document-loader'));
   assert.ok(progress.querySelector('.generation-lines'));
   assert.ok(stage(document).textContent.includes('Current document'));
@@ -362,4 +367,34 @@ test('generation animation tracks real task lifecycle and preserves current pres
   api.onEvent({ type: 'task.updated', task_id: 'fourth', status: 'running' });
   api.clearWorkspaceUI();
   assert.equal(progress.hidden, true);
+});
+
+
+test('Markdown preview, fullscreen and download contain the document without metadata wrappers', () => {
+  const { api, document } = harness();
+  const markdown = '# Boston weather report\n\nActual report body.';
+  const artifact = { artifact_id: 'report', title: 'Boston weather report', summary: 'Completion wrapper',
+                     content: { markdown } };
+  api.renderStage(artifact);
+  assert.equal(stage(document).querySelectorAll('h1').length, 1);
+  assert.equal(stage(document).querySelector('h3'), null);
+  assert.equal(stage(document).querySelector('.stage-summary'), null);
+  assert.ok(!stage(document).textContent.includes('Completion wrapper'));
+  api.openOverlay(artifact);
+  assert.equal(document.getElementById('overlay-card').querySelectorAll('h1').length, 1);
+  assert.ok(!document.getElementById('overlay-card').textContent.includes('Completion wrapper'));
+  api.downloadArtifact(artifact);
+  assert.equal(api.downloads[0].text, markdown);
+});
+
+test('refresh keeps the short output name and never exposes a legacy execution prompt while waiting', () => {
+  const { api, document } = harness({ search: '?embedded=1' });
+  api.loadSnapshot({ workspace: { generation: 1 }, tasks: [
+    { task_id: 'named', status: 'running', artifact_title: 'Boston chart', instruction: 'Verbose execution prompt' },
+    { task_id: 'old', status: 'queued', instruction: 'Legacy execution prompt' },
+  ] });
+  const progress = document.getElementById('artifact-generating');
+  assert.ok(progress.textContent.includes('Boston chart'));
+  assert.ok(progress.textContent.includes('任务成果'));
+  assert.ok(!progress.textContent.includes('execution prompt'));
 });

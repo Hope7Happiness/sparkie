@@ -274,7 +274,17 @@ function saveBlob(filename, text, mime) {
 }
 
 function downloadArtifact(artifact) {
-  const markdown = `# ${artifact.title || 'artifact'}\n\n${artifact.summary || ''}\n\n${markdownBody(artifact)}\n`;
+  const content = artifactContent(artifact);
+  if (contentShape(content) === 'image') {
+    const url = safeUrl(content.image, 'image/');
+    if (!url) return;
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = content.filename || artifact.artifact_id;
+    anchor.click();
+    return;
+  }
+  const markdown = markdownBody(artifact);
   saveBlob(`${artifact.artifact_id}.md`, markdown, 'text/markdown');
 }
 
@@ -459,7 +469,10 @@ function renderStage(artifact) {
   summary.className = 'stage-summary';
   summary.textContent = artifact.summary || '';
 
-  card.append(title, head, summary);
+  // Markdown is already a complete document; metadata belongs in the catalog.
+  const documentContent = ['markdown', 'markdown_url'].includes(contentShape(artifactContent(artifact)));
+  if (documentContent) card.append(head);
+  else card.append(title, head, summary);
 
   const body = document.createElement('div');
   body.className = 'stage-content';
@@ -472,7 +485,8 @@ function renderStage(artifact) {
   full.type = 'button'; full.className = 'secondary'; full.textContent = 'Present';
   full.onclick = () => openOverlay(artifact);
   const download = document.createElement('button');
-  download.type = 'button'; download.className = 'secondary'; download.textContent = 'Download .md';
+  download.type = 'button'; download.className = 'secondary';
+  download.textContent = shape === 'image' ? 'Download image' : 'Download .md';
   download.onclick = () => downloadArtifact(artifact);
   actions.append(full, download);
   if (shape && shape !== 'markdown') {
@@ -505,7 +519,8 @@ function renderOverlay(artifact) {
   const body = document.createElement('div');
   body.className = 'overlay-content';
   renderContent(artifact, body);
-  card.append(title, summary, body);
+  if (['markdown', 'markdown_url'].includes(contentShape(artifactContent(artifact)))) card.append(body);
+  else card.append(title, summary, body);
 }
 
 function openOverlay(artifact) {
@@ -634,10 +649,10 @@ function renderGeneration() {
     const body = document.createElement('div');
     const label = document.createElement('strong');
     label.textContent = task.status === 'running'
-      ? (embedded ? '正在生成文档' : 'Generating document')
-      : (embedded ? '等待生成文档' : 'Document queued');
+      ? (embedded ? '正在生成' : 'Generating')
+      : (embedded ? '等待生成' : 'Queued');
     const title = document.createElement('p');
-    title.textContent = task.instruction || (embedded ? '正在准备任务成果…' : 'Preparing task output…');
+    title.textContent = task.artifact_title || (embedded ? '任务成果' : 'Task output');
     const lines = document.createElement('div');
     lines.className = 'generation-lines';
     lines.setAttribute('aria-hidden', 'true');
@@ -674,7 +689,7 @@ function upsertTask(event) {
   }
   card.dataset.status = status;
   card.className = `task status-${status}`;
-  card.querySelector('h3').textContent = task.instruction || task.title || id;
+  card.querySelector('h3').textContent = task.artifact_title || task.title || (embedded ? '任务成果' : 'Task output');
   const reason = task.error_type || task.error;
   card.querySelector('small').textContent =
     status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || 'unknown error'}`
@@ -702,6 +717,7 @@ function loadSnapshot(snapshot) {
   for (const task of snapshot.tasks || []) {
     upsertTask({
       task_id: task.task_id, instruction: task.instruction,
+      artifact_title: task.artifact_title,
       status: task.status, error_type: task.error,
     });
   }

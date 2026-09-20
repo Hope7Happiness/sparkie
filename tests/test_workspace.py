@@ -101,11 +101,14 @@ class WorkspaceStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = directory + '/workspace.db'
             legacy = sqlite3.connect(path)
-            legacy.executescript(SCHEMA.replace('  generation INTEGER NOT NULL DEFAULT 0,\n', ''))
+            legacy.executescript(SCHEMA.replace('  generation INTEGER NOT NULL DEFAULT 0,\n', '')
+                                      .replace('  artifact_title TEXT,\n', ''))
             legacy.close()
             store = WorkspaceStore(path)
             ws = store.resolve_or_create('zoom_uuid', 'existing')
             self.assertEqual(store.generation(ws), 0)
+            store.upsert_task(ws, 'named', 'long execution prompt', 'running', artifact_title='Weather chart')
+            self.assertEqual(store.snapshot(ws)['tasks'][0]['artifact_title'], 'Weather chart')
             store.reset(ws)
             store.close()
             store = WorkspaceStore(path)
@@ -374,6 +377,29 @@ class WorkspaceServerTests(unittest.IsolatedAsyncioTestCase):
             event = json.loads(await asyncio.wait_for(socket.recv(), 10))
             assert event["type"] == "task.updated" and event["task_id"] == "job_9"
         assert self.store.snapshot(ws)["tasks"][0]["status"] == "running"
+
+    async def test_named_image_larger_than_one_megabyte_traverses_workspace_socket(self):
+        from sparkie.workspace_client import WorkspaceClient
+        client = WorkspaceClient(f'127.0.0.1:{self.port}')
+        self.assertTrue(await client.open('fixture', 'large-image'))
+        content = {'image': 'data:image/png;base64,' + 'A' * (1100 * 1024), 'filename': 'chart.png'}
+        try:
+            await client.task_update({'task_id': 'chart', 'request': 'Detailed execution instructions',
+                'artifact_title': 'Weather chart', 'status': 'completed', 'result': 'Chart created.',
+                'artifact': {'type': 'image', 'content': content}})
+            async with asyncio.timeout(5):
+                while not self.store.latest_artifact(client.workspace_id):
+                    await asyncio.sleep(.01)
+            artifact = await self.get('/api/artifacts/' + self.store.latest_artifact(client.workspace_id))
+            self.assertEqual(artifact['content'], content)
+            self.assertEqual(artifact['type'], 'image')
+            self.assertEqual(artifact['title'], 'Weather chart')
+            snapshot = await self.get('/api/workspaces/' + client.workspace_id)
+            self.assertEqual(snapshot['tasks'][0]['artifact_title'], 'Weather chart')
+            self.assertIsNone(snapshot['state']['active_artifact_id'])
+            self.assertTrue((await client.artifact_control('present', artifact['artifact_id']))['ok'])
+        finally:
+            await client.close()
 
     async def test_resolve_reset_clears_and_notifies_subscribers(self):
         workspace = await self.get("/api/meetings/resolve?kind=zoom_uuid&external_id=mtg4")

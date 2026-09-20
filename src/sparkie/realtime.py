@@ -45,8 +45,11 @@ TOOLS = [
                     'Include the user objective and only details you clearly heard. Have the worker consult the user transcript '
                     'for other details; never add guessed alternatives or speculative ambiguity. Returns immediately. '
                     'The worker can browse, use shell commands, read/write files, execute code and use its configured integrations.',
-     'parameters': {'type': 'object', 'properties': {'request': {'type': 'string'}},
-                    'required': ['request'], 'additionalProperties': False}},
+     'parameters': {'type': 'object', 'properties': {
+         'request': {'type': 'string'},
+         'artifact_title': {'type': 'string', 'minLength': 1, 'maxLength': 80,
+                            'description': 'A short name for the expected output, in the user language, e.g. Boston weather report or Boston temperature chart. Shown immediately while waiting; never copy the task prompt.'}},
+                    'required': ['request', 'artifact_title'], 'additionalProperties': False}},
     *[{'type': 'function', 'name': name, 'description': description,
        'parameters': {'type': 'object', 'properties': {'task_id': {'type': 'string'}},
                       'required': ['task_id'], 'additionalProperties': False}}
@@ -66,6 +69,11 @@ def session_config(model):
             'Speak naturally in the user\'s language. '
             'Keep ordinary replies to one or two short sentences. '
             'When delegating a task, acknowledge it in one short sentence. '
+            'Before calling delegate_task, name the expected artifact in artifact_title using a brief, specific '
+            'noun phrase in the user language (roughly 3–8 words, at most 80 characters). '
+            'This name appears immediately on its waiting card and remains its catalog title. '
+            'Put execution details only in request, never in the title. For example: Boston weather report; '
+            'Boston temperature and rainfall chart. Choose the name yourself without asking the user. '
             'When a task finishes, state the main result first, in at most three short sentences. '
             'Leave supporting details in the task panel. Only elaborate when the user asks. '
             'You control artifact presentation. The background agent produces documents; you decide when and which '
@@ -782,7 +790,8 @@ class RealtimeAgent:
                     self.emit('artifact_control', action=action, ok=result.get('ok', False),
                               artifact_id=result.get('active_artifact_id'), error=result.get('error'))
                 elif name == 'delegate_task':
-                    result = self.tasks.submit(arguments.get('request'))
+                    result = (self.tasks.submit(arguments.get('request'), artifact_title=arguments['artifact_title'])
+                              if 'artifact_title' in arguments else self.tasks.submit(arguments.get('request')))
                 elif name == 'task_status':
                     result = self.tasks.status(arguments.get('task_id'))
                 elif name == 'update_task':
