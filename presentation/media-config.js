@@ -1,8 +1,7 @@
-/* Optional, local media. Keep empty to show clearly labelled placeholders.
-   Paths are relative to index.html, e.g. assets/zoom-demo.mp4.
-   The presentation never uploads a selected file or joins a meeting. */
+/* A YouTube URL or a local recording path. YouTube loads only after Play.
+   Local paths are relative to index.html. Selected files are never uploaded. */
 window.SPARKIE_MEDIA = {
-  demoVideo: '',
+  demoVideo: 'https://youtu.be/kwr1edvQ10M',
   meetingImage: '',
   artifactImage: ''
 };

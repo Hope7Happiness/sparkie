@@ -41,21 +41,17 @@
     if (!reduced.matches) $('.possibility-copy').animate([{opacity:.2,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:450,easing:'ease-out'});
   }));
   const video = $('#home-video'); let objectURL;
-  const loadVideo = (src) => { $('#home-media-error').hidden = true; $('#home-demo-placeholder').hidden = true; video.hidden = false; video.src = src; video.load(); };
+  const demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#home-demo-placeholder'), error:$('#home-media-error')});
+  const loadVideo = (src) => demoPlayer.load(src);
   $('#home-choose-video').onclick = () => $('#home-video-input').click();
   $('#home-video-input').onchange = (event) => {
     const file = event.target.files[0]; if (!file) return;
     if (objectURL) URL.revokeObjectURL(objectURL);
     objectURL = URL.createObjectURL(file); loadVideo(objectURL); event.target.value = '';
   };
-  video.addEventListener('error', () => {
-    video.hidden = true; $('#home-demo-placeholder').hidden = false;
-    $('#home-media-error').textContent = 'Could not play this recording. Try an H.264 MP4 file.'; $('#home-media-error').hidden = false;
-  });
   if (window.SPARKIE_MEDIA.demoVideo) loadVideo(window.SPARKIE_MEDIA.demoVideo);
   if ('IntersectionObserver' in window) new IntersectionObserver((entries) => {
-    if (!entries[0].isIntersecting) video.pause();
-  }, {threshold:.1}).observe(video);
-  addEventListener('pagehide', () => video.pause());
+    if (!entries[0].isIntersecting) demoPlayer.pause();
+  }, {threshold:.1}).observe($('.home-demo'));
   addEventListener('beforeunload', () => { if (objectURL) URL.revokeObjectURL(objectURL); });
 })();

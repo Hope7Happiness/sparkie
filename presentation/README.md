@@ -11,7 +11,7 @@ The revised slides use sourced scene photographs, official product icons and web
 
 ## Open locally
 
-No install, build, API keys or network connection are required.
+No install, build or API keys are required for the slides. The deck runs offline; the embedded YouTube demo requires a network connection.
 
 On macOS, from the repository root:
 
@@ -26,7 +26,7 @@ Or serve the folder:
 python3 -m http.server 8088 --directory presentation
 ```
 
-Open http://localhost:8088/ for the slides or http://localhost:8088/home.html for the homepage. The directory can also be hosted as static files; nothing has been published by this change. To use the homepage as a site's landing page, configure the static host to serve home.html at its root.
+Open http://localhost:8088/ for the slides or http://localhost:8088/home.html for the homepage. The interactive deck is published at https://bowenyu066.github.io/sparky/; the project website is https://hope7happiness.github.io/sparky. The directory can also be hosted as static files. To use the homepage as a site's landing page, configure the static host to serve home.html at its root.
 
 ## Present
 
@@ -52,7 +52,7 @@ The interactive scenarios and waveforms are **illustrations**; clicking them doe
 
 ## Replace the real-media placeholders
 
-The default recording and artifact images are clearly labelled placeholders. Do not present them as evidence of a successful Zoom interaction.
+The demo is configured to https://youtu.be/kwr1edvQ10M. Click Play to load the YouTube player, or use Open on YouTube. Both slides and the local homepage accept a YouTube URL or a local video path. Meeting and artifact stills remain labelled placeholders until replaced.
 
 1. Put a real session recording and a real artifact screenshot in assets/. Use shareable, reviewed media rather than an unreviewed session dump.
 2. Edit media-config.js. Example:
@@ -67,7 +67,7 @@ window.SPARKIE_MEDIA = {
 
 3. Reload. Both pages use the configured video. The slides also use the meeting still and artifact screenshot.
 
-Alternatively, choose a local recording in the demo slot. This creates a temporary browser object URL. Nothing is uploaded, the choice is not stored, and reloading restores the configuration. Use a browser-compatible recording such as H.264 MP4. Leaving the demo slide pauses playback; the homepage pauses it when it leaves the viewport.
+Alternatively, choose a local recording in the demo slot. This creates a temporary browser object URL. Nothing is uploaded, the choice is not stored, and reloading restores the configuration. Use a browser-compatible recording such as H.264 MP4. Leaving the demo slide pauses local video and unloads the YouTube player so its audio cannot continue. The homepage does the same when its video leaves the viewport. Returning to a YouTube demo shows its Play cover and starts a new playback when clicked.
 
 Aim for a 60-second excerpt showing: **delegation → real Tasks activity during role discussion → presented outline → confirmed roles → update activity → latest artifact**. Keep the actual agent voice and readable result. Label shortened waits; the excerpt budget is not an execution-time promise. Verify the artifact is from the intended task and that other Zoom participants can see the selected share. If voice presentation fails, Present or manual sharing is a fallback, not proof that voice presentation worked. The [continuous three-person rehearsal script](demo-script.html) describes the longer session and is a self-contained HTML file. Creation and follow-up tasks must return the full Markdown body as well as save the file.
 
@@ -81,10 +81,14 @@ Aim for a 60-second excerpt showing: **delegation → real Tasks activity during
 - home.html, home.css and home.js: homepage layout, scroll choreography and interactions.
 - assets/: official product assets, sourced Pexels photographs, original placeholders and the repository's Sparkie icon. See assets/CREDITS.md for provenance. No image-generation API was called.
 
-The notes in story-data.js power the current speaker view. Keep speaker-notes.md aligned when changing the talk. Font stacks are local Arial/Helvetica, Georgia and system monospace. There are no CDNs, analytics, external fonts or animation dependencies. External links load only when deliberately opened.
+The notes in story-data.js power the current speaker view. Keep speaker-notes.md aligned when changing the talk. Font stacks are local Arial/Helvetica, Georgia and system monospace. There are no CDNs, analytics, external fonts or animation dependencies. YouTube loads only after clicking Play; no external player scripts or thumbnails load before that. The direct YouTube link remains available if embedding is blocked.
 
 ## Verification and limits
 
 Validated in installed Chrome through Playwright, over HTTP and offline file URLs. Checks cover all ten slides and all 28 item states forward/backward, bounds and rapid navigation, deep links and browser history, dialogs, direct scene controls, product-image loading, speaker-window item synchronization and reduced motion. Local video loading, playback and error recovery are also checked. Homepage checks cover scenario controls, all three scroll states and disclosure content. All item layouts were checked at 1920×1080, 1440×900, 1280×720 and 390×844. Diagram node spacing was also checked at 768×1024; homepage mobile overflow was checked at 390×900.
 
 View Transitions require browser support; other browsers fall back to ordinary slide transitions. Reduced-motion preferences disable the animated choreography. Mobile slides can scroll vertically when needed. Chrome is the tested browser; Safari and Firefox have not been separately verified. The presentation does not establish new backend or real-Zoom behavior, and no core runtime files are changed.
+
+## Publishing the interactive deck
+
+The personal-site repository serves a static copy of this directory from public/sparky/. Its Astro build copies those files to /sparky/ without changing the deck or its relative assets. The directory index is the interactive presentation; home.html remains a separate optional page. Sync the presentation files into that directory before deploying changes to the personal site.
