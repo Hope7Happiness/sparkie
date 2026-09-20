@@ -1,111 +1,110 @@
 # Sparkie — English speaker outline
 
-Target: **6:05**, including a 75-second real-demo window. Ten slides. Designed for a mixed technical and nontechnical audience.
+Target: **6:10**. Ten slides, **28 presentation items**, including a 60-second real-demo window. English delivery for a mixed technical and nontechnical audience.
+
+## Delivery controls
+
+Press Right or Space to reveal the next item; only after the final item does it advance to the next slide. Left reverses that sequence. Page Down / Page Up skip whole slides. The on-screen arrows, touch swipes and speaker-view arrows follow the same item sequence. P opens a separate speaker view synchronized to the current slide and item.
+
+Do not read all visible dialogue verbatim. Give the scene its premise, let the next line appear, then land the request. The photos are editorial scene illustrations; product captures are official websites. Illustrative dialogue and artifact structures are not real-session evidence.
 
 ## Run of show
 
-| Slide | Moment | Time | Cumulative |
-| --- | --- | --- | --- |
-| 1 | Meet your fourth teammate. | 20s | 0:20 |
-| 2 | Can someone take this forward? | 25s | 0:45 |
-| 3 | AI already has a seat at work. | 35s | 1:20 |
-| 4 | Say it. Stay in the room. | 35s | 1:55 |
-| 5 | Watch the work happen. | 75s | 3:10 |
-| 6 | Two rhythms. One teammate. | 30s | 3:40 |
-| 7 | A pause is part of the conversation. | 40s | 4:20 |
-| 8 | A voice up front. An agent at work. | 45s | 5:05 |
-| 9 | Where would you invite Sparkie? | 40s | 5:45 |
-| 10 | Leave with work in hand. | 20s | 6:05 |
+| Slide | Moment | Items | Time | Cumulative |
+| --- | --- | --- | --- | --- |
+| 1 | Meet your fourth teammate. | 1 | 20s | 0:20 |
+| 2 | Can someone take this forward? | 1 | 20s | 0:40 |
+| 3 | The gap is in the handoff. | 4 | 60s | 1:40 |
+| 4 | Imagine the room. | 6 | 45s | 2:25 |
+| 5 | Watch the work happen. | 1 | 60s | 3:25 |
+| 6 | Two rhythms. One teammate. | 4 | 35s | 4:00 |
+| 7 | Read the room. | 3 | 25s | 4:25 |
+| 8 | Inside the loop. | 4 | 45s | 5:10 |
+| 9 | From request to review. | 3 | 45s | 5:55 |
+| 10 | Leave with work in hand. | 1 | 15s | 6:10 |
 
-## Before you take the floor
+## Demo preparation
 
-Open index.html and press P for a separate speaker window. Put the audience window on the shared display. Press F for fullscreen. T starts or pauses a local rehearsal timer; slides never advance automatically. The speaker timer is independent of the audience timer.
-
-The visuals explain one simple idea: a teammate in the meeting can take a piece of the work into the project. The small technical explanations belong in this outline, not on the projected slide. Let the transitions finish; they carry the circles and artifact between scenes.
-
-Choose two or three of the six scenarios that matter to this audience. Ask someone to pick a room if there is time. Interaction is illustrative, not a live inference call.
-
-**Demo preparation:** insert a real Zoom recording and an actual artifact screenshot using media-config.js. The recording should show discussion → explicit request → actual file → follow-up edit. Cut to 60–75 seconds; label shortened waits. A human opens/shares the file. If media is still missing, introduce slide 5 as a planned demo and walk through the sequence without claiming that a placeholder proves it.
+Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. Show discussion → explicit delegation → the saved file → follow-up edit. A human opens and shares the file. Label shortened waits. Until media is supplied, identify the slot as a planned demo; do not present the placeholder as evidence.
 
 ## 01 — Meet your fourth teammate. (20s)
 
-Imagine a teammate who joins your Zoom call, understands what the team is discussing, and can actually take on a piece of the work. That is Sparkie. You speak to it in the meeting. It responds by voice, works in the project, and comes back with a result.
+Picture a teammate who joins the Zoom call and understands the discussion already in progress. Sparkie can answer aloud, take on a task in your project, and return with a result. Our question is simple: can the work start before everyone leaves the meeting?
 
-**On stage:** Start with the room, not the model names. Make eye contact. The opening art is an illustration, not a live meeting.
+**On stage:** Open on the photograph. It illustrates collaboration, not a real Sparkie session.
 
-## 02 — Can someone take this forward? (25s)
+## 02 — Can someone take this forward? (20s)
 
-We have all had this moment. The conversation was useful. We chose a direction. Then someone has to reconstruct the context, do the research, and make the actual file. The handoff takes us out of the shared conversation. We are exploring what happens when the work can begin while everyone is still in the room.
+The team has chosen a direction. Someone now has to reconstruct the discussion, compare the options, and make the actual file. That handoff is the moment we are trying to shorten: the intention is already shared, so why lose the context before the work begins?
 
-**On stage:** Give the question a short pause. Do not attach an invented time-saving statistic to the handoff.
+**On stage:** Pause on the question; keep this short.
 
-## 03 — AI already has a seat at work. (35s)
+## 03 — The gap is in the handoff. (60s)
 
-There is already a rich landscape here. Granola, Otter, and Fireflies turn meetings into useful knowledge and follow-up workflows. Vapi, Retell, and ElevenLabs connect voice conversations to business processes. Zoom also offers agentic work execution. These categories overlap. Our focus is a particular experience: a participant in a shared meeting who can work directly in your project, and take another instruction as the discussion evolves.
+Granola is strong at meeting memory without a bot. That design does not give the notepad a speaking seat. Vapi connects voice to tools, but a builder still needs the meeting transport and shared-context application. ZoomMate is the closest comparison: it already combines context and execution, through Zoom’s product surfaces and connectors. Sparkie explores a different workbench: the project itself, reached through spoken delegation and refined in the room. The cost is real too: this is a macOS Zoom prototype with setup, broad tool access, and human review. These are design tradeoffs, not a claim that other products cannot act.
 
-**On stage:** Click Converse and Execute once. These are product focuses, not a claim that competitors cannot act. The source drawer contains official product references.
+**On stage:** Four beats: Granola → Vapi → ZoomMate → Sparkie. Official product links and images are on the slide. Explain each strength before its tradeoff. Zoom comparison is a product-surface distinction, not an assertion that Zoom lacks agent execution.
 
-## 04 — Say it. Stay in the room. (35s)
+## 04 — Imagine the room. (45s)
 
-Think of Sparkie as a workbench you can reach by speaking. Ask it to compare the approaches the team just discussed. Ask it to make the first draft. Then ask it to revise that draft using a new decision. The important part is shared context: you are not opening a separate chat and explaining the whole meeting again. Each new instruction is explicit, and the output is something the team can inspect.
+Here is a product review. One person favors guided onboarding, another a simpler checklist. Now the instruction to Sparkie has meaning: compare those options using the discussion as context. Change the room to a customer call. The customer moves reporting ahead of the dashboard. The follow-up should reflect that shift, without inventing a deadline. These are illustrative conversations. The point is that a useful request grows out of the shared discussion, rather than starting as a blank chat prompt.
 
-**On stage:** Click Explore, Create, then Refine. These requests are illustrative. Introduce the next slide as the real evidence.
+**On stage:** Six beats: three dialogue turns in each of two scenes. Read only the key line from each beat. Names identify roles, not real people. Use the next slide for real-session evidence.
 
-## 05 — Watch the work happen. (75s)
+## 05 — Watch the work happen. (60s)
 
-Here is the real loop. Our team is meeting to plan a demo video. Sparkie has heard the discussion. We ask it to write an outline, and continue talking about who will record and edit. Then we open the generated file. Finally, we ask Sparkie to add the roles we have just agreed on. The output changes as the conversation moves forward.
+In the real demo, the team is planning the film you are watching. Sparkie receives the request to create the outline while the discussion continues. We open the real file, then ask it to incorporate the agreed recording roles. Listen for the acknowledgement, but look at the file for evidence of completion.
 
-**On stage:** Use a 60–75 second excerpt from the real Zoom session. Show: discussion → explicit request → actual file → follow-up edit. Stop narrating while Sparkie speaks. If a wait is shortened, label that edit. Until real media is inserted, say clearly that this is the planned demo slot; the placeholder is not evidence. Do not claim automatic screen sharing: a human opens and shares the file.
+**On stage:** Use a real 60-second clip. Placeholder imagery is not evidence. Label shortened waits. A human opens and shares the file. If no recording is supplied, describe the planned demo slot honestly.
 
-## 06 — Two rhythms. One teammate. (30s)
+## 06 — Two rhythms. One teammate. (35s)
 
-Two things are happening at once. The foreground handles the conversation. A separate background worker does the task with the transcript context available when it was delegated. That is why a longer piece of work does not have to freeze the meeting. When the result is ready, Sparkie can report it in a quiet moment. If the team makes a later decision, an explicit update or follow-up carries it into the work.
+An acknowledgement belongs to the voice loop. Execution belongs to a separate worker. The worker starts with the finalized transcript available at delegation and works in the project while the room continues talking. If a person interrupts, the voice yields; this does not automatically cancel the task. A completed result returns through the task layer and can be reported at a quiet moment.
 
-**On stage:** Trace the upper lane, then the lower lane, then the return. The animation is a conceptual sequence, not a latency measurement.
+**On stage:** Four beats: delegate, work while talking, human interruption, result. The illuminated routes are a conceptual sequence, not measured timing. Task cancellation is an explicit operation.
 
-## 07 — A pause is part of the conversation. (40s)
+## 07 — Read the room. (25s)
 
-The hard part is not just producing a voice. It is deciding when to use it. We separate three questions. Has someone started speaking? Have they finished their thought? And were they speaking to Sparkie? Deepgram gives us words and quick speech activity. Realtime semantic VAD estimates when the turn is complete. Gemini checks whether the full request addresses Sparkie. This lets a natural pause stay inside a request, while real human speech can interrupt the reply.
+The same assistant needs judgment about participation. Mentioning Sparkie in discussion is not always an invitation. A pause inside a request should not throw away the rest of the thought. And when a person corrects the request, the voice should yield. We handle these as different signals in the same conversation, rather than one mute switch.
 
-**On stage:** Click Wait for the thought, Know when to join, and Give the floor back. If asked: semantic VAD is set to medium. A noise candidate pauses playback for up to 350ms; without text confirmation it resumes buffered audio. Confirmed speech cancels the current reply. These are probabilistic behaviors, not perfect acoustic echo cancellation.
+**On stage:** Three beats: indirect mention, complete request with a pause, explicit correction. This is a scripted illustration, not a model benchmark. If asked: medium semantic VAD; a 350ms unconfirmed interruption candidate can resume buffered audio. Confirmed speech cancels the reply.
 
-## 08 — A voice up front. An agent at work. (45s)
+## 08 — Inside the loop. (45s)
 
-For the technical view, start on the left. The Zoom Meeting SDK gives us separate participant audio tracks. We exclude the bot’s own SDK track. Deepgram transcripts and Realtime semantic endpoints are aligned before the full turn reaches the Gemini wake router. GPT Realtime then handles the voice conversation. It can delegate to a separate Devin worker, currently SWE 1.6 Fast, with file, shell, network, and configured tool access. Results return through the task layer to the voice. The shared contracts let us change providers without rebuilding the meeting transport.
+Separate human tracks enter from Zoom. Two parallel adapters supply the words and semantic turn completion. After those agree on a complete turn, Gemini checks whether it addresses Sparkie. Realtime handles the voice. Fast speech confirmation also has a priority path to stop playback. When a task is delegated, a transcript snapshot reaches the Devin worker with project tools. Its result returns through the task center to the voice. The bot’s own SDK track is excluded, although physical speaker echo can still reenter a human microphone.
 
-**On stage:** Use the large verbs for nontechnical listeners; use provider names only once. Clarify if asked: the foreground receives assembled text in this mode, while separate per-participant Realtime sessions hear audio for semantic completion. Codex is an alternate worker. Acknowledgement is not proof of a completed action.
+**On stage:** Four builds: input split, complete-turn routing, voice and interruption path, asynchronous worker return. Current worker is SWE 1.6 Fast; Codex is selectable. The foreground consumes assembled text in this mode; separate Realtime sessions perform semantic audio completion.
 
-## 09 — Where would you invite Sparkie? (40s)
+## 09 — From request to review. (45s)
 
-Now change the room. In an engineering discussion, imagine asking it to inspect the repository and prepare a patch for review. In a research discussion, ask it to compare the evidence behind two claims. In a customer call, turn the priorities you just heard into a tailored follow-up draft. The same pattern extends to a product brief, an interview debrief, or a launch checklist. These are scenarios to explore with the tool-backed agent, not claims that every integration or workflow has already been validated.
+Here is what a useful handoff looks like at the artifact level. The documented Zoom demo creates an outline, then updates it with roles; the file must be opened and checked. For a concrete engineering walkthrough, an unused audio queue provides a failure to reproduce, a boundary to fix, and a regression to verify. For a customer follow-up, the useful output preserves priorities and explicitly leaves an unagreed date open. The latter two are worked scenarios. We are showing what to ask for and how to judge the result, not claiming every workflow has been run successfully in a meeting.
 
-**On stage:** Pick two or three rooms that fit this audience. Let someone choose a room if time allows. Each result is introduced with Imagine. These scenarios illustrate possibilities, not additional tested integrations. External systems require the relevant tools and access; do not promise autonomous sending, hiring decisions, deployments, or screen understanding.
+**On stage:** Three beats: demo film, bug triage, customer follow-up. Artifact panels are labelled illustrative or expected. Real-session evidence belongs in the recording slot. Keep the acceptance check visible.
 
-## 10 — Leave with work in hand. (20s)
+## 10 — Leave with work in hand. (15s)
 
-Sparkie is a working prototype of a teammate inside the meeting: it listens, responds when addressed, takes on work, and returns a result the team can refine. We want a good conversation to become useful progress before the call ends. Which meeting would you invite it to?
+Sparkie brings the conversation and the work into the same room. Address it, delegate a concrete task, and refine the result together. That is the experience we want to build: useful progress before the call ends.
 
-**On stage:** Finish on the question. Invite discussion or return to the scenario slide. The tested demo path is macOS Zoom with English speech; do not imply every platform or long-session reliability is proven.
+**On stage:** End here. The visible links lead to the project homepage and repository, not backwards to another slide.
 
-## Adjusting the length
+## Timing variants
 
-- **About 5 minutes:** make the landscape 25 seconds, the focus 25, the demo 60, the two rhythms 20, the conversation layer 30, the architecture 35, and the scenarios 30. Keep the opening, handoff and close. Total: 4:50, leaving a little room for transitions.
-- **About 7 minutes:** keep the base pacing and add 25 seconds for an audience-selected scenario plus 25 seconds to discuss a second demo artifact. Total: 6:55.
+For a shorter talk, keep all build steps but summarize the product comparison in 40 seconds, inspiration in 30, the system diagram in 30 and the playbooks in 30. This reduces the base to 5:05. For a seven-minute talk, add 20 seconds to the real demo and 25 seconds to discuss one practical case, reaching 6:55.
 
-## If someone asks
+## Questions to be ready for
 
-**How is this different from meeting notes?** Meeting and workplace products already offer follow-ups and actions. Our focus is a particular interaction: a participant in a shared meeting, directly connected to project work, taking explicit follow-up instructions as the team discusses the result.
+**Is this unique?** No claim of exclusivity. Zoom and other products already execute work. Our specific focus is spoken collaboration with an agent directly in the project, from within a shared meeting.
 
-**Does it hear its own voice?** Its own SDK track is excluded. Speaker playback can still enter someone else’s microphone. This is not perfect acoustic echo cancellation.
+**How does it know a request is complete?** Deepgram words and separate per-participant Realtime semantic completion are aligned before Gemini wake routing. Current semantic VAD eagerness is medium.
 
-**How does it know I finished?** Deepgram supplies words and speech activity; separate Realtime semantic detectors estimate complete turns, currently at medium eagerness. Full turns are aligned before Gemini wake routing.
+**What happens to the background job when I interrupt?** Voice interruption does not itself cancel the delegated task. Task cancellation is explicit. Unconfirmed noise candidates can resume buffered audio after the 350ms candidate window; confirmed speech cancels the current reply.
 
-**Does a task automatically learn later decisions?** It starts with the finalized transcript snapshot at delegation. Give an explicit update or follow-up for a later decision.
+**Does it automatically absorb later decisions?** The worker starts with the finalized transcript snapshot at delegation. Give an explicit update or follow-up to incorporate later decisions.
 
-**Can it send, deploy, or change external systems?** The worker can use delegated tools with configured access. This presentation demonstrates project work, and does not claim that sending, deployments, or native integrations have been validated.
+**Does excluding the bot track solve echo?** It avoids feeding the bot’s own SDK track back in. Physical loudspeaker audio can still enter a human microphone.
 
-**What is proven?** The documented macOS Zoom loop includes real audio, transcripts, voice replies and delegated project work. The demo slot must show the actual recorded result. The six other rooms are scenarios to explore.
+**Which examples were actually run?** The README documents the Zoom demo outline and follow-up workflow. The engineering and customer cases are worked scenarios, and their on-screen artifacts are illustrative or expected. Real media must show actual output.
 
-**Which models?** Current configuration: GPT Realtime 2.1 for voice and semantic turn detection, Deepgram Nova-3 for transcripts, Gemini 3.5 Flash Minimal via tool-free Devin ACP for wake routing, and Devin SWE 1.6 Fast for background work. Codex is selectable. Names and configuration can change; the architecture separates providers.
+**Which models are configured?** GPT Realtime 2.1; Deepgram Nova-3; Gemini 3.5 Flash Minimal through tool-free Devin ACP; Devin SWE 1.6 Fast, with Codex selectable.
 
-See research.md for official competitor sources and repository evidence.
+See research.md for the full comparison, evidence and boundaries; assets/CREDITS.md for image sources.

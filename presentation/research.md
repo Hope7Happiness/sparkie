@@ -85,3 +85,33 @@ User feedback accepted the current medium semantic-turn setting and audible resp
 - [Awwwards: Animation websites](https://www.awwwards.com/websites/animation/). A surveyed inspiration index for expressive web motion, not a source for product claims.
 
 The art, SVGs, layout and animation implementation here are original repository assets. No third-party site assets, fonts, animation libraries or tracking scripts are loaded. The product icon is reused from this repository.
+
+## Deeper comparison used in the revised slide 3
+
+The slide now stages three representative comparisons and then Sparkie itself. “Tradeoff” is a consequence of the chosen product surface relative to **an audible participant with direct project execution**, not a general quality score.
+
+| Product | Strength | Tradeoff for this specific use case | What follows for Sparkie |
+| --- | --- | --- | --- |
+| Granola | Computer-audio meeting memory without a bot to admit | The notepad is not itself a speaking participant in that capture model | Give the shared meeting a participant that can be addressed and answer aloud |
+| Vapi | Voice infrastructure connected to tools and business workflows | A developer still supplies the meeting transport, shared context and task application | Package the Zoom/context/project-work loop together |
+| ZoomMate | Native meeting/workplace context with agentic document and workflow capabilities | Its packaged experience follows Zoom product surfaces and connected tools | Explore a project-local workbench with selectable CLI workers and inspectable artifacts |
+| Sparkie | Spoken delegation, direct project tools, and explicit in-meeting revisions | Prototype setup, macOS Zoom validation scope, broad worker access and human review | A focused interaction experiment, not proven superiority or feature exclusivity |
+
+The Vapi and Zoom tradeoffs are architectural/product-surface interpretations, derived from the official positioning, not tested claims about absent features. In particular, Zoom already executes work; this presentation makes no claim that it cannot create artifacts or connect external tools. Granola's own “without a meeting bot” description supports the distinction about its capture model. The wider seven-product survey above remains available in the sources drawer and speaker preparation.
+
+Official site screenshots, actual product icons and links are now present on the slide. Asset provenance is recorded in [assets/CREDITS.md](assets/CREDITS.md).
+
+## Practical worked scenarios
+
+Revised slide 4 and slide 9 have different jobs:
+
+- **Slide 4: inspiration.** Two scripted meeting vignettes reveal three dialogue turns each. The product-review dialogue establishes a choice and a disagreement before delegation. The customer-call dialogue establishes a changed priority before asking for a draft. These are imagined scenes, not transcripts.
+- **Slide 9: practical playbooks.** Each case names the context, concrete instruction, expected artifact and acceptance check. This is how a team can judge work, not another list of possible uses.
+
+The demo-film case is grounded in the real-session workflow documented in the repository README. The displayed outline structure is explicitly illustrative, because an actual generated outline has not been supplied for the presentation. The real recording and screenshot slot remains the place for direct evidence.
+
+The bug-triage case is a worked instruction inspired by the reported multi-track input-queue failure: human participant transcription continued while an unused mixed queue accumulated frames. It describes a reproduction, producer/consumer investigation and regression expectation. It does not claim that Sparkie autonomously performed this repair by voice in a recorded meeting.
+
+The customer-follow-up case is a worked example with an explicitly unconfirmed date. Its artifact is a draft, with human review before sending. No real customer, promised deadline or successful external action is invented.
+
+The conversation example on slide 7 incorporates turn completion and interruption into participation: indirect mention → complete addressed request → correction. The two staged system diagrams show concurrency and the technical signal paths. Their motion illustrates ordering, not measured latency.

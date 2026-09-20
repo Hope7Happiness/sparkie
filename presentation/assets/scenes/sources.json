@@ -1,0 +1,29 @@
+{
+  "retrieved": "2026-09-20",
+  "photos": [
+    {
+      "file": "meeting.jpg",
+      "source": "https://www.pexels.com/photo/3183150/",
+      "download": "https://images.pexels.com/photos/3183150/pexels-photo-3183150.jpeg?auto=compress&cs=tinysrgb&w=1800",
+      "license": "https://www.pexels.com/license/",
+      "bytes": 313243,
+      "role": "Editorial scene illustration, not a Sparkie user or real session."
+    },
+    {
+      "file": "planning.jpg",
+      "source": "https://www.pexels.com/photo/3184325/",
+      "download": "https://images.pexels.com/photos/3184325/pexels-photo-3184325.jpeg?auto=compress&cs=tinysrgb&w=1800",
+      "license": "https://www.pexels.com/license/",
+      "bytes": 223652,
+      "role": "Editorial scene illustration, not a Sparkie user or real session."
+    },
+    {
+      "file": "collaboration.jpg",
+      "source": "https://www.pexels.com/photo/3184357/",
+      "download": "https://images.pexels.com/photos/3184357/pexels-photo-3184357.jpeg?auto=compress&cs=tinysrgb&w=1800",
+      "license": "https://www.pexels.com/license/",
+      "bytes": 236512,
+      "role": "Editorial scene illustration, not a Sparkie user or real session."
+    }
+  ]
+}
