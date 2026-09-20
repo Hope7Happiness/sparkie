@@ -48,4 +48,4 @@ Zoom meeting audio
 
 **Show:** Return to the meeting with Sparkie present and the final decision visible.
 
-**Say (presenter):** “Sparkie: a teammate that listens quietly, works in the background, and speaks when it helps the team decide.”
+**Say (presenter):** “Sparkie: a teammate that listens quietly, works in the background, and speaks when it helps the team decide—so meetings moved work forward.”
