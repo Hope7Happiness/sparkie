@@ -115,7 +115,11 @@
       $('#product-link').href = product.url;
       setImage('#product-image', product.image, product.fallback); setImage('#product-icon', product.icon);
       $('#product-image').alt = beat === 3 ? 'Editorial collaboration photograph, illustrating Sparkie’s focus.' : product.name + ' official website or official product image.';
-      setText('#product-name', product.name); setText('#product-strength', product.strength);
+      setText('#product-name', product.name);
+      setText('#product-solves-label', product.solvesLabel || 'They deliver');
+      setText('#product-gap-label', product.gapLabel || 'Still missing');
+      setText('#product-focus-label', product.focusLabel || 'Sparkie closes the gap');
+      setText('#product-strength', product.strength);
       setText('#product-tradeoff', product.tradeoff); setText('#product-focus', product.focus);
     } else if (slide === 3) {
       const scene = story.inspiration[Math.floor(beat / 3)], turn = beat % 3;

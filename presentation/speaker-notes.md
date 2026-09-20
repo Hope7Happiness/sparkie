@@ -14,7 +14,7 @@ Do not read all visible dialogue verbatim. Give the scene its premise, let the n
 | --- | --- | --- | --- | --- |
 | 1 | Meet your fourth teammate. | 1 | 20s | 0:20 |
 | 2 | Can someone take this forward? | 1 | 20s | 0:40 |
-| 3 | The gap is in the handoff. | 4 | 60s | 1:40 |
+| 3 | We close the handoff gap. | 4 | 60s | 1:40 |
 | 4 | Imagine the room. | 6 | 45s | 2:25 |
 | 5 | Watch the work happen. | 1 | 60s | 3:25 |
 | 6 | Two rhythms. One teammate. | 4 | 35s | 4:00 |
@@ -39,11 +39,11 @@ The team has chosen a direction. Someone now has to reconstruct the discussion, 
 
 **On stage:** Pause on the question; keep this short.
 
-## 03 — The gap is in the handoff. (60s)
+## 03 — We close the handoff gap. (60s)
 
-Granola is strong at meeting memory without a bot. That design does not give the notepad a speaking seat. Vapi connects voice to tools, but a builder still needs the meeting transport and shared-context application. ZoomMate is the closest comparison: it already combines context and execution, through Zoom’s product surfaces and connectors. Sparkie explores a different workbench: the project itself, reached through spoken delegation and refined in the room. The cost is real too: this is a macOS Zoom prototype with setup, broad tool access, and human review. These are design tradeoffs, not a claim that other products cannot act.
+Granola gives us meeting memory. What is missing from that notepad experience is a speaking teammate who can take the task right there in the call. Sparkie adds that participant. Vapi gives developers voice agents and tools. But the shared-meeting workflow still has to be built: who is speaking, when the agent should join in, and how the work reaches the project. Sparkie connects that loop. ZoomMate already turns meeting context into connected workflows. For our team, the last mile is our own CLI workspace: the repository, commands and files. Sparkie connects the meeting directly to that workbench. We close the handoff gap: the team keeps discussing, the agent does the work, and everyone can refine the result in the same room.
 
-**On stage:** Four beats: Granola → Vapi → ZoomMate → Sparkie. Official product links and images are on the slide. Explain each strength before its tradeoff. Zoom comparison is a product-surface distinction, not an assertion that Zoom lacks agent execution.
+**On stage:** Four beats, about 15 seconds each. For each competitor: what they deliver → the specific gap in this experience → what Sparkie adds. Land on the Sparkie result, not a list of caveats. The Zoom gap is the extra bridge to a project-local CLI workflow; do not broaden it into a claim that Zoom cannot execute tasks or integrate developer tools. Supporting scope and prototype limitations remain in research.md and Q&A.
 
 ## 04 — Imagine the room. (45s)
 

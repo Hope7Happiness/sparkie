@@ -115,3 +115,15 @@ The bug-triage case is a worked instruction inspired by the reported multi-track
 The customer-follow-up case is a worked example with an explicitly unconfirmed date. Its artifact is a draft, with human review before sending. No real customer, promised deadline or successful external action is invented.
 
 The conversation example on slide 7 incorporates turn completion and interruption into participation: indirect mention → complete addressed request → correction. The two staged system diagrams show concurrency and the technical signal paths. Their motion illustrates ordering, not measured latency.
+
+## Slide 3 pitch: the handoff gap
+
+The live presentation now argues for Sparkie, rather than conducting a neutral product tour. Each comparison follows **They deliver → Still missing → Sparkie closes the gap**, followed by a positive synthesis of Sparkie's experience.
+
+The gaps have deliberately specific scopes:
+
+- Granola: its bot-free notepad capture experience does not put a speaking participant in the meeting. Sparkie adds a participant that can receive spoken delegation and respond.
+- Vapi: voice infrastructure still needs an application that connects multi-party meeting input, shared context, participation decisions and project execution. Sparkie supplies that connected workflow.
+- ZoomMate: the comparison is about the additional integration needed to reach a team's own local CLI/project environment. Sparkie directly integrates the project worker into the meeting loop. This is not a claim that Zoom cannot execute tasks, produce artifacts or connect developer tools.
+
+The closing beat emphasizes the outcome: the team continues discussing, inspects the actual file, and asks for another edit in the same room. Evidence boundaries and prototype limitations stay in the research and Q&A rather than becoming the slide's main message.
