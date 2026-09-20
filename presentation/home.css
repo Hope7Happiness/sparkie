@@ -105,3 +105,26 @@
   .possibility-copy blockquote{font-size:35px}.scenario-preview{transform:none;max-width:400px}
   #screenshot-dialog{padding:12px}.screenshot-toolbar{top:-12px}#screenshot-title{font-size:16px}
 }
+
+/* Give the player its own space; the real report remains visible below it. */
+.home-recording{position:relative;aspect-ratio:16/9;padding-bottom:48px;box-sizing:content-box;margin-bottom:45px;background:#102820;border:1px solid #728b6b70;border-radius:10px;overflow:hidden}
+.home-recording>video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#home-video-placeholder{position:absolute;inset:0;display:grid;place-content:center;gap:15px;padding:25px;text-align:center}
+#home-video-placeholder a{text-decoration:underline;text-underline-offset:4px}
+@media(max-width:650px){
+  .experience{display:grid;grid-template-columns:minmax(0,1fr);padding-bottom:65px}
+  .story-copy,.story-visual,.story-captures{display:contents}
+  .story-step{grid-column:1;min-height:0;padding:55px 0 22px;gap:20px}
+  .story-step:nth-child(1){grid-row:1}.story-step:nth-child(2){grid-row:3}.story-step:nth-child(3){grid-row:5}
+  .story-shot,.story-shot[hidden]{display:block!important;grid-column:1;margin:0}
+  .story-shot[data-capture="0"]{grid-row:2}.story-shot[data-capture="1"]{grid-row:4}.story-shot[data-capture="2"]{grid-row:6}
+  .story-shot img{max-height:60svh}.task-capture{max-width:300px}
+  .home-recording{margin-bottom:32px}
+  .home-recording .youtube-demo-play{gap:8px;padding:12px}
+  .home-recording .youtube-demo-play strong{font-size:22px}
+  .home-recording .youtube-play-mark{width:42px;height:42px;font-size:19px}
+  .home-recording .youtube-demo-caption{font-size:10px}
+  .room-picker button,#screenshot-close{min-height:44px}
+  #screenshot-dialog{max-height:calc(100svh - 24px)}
+  .site-header{padding-top:env(safe-area-inset-top)}
+}

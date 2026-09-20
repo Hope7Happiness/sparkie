@@ -67,17 +67,17 @@
   });
   const video = $('#home-video'); let objectURL;
   const media = window.SPARKIE_MEDIA || {};
-  const demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#home-demo-placeholder'), error:$('#home-media-error'), poster:media.demoPoster, posterAlt:media.demoPosterAlt, posterLabel:media.demoPosterLabel});
+  const demoPlayer = window.createSparkieDemoPlayer({video, placeholder:$('#home-video-placeholder'), error:$('#home-media-error'), poster:media.demoPoster, posterAlt:media.demoPosterAlt, posterLabel:media.demoPosterLabel});
   const loadVideo = (src) => demoPlayer.load(src);
-  $('#home-choose-video').onclick = () => $('#home-video-input').click();
-  $('#home-video-input').onchange = (event) => {
+  $('#home-choose-video')?.addEventListener('click', () => $('#home-video-input').click());
+  $('#home-video-input')?.addEventListener('change', (event) => {
     const file = event.target.files[0]; if (!file) return;
     if (objectURL) URL.revokeObjectURL(objectURL);
     objectURL = URL.createObjectURL(file); loadVideo(objectURL); event.target.value = '';
-  };
+  });
   if (window.SPARKIE_MEDIA.demoVideo) loadVideo(window.SPARKIE_MEDIA.demoVideo);
   if ('IntersectionObserver' in window) new IntersectionObserver((entries) => {
     if (!entries[0].isIntersecting) demoPlayer.pause();
-  }, {threshold:.1}).observe($('.home-demo'));
+  }, {threshold:.1}).observe($('.home-recording'));
   addEventListener('beforeunload', () => { if (objectURL) URL.revokeObjectURL(objectURL); });
 })();
