@@ -83,6 +83,8 @@ ParticipantEars 按用户分流，每条连接独立断句。仅非零 PCM 建�
 
 Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台 A 仍继续。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
 
+积压输入使用 get_nowait 优先排空，空队列才进入带超时的等待；分流器每路由 32 帧主动让出执行。避免桥接收器批量读入 A/U 时，分流器逐帧让出导致入口队列被调度差异填满。保留原有容量与显式超限行为，不靠扩大队列掩盖慢消费者。
+
 启动 transcript_ready 的 readiness=router 仅表示分流器可接收；每位用户的真实连接就绪单独记录 participant_stt_ready。结束时先停止分轨输入、排空并刷新转写，最多等 10 秒，超时记录缺口，然后关闭所有连接。transcript.jsonl 按结果到达顺序保存，后台快照保留身份与时间；run.json 的 transcript 按 timestamp_ms 排序。
 
 同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。前台混音播放门控仍限制播放期间的语音打断。离线或合成输入验证不作为真实多人会议成功证据。
@@ -223,4 +225,3 @@ Failed/cancelled join cancels its handshake task and reader, closes its bridge, 
 `workspace_server.py` 由 `sparkie workspace` 启动（默认 127.0.0.1:8790，SQLite 存 `output/workspace.db`）：`GET /api/meetings/resolve?kind=..&external_id=..`（resolve_or_create）、`GET /api/workspaces`（全部 workspace + 计数，落地列表）、`GET /api/workspaces/<id>`（snapshot）、`GET /api/artifacts/<id>`（单个 artifact 含 content）、`GET /healthz`、`WS /workspaces/<id>/events`（广播流）。客户端消息：`{"type":"utterance","text":..,"speaker":..,"source":"human|bot","is_final":..}` ingest；`{"type":"end_meeting"}` 置 ended 并排队报告任务；`{"type":"cancel_task","task_id":..}` 取消运行中任务并发 `task.cancelled`。websockets 的 HTTP 层不读 body，所有写入都走事件 socket；CORS 全开、无 share token 与鉴权，仅限本机 MVP。RTMS webhook、Zoom App 面板、`/m/<token>` 私链均未实现；voice output 仍走既有 MeetingAdapter/AudioMeeting 路径，不在此层。
 
 `workspace_client.py` 是会议侧容错镜像：`realtime_session`（browser/local/zoom 三种 transport）与旧 `zoom_session` 启动时 resolve workspace（zoom 用 `ZOOM_MEETING_ID` 作 `zoom_uuid` external_id），最终 human 转写与 assistant_transcript（bot source）都镜像为 utterance；连不上服务器或任何发送失败都静默降级为 no-op，不影响会议。会话结束时发 `end_meeting`：runtime 置 `status=ended` 广播 `meeting.ended`，有转写且有 worker 时经正常任务管线产出报告 artifact（指令为转写内 Markdown 纪要），`ended` 状态会议的新 artifact 自动 `artifact.present`——会后打开页面即见纪要。页面 `/workspace.html` 展示转写、任务（含取消）、artifacts 与 stage；artifact.content 按 markdown/image/pdf/url shape 渲染，data URI 转 blob URL 供 PDF iframe。
-

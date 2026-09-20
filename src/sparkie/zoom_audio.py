@@ -455,9 +455,13 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
             if self.participant_input_done.is_set() and self.participant_queue.empty():
                 return
             try:
-                yield await asyncio.wait_for(self.participant_queue.get(), .1)
-            except TimeoutError:
-                continue
+                frame = self.participant_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                try:
+                    frame = await asyncio.wait_for(self.participant_queue.get(), .1)
+                except TimeoutError:
+                    continue
+            yield frame
 
     def handle_metadata(self, kind, data):
         if kind == b'R' and not data:
