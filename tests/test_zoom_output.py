@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from sparkie.audio import AudioFrame
 from sparkie.browser_audio import BrowserAudio
@@ -77,6 +78,26 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bridge.packets, [])
         self.assertTrue(any(m['type'] == 'conversation.item.truncate' and m['audio_end_ms'] == 0 for m in self.sent))
         self.assertEqual(self.agent.recovery['muted']['delivery_confirmed'], False)
+
+    async def test_direct_local_tasks_keep_provenance_and_pending_delivery(self):
+        await self.transcript('Hey Sparkie, create a file and open the requested page')
+        await self.created('actions')
+        with patch('sparkie.task_center.run_local_action', new=AsyncMock(return_value='Verified local result')):
+            for name, arguments in [('create_desktop_file', {'filename': 'test.txt', 'content': 'test'}),
+                                    ('open_website', {'url': 'https://example.com'})]:
+                await self.agent.handle({'type': 'response.function_call_arguments.done',
+                    'response_id': 'actions', 'call_id': name, 'name': name,
+                    'arguments': json.dumps(arguments)})
+            await asyncio.gather(*self.center.runners.values())
+        ids = list(self.center.jobs)
+        self.assertEqual(set(ids), self.policy.task_ids)
+        self.assertEqual([j['task_id'] for j in self.agent.pending_announcements()], ids)
+        persisted = json.loads((self.center.ledger.directory / 'tasks.json').read_text())
+        self.assertTrue(all(j['zoom_output_origin'] == 'addressed_turn' for j in persisted))
+        offers = self.center.offer_announcements(ids)
+        self.center.confirm_announcement(**offers[0])
+        self.center.defer_announcements(offers)
+        self.assertEqual([j['task_id'] for j in self.agent.pending_announcements()], ids[1:])
 
     async def test_wake_long_reply_continuation_and_auto_close(self):
         await self.transcript('Hey Sparkie, explain in detail')

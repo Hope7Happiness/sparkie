@@ -95,7 +95,7 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 
 主持人接纳 Sparkie、允许录制权限，看到 `listening_ready` 后：
 
-1. 从另一台参会设备问一个普通问题，确认听到与问题相关的自然语音回答。
+1. 从另一台参会设备说“Hey Sparkie”并提出问题，确认听到与问题相关的自然语音回答；未称呼时应持续监听但不播放。
 2. 请它调研一个需要外部信息的问题，检查出现 `background_task`，状态由 queued/running 进入 completed 或 failed。
 3. 后台进行中继续提出普通问题，确认前台可以响应；等后台完成后，检查结果通知及语音汇报。以来源/实际产物核对结果，不只看“完成”文本。
 4. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
