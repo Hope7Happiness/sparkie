@@ -19,9 +19,11 @@ from test_zoom_audio import packet
 
 
 class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self, provider_failure=False, turn_detection='semantic_vad'):
+    async def exercise(self, provider_failure=False, turn_detection='semantic_vad', workspace_server=None):
         sessions, received, snapshots, human_turns, activity, degraded = [], [], [], [], [], []
+        shared_urls = []
         class Meeting(ZoomMacAudioMeeting):
+            async def share_screen(self, url): shared_urls.append(url)
             async def join(self):
                 self.reader = asyncio.StreamReader()
                 self.reader_task = asyncio.create_task(self.receive())
@@ -70,7 +72,8 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             previous = os.umask(0o077)
             try:
                 with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos',
-                                             'SPARKIE_TURN_DETECTION': turn_detection}), \
+                                             'SPARKIE_TURN_DETECTION': turn_detection,
+                                             'SPARKIE_WORKSPACE_SERVER': workspace_server or '127.0.0.1:1'}), \
                      patch('sparkie.zoom_audio.ZoomMacAudioMeeting', Meeting), \
                      patch.object(realtime_session, 'RealtimeAgent', Agent), \
                      patch.object(realtime_session, 'DeepgramEars', Ears), \
@@ -84,6 +87,12 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             events = [json.loads(x) for x in (root/'events.jsonl').read_text().splitlines()]
             report = json.loads((root/'run.json').read_text())
         self.assertEqual(result, 0)
+        if workspace_server:
+            linked = next(e for e in events if e['type'] == 'workspace_linked')
+            self.assertEqual(shared_urls, [f"http://{workspace_server}/workspaces/{linked['workspace_id']}/present"])
+            self.assertTrue(any(e['type'] == 'zoom_share_requested' for e in events))
+        else:
+            self.assertEqual(shared_urls, [])
         self.assertEqual(sum(len(f.pcm) for f in received), 48000)  # One second, not one per speaker.
         self.assertTrue(all(f.sample_rate == 24000 and f.speaker_id is None for f in received))
         config = next(e for e in events if e['type']=='transcription_config')
@@ -117,3 +126,20 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_legacy_deepgram_turn_detection_remains_selectable(self):
         await self.exercise(turn_detection='deepgram')
+
+    async def test_zoom_session_shares_the_linked_workspace_presentation_url(self):
+        from sparkie.agent_runtime import AgentRuntime
+        from sparkie.event_bus import EventBus
+        from sparkie.workspace import WorkspaceStore
+        from sparkie.workspace_server import serve_workspace
+        store = WorkspaceStore(':memory:')
+        bus = EventBus()
+        runtime = AgentRuntime(store, bus)
+        server = await serve_workspace(store, bus, runtime, '127.0.0.1', 0)
+        try:
+            await self.exercise(workspace_server='127.0.0.1:' + str(server.sockets[0].getsockname()[1]))
+        finally:
+            server.close()
+            await server.wait_closed()
+            await runtime.close()
+            store.close()

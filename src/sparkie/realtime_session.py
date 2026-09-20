@@ -308,6 +308,19 @@ async def run(args):
              duration_basis='from_listening_ready' if args.seconds else 'manual_stop',
              duration_deadline_elapsed_ms=(round((time.monotonic() - started + args.seconds) * 1000)
                                            if args.seconds else None))
+        # Share the workspace present view as the agent's screen once the bridge
+        # is connected; share failures degrade to events, never session failures.
+        meeting_obj = getattr(audio, 'meeting', None)
+        if transport_name == 'zoom' and workspace.enabled and workspace.workspace_id and \
+                hasattr(meeting_obj, 'share_screen'):
+            try:
+                scheme = 'http' if '://' not in workspace.server else ''
+                base = workspace.server if not scheme else f'{scheme}://{workspace.server}'
+                await meeting_obj.share_screen(
+                    f'{base}/workspaces/{workspace.workspace_id}/present')
+                emit('zoom_share_requested', workspace_id=workspace.workspace_id)
+            except Exception as exc:
+                emit('zoom_share_failed', error_type=type(exc).__name__)
         capturer = asyncio.create_task(capture())
         sender = asyncio.create_task(send_audio())
         control = asyncio.create_task(controls())

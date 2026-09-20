@@ -433,6 +433,20 @@ class ZoomMacVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('OPENAI_API_KEY', env)
         self.assertTrue(env['SPARKIE_ZOOM_CONFIG'].endswith('config.json'))
 
+    async def test_share_screen_packet_and_state_metadata(self):
+        sent = []
+        async def send(kind, data=b''):
+            sent.append((kind, data))
+        self.meeting.send_packet = send
+        await self.meeting.share_screen('http://127.0.0.1:8790/workspaces/ws_x/present')
+        await self.meeting.stop_share()
+        self.assertEqual(sent, [(b'V', b'http://127.0.0.1:8790/workspaces/ws_x/present'), (b'V', b'')])
+        self.meeting.on_event = lambda kind, **kw: sent.append((kind, kw))
+        self.assertTrue(self.meeting.handle_metadata(b'V', b'\x01'))
+        self.assertTrue(self.meeting.handle_metadata(b'V', b'\x02'))
+        self.assertEqual(sent[-2:], [('zoom_share_state', {'state': 'sharing'}),
+                                    ('zoom_share_state', {'state': 'blocked'})])
+
     async def test_missing_binary_explains_build_step(self):
         meeting = ZoomMacAudioMeeting(Path(self.temp.name) / 'x', Path(self.temp.name) / 'missing')
         with self.assertRaisesRegex(ValueError, 'build --platform macos'):

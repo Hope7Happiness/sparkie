@@ -405,3 +405,36 @@ real HTTP/WebSocket and refresh; no new model or Zoom acceptance was performed.
 For the suite, SPARKIE_WORKSPACE_SERVER=127.0.0.1:1 prevented session fixtures from
 mirroring into the running live workspace service; workspace integration tests
 still use their own isolated server ports.
+
+### Zoom Realtime artifact sharing
+
+macOS Zoom Realtime uses the same TaskCenter, artifact_title field, file/image
+materializer and Realtime presentation tools as browser voice. Once the bridge is
+ready and WorkspaceClient is connected, the session sends the V bridge command
+with /workspaces/<workspace_id>/present. The native receiver opens that backend
+page in a WKWebView and requests Zoom app-window sharing. This route requires no
+Vite server. Linux receivers do not implement this app-window sharing path.
+
+The self-contained page follows explicit artifact.present/artifact.cleared and
+snapshot.state.active_artifact_id, never the newest artifact automatically. It
+renders Markdown without repeated metadata, shows raster images, and displays
+short names and activity for queued/running tasks. Reconnect restores the current
+selection and task names; reset clears them. Selection revisions fence late
+artifact fetches, and snapshot seq fences buffered socket events. Reduced-motion
+preferences disable the generation animation. Existing Zoom wake and interrupted
+response guards also apply to the presentation tools.
+
+Verification uses synthetic Zoom bridge/model/worker input with real TaskCenter,
+Workspace HTTP/WebSocket and Zoom output policy, plus an actual browser loading
+the backend presentation page. It covers named image delegation, explicit
+show/hide, interruption, session share-URL wiring, named generation, image decoding,
+no automatic takeover, refresh and clear. Native compile/link was checked against
+the installed macOS Zoom SDK (the configured SDK source directory was unavailable).
+No real Zoom meeting, remote visibility, sharing permission or media latency was
+validated. zoom_share_requested means a bridge request; zoom_share_state=sharing
+means SDK acceptance, not another participant seeing the screen. Rebuild the
+native receiver on the Zoom host before using the new V command; see realtime.md.
+
+Merged-build checks: 314 Python tests, 36 frontend tests, frontend production
+build, both offline demos and native compile/link passed. Session test fixtures
+use isolated workspace endpoints so they cannot trigger the live task worker.

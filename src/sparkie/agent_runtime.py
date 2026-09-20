@@ -43,7 +43,9 @@ def artifact_meta(markdown):
 
 RESEARCH = re.compile(
     r"\b(research|look\s*up|find\s+out|check\s+(?:if|whether)|search|dig\s+into"
-    r"|draft|write|prepare|summari[sz]e)\b|调研|调查|查一下|找找|写一?份|写个|总结", re.I)
+    r"|draft|write|prepare|summari[sz]e|append|revise)\b"
+    r"|(?:turn|convert)\s+\S+\s+into|\b(?:add|update)\s+(?:the|that|this|our|those)\b"
+    r"|调研|调查|查一下|找找|写一?份|写个|总结", re.I)
 PRESENT = re.compile(r"show\s+(?:us|me|everyone|the)\b|present|display|给大家看|展示|投屏", re.I)
 
 

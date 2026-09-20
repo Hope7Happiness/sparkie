@@ -193,3 +193,36 @@ Focused offline validation: uv run --frozen python -m unittest discover -s tests
 展示由前台 Realtime 控制：可以说「展示刚才那份天气报告」「换成上一份文档」「先收起来」。Realtime 先查询当前会话的成果目录，再调用展示或收起工具；仅展示已有成果不会重新委派给 Devin。Devin 继续负责生成和修改文档。前端也保留手动选择和下载。
 
 生成动画由实际任务的排队/执行状态驱动，不表示文档已经生成，也不伪造百分比。新成果就绪不会自动盖掉正在讨论的文档。已结束的旧语音会话需要重新开始，才能加载新增的 Realtime 工具和提示词。
+
+## Zoom 中使用 Artifact（macOS Realtime）
+
+Zoom Realtime 与纯语音页共用预先命名、Markdown/图片交付以及展示/收起工具。
+Zoom 使用 Workspace 后端直接提供的共享页面，不需要启动 Vite：
+
+```bash
+# 拉取更新后，先用已配置的本机 SDK 重建原生接收器；不要跳过这一步。
+uv run --frozen python scripts/zoom-sanity.py build --platform macos
+# 终端一：保持成果服务运行。
+uv run --frozen sparkie workspace --host 0.0.0.0 --port 8790 --worker devin
+# 终端二：使用已有 Zoom / Deepgram / Realtime / Devin 登录配置启动。
+SPARKIE_TASK_BACKEND=devin ZOOM_PLATFORM=macos \
+  bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
+```
+
+默认成果服务地址为 127.0.0.1:8790；分机部署时把 SPARKIE_WORKSPACE_SERVER 设置为
+Zoom 运行机器可访问的 host:port。ZOOM_MACOS_SDK_PATH 需指向实际存在的 SDK 源目录。
+会话连接 Workspace 后，会请求共享 Sparkie Workspace 窗口。主持人需允许共享，macOS
+也需具备屏幕录制权限。Linux 与旧 wake/qa 路径未接入这套原生窗口共享。
+
+远端验收时分别说 “Sparkie, create a weather report”、
+“Sparkie, plot a weather chart”、 “Sparkie, show the report” 和
+“Sparkie, hide it”。检查等待卡片是短名称、Markdown 没有重复包装、图片可见、
+切换与收起同步，而且其他任务完成不会抢占当前画面。
+
+诊断先查看 workspace_linked、zoom_share_requested、zoom_share_state，再看 artifact_control
+的确认。blocked / window_invalid / share_failed 不算共享成功；sharing 仅表示 SDK 接受，
+最后仍须另一参会端确认画面。共享页可单独打开
+http://localhost:8790/workspaces/<workspace_id>/present 排查渲染。
+
+本次完成了离线 Zoom 路由和工具集成、实际浏览器共享页验证，以及原生编译/链接检查。
+未启动真实 Zoom 会议，未验证远端可见性、共享授权与音频延迟。自动命名提示词在新会话生效。

@@ -25,11 +25,13 @@ from websockets.http11 import Response
 
 from .agent_runtime import AgentRuntime, artifact_meta, utterance
 from .event_bus import EventBus
+from .present_page import present_html
 from .task_center import CodexTaskWorker
 from .workspace import WorkspaceStore
 from .task_artifacts import MAX_ARTIFACT_MESSAGE_BYTES
 
 EVENTS_PATH = re.compile(r"^/workspaces/(ws_[0-9a-f]+)/events$")
+PRESENT_PATH = re.compile(r"^/workspaces/(ws_[0-9a-f]+)/present$")
 WORKSPACE_PATH = re.compile(r"^/api/workspaces/(ws_[0-9a-f]+)$")
 ARTIFACT_PATH = re.compile(r"^/api/artifacts/(art_[0-9a-f]+)$")
 
@@ -75,6 +77,15 @@ class WorkspaceServer:
         if match:
             artifact = self.store.get_artifact(match.group(1))
             return _respond(200 if artifact else 404, artifact or {"error": "unknown artifact"})
+        match = PRESENT_PATH.match(path)
+        if match:
+            if not self.store.get_workspace(match.group(1)):
+                return _respond(404, {"error": "unknown workspace"})
+            body = present_html(match.group(1)).encode()
+            headers = Headers({"Content-Type": "text/html; charset=utf-8",
+                               "Access-Control-Allow-Origin": "*",
+                               "Content-Length": str(len(body))})
+            return Response(200, "OK", headers, body)
         return None if EVENTS_PATH.match(path) else _respond(404, {"error": "not found"})
 
     async def handle(self, connection):
