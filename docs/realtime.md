@@ -110,7 +110,7 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600
 
 启动回归修复（2026-09-19）：多音轨合并后的麦克风设置改成了非静音入会，实测出现 source 已初始化却没有 onMicStartSend；Python 等待发送就绪时，A 混音无人消费，约 10 秒堆满，U 分轨却能提前触发无法播放的回答。现恢复原先的静音入会 → 安装外部音源 → 取消静音顺序，移除自动反复取消静音，并在 join 完成前明确丢弃 A/U 音频，记录 zoom_startup_audio_discarded 和 startup_frames_discarded。请在 listening_ready 后开始唤醒测试。
 
-232 项 Python 测试及 primitive/demo 离线检查通过；新增用例重现超过 1000 帧的启动积压，并验证麦克风缺失时正确超时、延迟就绪后两路输入恢复。原生接收器重建及签名检查通过。真实会话 20260919T223648-a87f017f 已出现 zoom_microphone_ready（75941 ms）、listening_ready（78164 ms）和首次 zoom_playback_submitted（91734 ms）；随后混音持续被消费，未再出现此次启动积压。SDK 接受音频仍不等于远端可听确认；实际听音及打断验收另行记录。
+232 项 Python 测试及 primitive/demo 离线检查通过；新增用例重现超过 1000 帧的启动积压，并验证麦克风缺失时正确超时、延迟就绪后两路输入恢复。原生接收器重建及签名检查通过。真实会话 20260919T223648-a87f017f 已出现 zoom_microphone_ready（75941 ms）、listening_ready（78164 ms）和首次 zoom_playback_submitted（91734 ms）；随后混音持续被消费，未再出现此次启动积压。本轮用户已明确确认在 Zoom 另一端能听到回复；会话在就绪后运行满 180 秒，以 duration_elapsed 正常结束，进程退出码为 0。此确认仅覆盖实际发声及本次启动回归，远端听到的打断停止延迟仍待验收；程序内 remote_audibility_verified 不自动改为 true。
 
 本地实现与离线测试不代替真人会议验收。先重建接收器，运行：
 
