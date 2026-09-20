@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/sparkie-icon.png" alt="Sparkie — an AI teammate at the meeting table" width="160">
+  <img src="docs/assets/sparkie-icon.png" alt="Sparkie — an AI teammate at the meeting table" width="240">
 </p>
 <h1 align="center">Sparkie</h1>
-<h2 align="center"><strong>Your AI teammate joins the call and GETS WORK DONE.</strong></h2>
+<p align="center"><strong>Your AI teammate joins the call and GETS WORK DONE!</strong></p>
 <p align="center">An AI meeting agent that listens, speaks, and gets work done while you keep talking.</p>
 <p align="center">
   <a href="docs/demo-links.md#demo-video">Demo video</a> &nbsp; / &nbsp;
