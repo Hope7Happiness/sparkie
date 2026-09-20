@@ -5,13 +5,13 @@
 <p align="center"><strong>Your AI teammate joins the call and GETS WORK DONE!</strong></p>
 <p align="center">An AI meeting agent that listens, speaks, and gets work done while you keep talking.</p>
 <p align="center">
-  <a href="https://youtu.be/kwr1edvQ10M">Demo video</a> &nbsp; / &nbsp;
+  <a href="https://youtu.be/-kOeUK9_kIs">Demo video</a> &nbsp; / &nbsp;
   <a href="https://hope7happiness.github.io/sparky">Website</a> &nbsp; / &nbsp;
   <a href="https://bowenyu066.github.io/sparky">Interactive presentation</a> &nbsp; / &nbsp;
   <a href="#quick-start">Quick start</a>
 </p>
 
-[![Watch the Sparkie demo: Your meeting. Already moving forward.](docs/assets/readme-demo.svg)](https://youtu.be/kwr1edvQ10M)
+[![Watch the Sparkie demo: Your meeting. Already moving forward.](docs/assets/readme-demo.svg)](https://youtu.be/-kOeUK9_kIs)
 
 Sparkie joins Zoom as a participant, just like a real person. It follows the discussion, answers in context, and delegates research, writing and coding to a background agent while the meeting continues. All of these amazing things happen in the background while your team keeps talking, and Sparkie will come back with a result you can hear, open, and discuss in the shared workspace instantly.
 

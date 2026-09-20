@@ -52,7 +52,7 @@ The interactive scenarios and waveforms are **illustrations**; clicking them doe
 
 ## Replace the real-media placeholders
 
-The demo is configured to https://youtu.be/kwr1edvQ10M. Click Play to load the YouTube player, or use Open on YouTube. Both slides and the local homepage accept a YouTube URL or a local video path. Meeting and artifact stills remain labelled placeholders until replaced.
+The demo is configured to https://youtu.be/-kOeUK9_kIs. Click Play to load the YouTube player, or use Open on YouTube. Both slides and the local homepage accept a YouTube URL or a local video path. Meeting and artifact stills remain labelled placeholders until replaced.
 
 1. Put a real session recording and a real artifact screenshot in assets/. Use shareable, reviewed media rather than an unreviewed session dump.
 2. Edit media-config.js. Example:
