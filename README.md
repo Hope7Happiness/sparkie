@@ -2,7 +2,7 @@
   <img src="docs/assets/sparkie-icon.png" alt="Sparkie — an AI teammate at the meeting table" width="160">
 </p>
 <h1 align="center">Sparkie</h1>
-<p align="center"><strong>Your AI teammate joins the call and GETS WORK DONE.</strong></p>
+<h2 align="center"><strong>Your AI teammate joins the call and GETS WORK DONE.</strong></h2>
 <p align="center">An AI meeting agent that listens, speaks, and gets work done while you keep talking.</p>
 <p align="center">
   <a href="docs/demo-links.md#demo-video">Demo video</a> &nbsp; / &nbsp;
