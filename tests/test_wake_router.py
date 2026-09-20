@@ -4,10 +4,11 @@ import json
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import test_zoom_barge_in as zoom_fixture
-from sparkie.wake_router import DevinWakeRouter, WakeRouterError
+from sparkie.wake_router import DevinWakeRouter, WakeRouterError, INSTRUCTION
 
 
 # A real child process exercises framing, EOF, cancellation and process cleanup.
@@ -80,9 +81,10 @@ class RouterProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('OPENAI_API_KEY', kwargs['env'])
         self.assertNotEqual(kwargs['cwd'], os.getcwd())
         self.assertEqual(await router.classify('Hey Sparkie, hello.'), 'accept')
-        self.assertEqual(await router.classify('Sparkie is our assistant.'), 'reject')
         old = router.session_id
-        router.turns = 32
+        self.assertEqual(await router.classify('Sparkie is our assistant.'), 'reject')
+        self.assertNotEqual(old, router.session_id)
+        old = router.session_id
         self.assertEqual(await router.classify('Ordinary discussion.'), 'reject')
         self.assertNotEqual(old, router.session_id)
         directory = kwargs['cwd']
@@ -138,15 +140,37 @@ class RouterProtocolTests(unittest.IsolatedAsyncioTestCase):
         router.process_factory = factory
         self.assertEqual(await router.classify('Hey Sparkie'), 'accept')
 
+    async def test_structured_window_survives_fresh_session(self):
+        router = self.router()
+        await router.start()
+        rpc = router._rpc
+        prompts = []
+        async def capture(method, params):
+            if method == 'session/prompt':
+                prompts.append(params)
+            return await rpc(method, params)
+        router._rpc = capture
+        context = [{'role': 'human', 'text': str(i), 'speaker_id': 'zoom:10'} for i in range(10)]
+        for _ in range(2):
+            await router.classify('The short version.', context=context, speaker='Oliver', speaker_id='zoom:10')
+        self.assertNotEqual(prompts[0]['sessionId'], prompts[1]['sessionId'])
+        for prompt in prompts:
+            payload = json.loads(prompt['prompt'][0]['text'][len(INSTRUCTION):])
+            self.assertEqual(payload['context'], context[-8:])
+            self.assertEqual(payload['current'], dict(role='human', text='The short version.',
+                                                      speaker='Oliver', speaker_id='zoom:10'))
+
 
 class ControlledRouter:
     model = 'test-router'
 
     def __init__(self):
         self.calls = asyncio.Queue()
+        self.inputs = []
         self.close = AsyncMock()
 
-    async def classify(self, text):
+    async def classify(self, text, **kwargs):
+        self.inputs.append({'text': text, **kwargs})
         future = asyncio.get_running_loop().create_future()
         await self.calls.put((text, future))
         # Deliberately resistant: stale fencing must work even if cancellation
@@ -172,6 +196,96 @@ class SemanticWakeTests(unittest.IsolatedAsyncioTestCase):
         pending = list(self.agent.wake_tasks)
         future.set_result(decision)
         await asyncio.wait_for(asyncio.gather(*pending), 1)
+
+    async def assistant_text(self, text, item='answer', response='reply', kind='done'):
+        await self.agent.handle({'type': 'response.output_audio_transcript.' + kind,
+                                 'item_id': item, 'response_id': response,
+                                 'transcript' if kind == 'done' else 'delta': text})
+
+    async def test_followup_sees_assistant_question_and_current_speaker(self):
+        await self.assistant_text('Would you like the short or detailed version?')
+        await self.assistant_text('Would you like the short or detailed version?')
+        await self.agent.human_transcript(dict(text='The short version.', event_id='followup',
+            meeting_id='m', is_final=True, source='human', speaker='Oliver', speaker_id='zoom:10'))
+        _, future = await self.router.calls.get()
+        request = self.router.inputs[-1]
+        self.assertEqual(len(request['context']), 1)
+        self.assertEqual(request['context'][0]['role'], 'assistant')
+        self.assertEqual(request['speaker'], 'Oliver')
+        self.assertEqual(request['speaker_id'], 'zoom:10')
+        await self.settle(future)
+        self.assertEqual(self.creates(), 1)
+
+    async def test_window_keeps_last_eight_prior_turns_including_rejections(self):
+        for i in range(11):
+            await self.transcript(f'Ordinary discussion {i}', ident=str(i), speaker=f'zoom:{i % 2}')
+            _, future = await self.router.calls.get()
+            await self.settle(future, 'reject')
+        request = self.router.inputs[-1]
+        self.assertEqual([entry['text'] for entry in request['context']],
+                         [f'Ordinary discussion {i}' for i in range(2, 10)])
+        self.assertEqual(request['context'][-1]['speaker_id'], 'zoom:1')
+        self.assertEqual(len(self.agent.wake_context), 8)
+        await self.transcript('Duplicate', ident='10')
+        self.assertTrue(self.router.calls.empty())
+        self.assertEqual(self.creates(), 0)
+
+    async def test_snapshot_does_not_change_with_streamed_text_or_later_turn(self):
+        await self.assistant_text('First part.', kind='delta')
+        await self.transcript('Tell me more.', ident='old')
+        _, old = await self.router.calls.get()
+        old_task = self.agent.wake_pending
+        await self.assistant_text(' Unheard ending.', kind='delta')
+        await self.transcript('Oliver, can you take this?', ident='new', speaker='zoom:20')
+        _, new = await self.router.calls.get()
+        self.assertEqual(self.router.inputs[0]['context'][0]['text'], 'First part.')
+        self.assertEqual(self.router.inputs[1]['context'][-1]['text'], 'Tell me more.')
+        old.set_result('accept')
+        await old_task
+        await self.settle(new, 'reject')
+        self.assertEqual(self.creates(), 0)
+
+    async def test_interruption_labels_partial_output_and_drops_unplayed_output(self):
+        await self.assistant_text('Some words, then an unheard question.', item='partial')
+        await self.assistant_text('Entirely unplayed.', item='unplayed')
+        self.agent.interrupt_wake_context({'reply'}, [
+            SimpleNamespace(item_id='partial', played_ms=lambda: 100),
+            SimpleNamespace(item_id='unplayed', played_ms=lambda: 0)])
+        self.agent.cancelled.add('reply')
+        await self.assistant_text('Late cancelled text.', item='unplayed')
+        await self.transcript('Please continue.')
+        _, future = await self.router.calls.get()
+        context = self.router.inputs[-1]['context']
+        self.assertEqual(len(context), 1)
+        self.assertEqual(context[0]['delivery'], 'interrupted_may_include_unheard_words')
+        await self.settle(future, 'reject')
+
+    async def test_external_turn_uses_same_context_window(self):
+        await self.assistant_text('Which version?')
+        await self.agent.control(dict(action='human_turn', phase='start', turn_id='ext', source='human'))
+        await self.agent.control(dict(action='human_turn', phase='commit', turn_id='ext',
+                                      source='human', text='The shorter one.'))
+        _, future = await self.router.calls.get()
+        self.assertEqual(self.router.inputs[-1]['context'][0]['text'], 'Which version?')
+        await self.settle(future)
+        self.assertEqual(self.creates(), 1)
+
+    async def test_evicted_assistant_item_cannot_reappear_on_late_final(self):
+        await self.assistant_text('Early draft.', kind='delta')
+        for i in range(8):
+            await self.transcript(f'Discussion {i}', ident=str(i))
+            _, future = await self.router.calls.get()
+            await self.settle(future, 'reject')
+        await self.assistant_text('Late final.')
+        self.assertTrue(all(entry['role'] == 'human' for entry in self.agent.wake_context))
+
+    async def test_real_interrupt_removes_unplayed_assistant_context(self):
+        await self.assistant_text('This has not been submitted.')
+        self.agent.response_id = 'reply'
+        await self.activity('started')
+        self.assertFalse(self.agent.wake_context)
+        await self.assistant_text('Late cancelled final.')
+        self.assertFalse(self.agent.wake_context)
 
     async def test_full_sentence_routes_async_and_waits_for_speech_end(self):
         await self.activity('started')

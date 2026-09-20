@@ -52,6 +52,12 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 
 ## 委派和工具权限
 
+Realtime 的身份是 **Sparkie，帮助团队把会议讨论转化为实际成果的 AI 会议助手**。自我介绍由前台直接用一到两句回答；生成自我报告时，前台先命名 artifact，再把 Sparkie 的身份、前后台分工和能力边界作为明确事实传给后台，避免 Devin/Codex 把报告写成自己的介绍。后台不需要读取 Realtime 的原始系统提示词。
+
+Zoom 与浏览器/本地语音共用这套身份。Zoom 模式遵循应用的唤醒、打断与发言控制；浏览器/本地为无需唤醒词的直接对话，不声称已连接 Zoom。Sparkie 只能依据本次会话实际提供的音频、转写、上下文与工具结果作答，不声称能直接看到摄像头、屏幕或私人会议。修改在新会话生效：5178 页面结束旧会话后重新开始即可，Zoom 则需重新启动会话进程。
+
+可用英文验收：先问 “Please introduce yourself and explain how you help in a meeting.”，应直接介绍 Sparkie 而不创建后台任务；再问 “Create a concise Markdown report about yourself, your role, capabilities and limitations.”，应生成有简短名称的报告。核对委派请求中实际包含 Sparkie 的身份事实，以及 artifact 正文来自生成的 Markdown 文件。真实模型结果与测试范围见下文。
+
 前台提示词要求普通回答为一到两句短句，委派确认一句，任务完成时先说主要结论、最多三句短句，细节留在任务面板，用户要求时再展开。目标明确但部分词未听清时，只委派听清的目标和细节，让后台核对相关的人声转写；不猜姓名、地点、日期或数字，不添加候选解释或臆测的歧义。转写可能延迟、错误或缺失，后台无法确认必要信息时再简短追问。提示词变更在新语音会话生效；这不是转写完整性或识别准确性的保证。
 
 所有文件操作（包括桌面文件创建）、打开网页或本地 HTML 报告、网页检索和代码执行，都通过 delegate_task 交给所选 Devin / Codex 后台。Realtime 仅保留 delegate_task、task_status、update_task、cancel_task、remain_silent 五个工具；已移除创建桌面文件和打开页面的本机快捷工具及执行分支。
@@ -72,6 +78,7 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 
 ## 已验证与待验证
 
+- 2026-09-20 身份实测：真实 gpt-realtime-2.1 以文本请求回答 Sparkie 的会议助手身份，自我介绍未创建任务；自我报告请求由 Realtime 自行命名为 Sparkie identity report，并在 delegate_task 中传入身份、前后台分工和限制。真实 Devin swe-1-6-fast 生成 Markdown，检查实际文件与 artifact.content.markdown 完全相同，随后前台调用 task_status 核实完成。证据保存在本机 output/identity-verification/20260920T093827-05053a/verification.json 和同目录 sparkie-introduction.md。未在用户问题中预填身份答案；这是文本输入的真实模型链路测试，生成音频但未播放，未覆盖麦克风、Deepgram、浏览器呈现或实际 Zoom 入会。提示词的句数限制不是硬约束，两次实测自我介绍分别为两句和三句。
 - 2026-09-19 物理音频自测：macOS 合成测试语句，经 afplay 从 MacBook 扬声器实际播放，由内置麦克风和浏览器原生 getUserMedia 收音，连接真实 Deepgram 与 Realtime；未将测试音频直接注入 WebSocket 或替换麦克风。初始配置出现英文问候转写正确、回复连续取消、20 秒无输出音频，证据在 output/acoustic-voice/20260919T190636/results.json。最终配置的 output/acoustic-voice/20260919T191638/results.json 中，连续英文问候和“二加三”均正确回复，测试语句播放结束至回复文本分别为 1.403 秒和 1.298 秒；中文“二加三”转写识别出数字，但 Realtime 在 1.873 秒后错误回答“4”，中文正确性仍未通过。最后一组各回复后的约八秒观察窗内无额外回复或取消，全部生成音频均由浏览器 AudioWorklet 渲染完毕，两次会话显式停止均正常结束。上述时间不是扬声器首音延迟；渲染完成也不代表人工听音验收。这是合成语句经真实物理设备的测试，不是 Zoom 或真人会议验收，也未验证后台任务的语音委派。
 - 2026-09-19：复现旧版后台串行排队与 `audio-stalled` 六秒强制停止。完整 Codex 小文件对照任务耗时约 41–90 秒；当时的本机文件工具（现已移除）独立执行并核验约 21 ms，真实 Realtime 文本指令选择该工具后完成文件创建，连接就绪至任务完成约 0.7 秒。测试文件已清理；此数据不等于真人语音端到端延迟。
 - 浏览器合成静音输入经真实提供者连接：暂停 AudioContext 超过六秒后会话仍保留，点恢复后继续输入，显式结束正常退出。没有用合成流代替真人收音验收；底层输入停顿原因尚未确诊。

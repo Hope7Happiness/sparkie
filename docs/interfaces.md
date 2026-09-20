@@ -1,5 +1,9 @@
 # Phase 0 接口约定
 
+## Realtime 身份与会话模式
+
+浏览器、本地与 Zoom 共用 Sparkie 的 AI 会议助手身份及自我报告委派规则。Realtime 的 session instructions 根据是否配置 Zoom output policy 区分会议参与和直接对话，避免 Zoom 会话被描述为无需唤醒词的测试，也避免浏览器会话声称已加入 Zoom。简单自我介绍由前台直接回答；自我报告仍走原有 delegate_task(request, artifact_title)，request 必须显式传入 Sparkie 的公开身份、能力与限制，因为后台不接收 Realtime 系统提示词。工具协议与 artifact 格式不变，生成与展示职责不变。
+
 ## macOS Zoom 分轨语音打断（当前行为）
 
 本节覆盖下文旧混音前台的打断限制，仅适用于支持 dual-input-v1 的 macOS Realtime 会话。Linux、browser/local 和 legacy wake/qa 保留既有输入路径。
@@ -269,12 +273,32 @@ Only ZoomMicrophoneMuted (the explicit N signal or a pre-send readiness check) i
 
 ### Optional semantic Zoom wake router
 
-RealtimeAgent accepts an optional wake_router with async start(), classify(text)
+RealtimeAgent accepts an optional wake_router with async start(),
+classify(text, *, context=(), speaker=None, speaker_id=None)
 and close(), plus model for diagnostics. classify returns accept or reject; only
 the agent/output policy can authorize speech. SPARKIE_WAKE_ROUTER=devin selects
 the dedicated tool-free Devin adapter with SPARKIE_WAKE_MODEL (default
 gemini-3-5-flash-minimal). Unset/rules preserves the existing local policy. This
 setting affects Zoom Realtime only and is independent of DEVIN_MODEL for tasks.
+
+In devin mode this supersedes the historical explicit-name requirement above:
+the current utterance is judged semantically against the previous eight human /
+assistant entries (oldest first), excluding current itself. Contextual follow-ups,
+corrections and answers to Sparkie's questions can authorize a reply without its
+name. Human-to-human discussion, third-person mentions and acknowledgments needing
+no answer should stay silent; uncertain recipients should be rejected. Names are
+neither required nor sufficient. The rules mode retains its original behavior.
+
+The session-local deque includes rejected human discussion and available speaker
+name/ID. Only deduplicated final human turns enter it; assistant transcript deltas
+update one entry per output item, preserving initial arrival order. Each routing
+request gets a copied snapshot. Assistant text is labelled generated, not verified
+audible: interruption removes unplayed items and marks partially submitted items
+as potentially containing unheard words. Cancelled late output cannot restore an
+entry. This is a bounded routing window, not meeting memory or acoustic diarization.
+New meetings start empty; transport resets do not erase the application's window.
+The adapter reuses its warm process but creates a fresh ACP session per decision,
+so previous routing prompts do not expand the explicit eight-entry window.
 
 Final human text still enters meeting context once. Semantic classification runs
 outside turn_lock and consumes the full final utterance. A monotonically
@@ -286,8 +310,8 @@ Routing errors/2.5s deadlines fail silent for that utterance. Eligible task
 notifications are deferred only while a decision is pending, then use existing
 quiet/authorization rules. No task-worker conversation or lock is reused.
 
-Diagnostics: zoom_wake_router_config, zoom_wake_router_ready/unavailable,
-zoom_wake_routing, zoom_wake_router_failed (error_type, action, latency_ms when
+Diagnostics: zoom_wake_router_config (context_entries limit), zoom_wake_router_ready/unavailable,
+zoom_wake_routing (actual context_entries count), zoom_wake_router_failed (error_type, action, latency_ms when
 available), zoom_wake_decision (semantic_router/local_control), and
 zoom_wake_decision_discarded for late returns. Provider response bodies and
 thoughts are not logged. See fast-wake-router-research.md for live-call evidence

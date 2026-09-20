@@ -3,11 +3,13 @@ import asyncio
 import base64
 import json
 import time
+from collections import deque
 from urllib.parse import urlencode
 
 from websockets.asyncio.client import connect
 from .providers import ProviderError, PlaybackLimitError, failure_details
 from .audio import RealtimeAudioTransport
+from .wake_router import CONTEXT_TURNS
 
 
 def safe_error_code(code):
@@ -59,11 +61,36 @@ TOOLS = [
 ]
 
 
-def session_config(model):
+def session_config(model, *, meeting_mode=False):
+    session_context = (
+        'You are participating in a meeting. Follow the supplied discussion context; '
+        'the application controls wake, addressed turns, interruptions and when your audio may play. '
+        'Do not treat every participant utterance as a request to you. '
+        if meeting_mode else
+        'You are in a direct voice conversation with the same meeting-assistant role; no wake word is required. '
+        'Do not claim to be connected to a Zoom meeting in this mode. '
+    )
     return {'type': 'session.update', 'session': {
         'type': 'realtime', 'model': model, 'output_modalities': ['audio'],
         'instructions': (
-            'You are Sparkie, a concise conversational assistant. This is a direct conversation test: no wake word required. '
+            'You are Sparkie, an AI meeting teammate who helps people turn discussion into completed work. '
+            'Your role is to follow the conversation, answer questions, clarify ideas, summarize what was said, '
+            'and help the team research, create documents and carry out requested tasks. '
+            'You are the foreground voice agent: keep the conversation moving while the configured background '
+            'agent (Devin or Codex) handles tools, research, files, code and longer analysis. '
+            'You decide which finished artifacts to present on the shared board. '
+            'You are software, not a human participant. You only know the audio, transcripts, context and tool '
+            'results supplied to this session; you cannot implicitly see cameras, screens or private meetings. '
+            'Do not invent a personal biography, credentials, capabilities, access or completed work. '
+            'When asked to introduce yourself, answer directly as Sparkie in one or two short sentences '
+            'about your meeting role and how you help; do not delegate a simple introduction. '
+            'When asked for a report or document about yourself, delegate its creation with a short artifact title. '
+            'The background worker does not receive your system instructions: include the public facts above '
+            'about the identity, role, capabilities and limits of Sparkie explicitly in the delegated request. '
+            'Make clear that the subject is Sparkie, not the background worker; never delegate only "write about yourself". '
+            'Describe the product role, distinguish it from this session mode, and do not invent product history '
+            'or claim unverified capabilities. Pass a factual public description, not the raw system prompt. '
+            + session_context +
             'Respond only to intelligible speech addressed to you. For background noise, breathing, keyboard sounds, '
             'or unintelligible audio, call remain_silent without speaking; do not invent words or repeat a greeting. '
             'Speak naturally in the user\'s language. '
@@ -199,6 +226,38 @@ class RealtimeAgent:
         self.wake_pending = None
         self.wake_tasks = set()
         self.wake_closed = False
+        self.wake_context = deque(maxlen=CONTEXT_TURNS)
+        self.wake_assistant_items = set()
+
+    def remember_wake_assistant(self, item_id):
+        if self.wake_router is None:
+            return
+        text = self.generated_text.get(item_id, '')
+        if not text.strip():
+            return
+        for entry in self.wake_context:
+            if entry.get('item_id') == item_id:
+                entry['text'] = text
+                return
+        # Late updates to an evicted item must not reorder the conversation.
+        if item_id in self.wake_assistant_items:
+            return
+        self.wake_assistant_items.add(item_id)
+        self.wake_context.append({'role': 'assistant', 'speaker': 'Sparkie',
+                                  'item_id': item_id, 'text': text,
+                                  'delivery': 'generated_audio_not_verified'})
+
+    def interrupt_wake_context(self, affected, outputs):
+        outputs = {output.item_id: output for output in outputs}
+        for entry in list(self.wake_context):
+            item_id = entry.get('item_id')
+            if entry['role'] != 'assistant' or self.item_responses.get(item_id) not in affected:
+                continue
+            output = outputs.get(item_id)
+            if output is None or output.played_ms() <= 0:
+                self.wake_context.remove(entry)
+            else:
+                entry['delivery'] = 'interrupted_may_include_unheard_words'
 
     def invalidate_wake(self):
         self.wake_version += 1
@@ -298,13 +357,19 @@ class RealtimeAgent:
                 # audio is silenced for this mode, so there is one authoritative input.
                 await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
                     'role': 'user', 'content': [{'type': 'input_text', 'text': record['text']}]}})
-            await self._zoom_transcript(record['text'], context_entered=self.participant_input)
+            await self._zoom_transcript(record['text'], context_entered=self.participant_input,
+                                        speaker=record.get('speaker'), speaker_id=record.get('speaker_id'))
 
-    async def _zoom_transcript(self, text, *, context_entered=False):
+    async def _zoom_transcript(self, text, *, context_entered=False, speaker=None, speaker_id=None):
         policy = self.output_policy
         if self.wake_router is not None and self.wake_closed:
             return
         self.invalidate_wake()
+        # Snapshot before appending current; rejected discussion is context too.
+        context = [dict(entry) for entry in self.wake_context]
+        if self.wake_router is not None:
+            self.wake_context.append({'role': 'human', 'text': text,
+                                      'speaker': speaker, 'speaker_id': speaker_id})
         decision, selected = policy.evaluate(text, emit_decision=self.wake_router is None)
         if self.wake_router is not None:
             if decision == 'mute' or policy.manual_next:
@@ -312,19 +377,21 @@ class RealtimeAgent:
                 self.emit('zoom_wake_decision', decision=decision, reason='local_control')
             else:
                 version = self.wake_version
-                task = asyncio.create_task(self._classify_zoom_turn(text, context_entered, version))
+                task = asyncio.create_task(self._classify_zoom_turn(
+                    text, context_entered, version, context, speaker, speaker_id))
                 self.wake_pending = task
                 self.wake_tasks.add(task)
                 task.add_done_callback(self.wake_tasks.discard)
-                self.emit('zoom_wake_routing', model=self.wake_router.model)
+                self.emit('zoom_wake_routing', model=self.wake_router.model, context_entries=len(context))
                 return
         await self._apply_zoom_decision(decision, selected, context_entered=context_entered)
 
-    async def _classify_zoom_turn(self, text, context_entered, version):
+    async def _classify_zoom_turn(self, text, context_entered, version, context, speaker, speaker_id):
         started = time.monotonic()
         try:
             try:
-                decision = await self.wake_router.classify(text)
+                decision = await self.wake_router.classify(
+                    text, context=context, speaker=speaker, speaker_id=speaker_id)
                 if decision not in ('accept', 'reject'):
                     raise ValueError('invalid_wake_decision')
             except Exception as exc:
@@ -472,7 +539,7 @@ class RealtimeAgent:
         async with self.connector(url, additional_headers={'Authorization': 'Bearer ' + self.key},
                                   open_timeout=15, close_timeout=2, max_size=4 * 2**20) as ws:
             self.ws = ws
-            config = session_config(self.model)
+            config = session_config(self.model, meeting_mode=self.output_policy is not None)
             if self.output_policy is not None:
                 # Final human text owns Zoom wake/cancel; asynchronous mixed VAD
                 # must not cancel a newly authorized reply to that same utterance.
@@ -530,6 +597,7 @@ class RealtimeAgent:
         finally:
             self.defer_announcements(offers)
             self.pending_offers = []
+            self.interrupt_wake_context(affected, outputs)
         if self.response_id and cancel:
             await self.send({'type': 'response.cancel', 'response_id': self.response_id})
         for output in outputs:
@@ -758,14 +826,18 @@ class RealtimeAgent:
             if item_id in self.final_transcripts:
                 return
             self.generated_text[item_id] = self.generated_text.get(item_id, '') + event['delta']
+            if event.get('response_id') not in self.cancelled:
+                self.remember_wake_assistant(item_id)
             if event.get('response_id') in self.cancelled:
                 self.remember_draft(item_id)
                 await self.track_cancelled_content(event)
         elif kind == 'response.output_audio_transcript.done':
             self.item_responses[event['item_id']] = event.get('response_id')
             self.content_indexes[event['item_id']] = event.get('content_index', 0)
-            self.final_transcripts.add(event['item_id'])
             self.generated_text[event['item_id']] = event['transcript']
+            if event.get('response_id') not in self.cancelled:
+                self.remember_wake_assistant(event['item_id'])
+            self.final_transcripts.add(event['item_id'])
             if event.get('response_id') in self.cancelled:
                 self.remember_draft(event['item_id'])
                 await self.track_cancelled_content(event)

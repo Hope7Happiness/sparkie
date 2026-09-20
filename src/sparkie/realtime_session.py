@@ -266,6 +266,7 @@ async def run(args):
         emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
         emit('zoom_wake_router_config', mode='devin' if wake_router else 'rules',
              model=wake_router.model if wake_router else None,
+             context_entries=agent.wake_context.maxlen if wake_router else 0,
              timeout_seconds=wake_router.timeout if wake_router else None)
     try:
         external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
