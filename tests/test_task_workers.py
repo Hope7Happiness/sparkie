@@ -76,7 +76,8 @@ class DevinWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.executable = self.root / 'devin'
-        self.executable.write_text('#!' + sys.executable + '\n' + FIXTURE)
+        # A venv path can contain spaces, which macOS splits in a shebang.
+        self.executable.write_text('#!' + str(Path(sys.executable).resolve()) + '\n' + FIXTURE)
         self.executable.chmod(0o700)
         self.which = patch('sparkie.devin_acp.shutil.which', return_value=str(self.executable))
         self.which.start()

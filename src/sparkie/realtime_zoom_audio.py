@@ -46,8 +46,8 @@ class ZoomPlayback:
 
 class RealtimeZoomAudio:
     PACKET_BYTES = 6400  # 100ms; native SDK paces its five 20ms frames.
-    MAX_RESPONSE_SECONDS = 120
-    MAX_BUFFER_BYTES = 64000 * MAX_RESPONSE_SECONDS  # Aggregate across all pending items.
+    MAX_BUFFER_SECONDS = 120
+    MAX_BUFFER_BYTES = 64000 * MAX_BUFFER_SECONDS  # Bounded backlog, not total reply duration.
 
     def __init__(self, meeting, *, on_event):
         self.meeting, self.on_event = meeting, on_event
@@ -77,6 +77,8 @@ class RealtimeZoomAudio:
         self.input_samples = 0
         self.gate_spans = deque()
         self.gated_samples = 0
+        self.output_allowed = lambda item_id: True
+        self.output_drained = lambda: None
 
     @property
     def duration_expired(self):
@@ -140,6 +142,8 @@ class RealtimeZoomAudio:
                 yield self.input_frame(sequence, pcm)
 
     def append_output(self, item_id, pcm):
+        if not self.output_allowed(item_id):
+            return
         if self.stopped:
             return
         if self.failure:
@@ -156,8 +160,6 @@ class RealtimeZoomAudio:
         if output.finished:
             raise ProviderError('Audio arrived after output completion')
         output.generated += len(pcm)
-        if output.generated > 48000 * self.MAX_RESPONSE_SECONDS:
-            raise PlaybackLimitError('Realtime response exceeds playback limit')
         self.enqueue(output, output.resampler.feed(pcm))
 
     def enqueue(self, output, pcm):
@@ -196,6 +198,7 @@ class RealtimeZoomAudio:
                     output.drained = True
                     # Reclaim resampling state; keep tiny progress records for truncation.
                     output.resampler = None
+                    self.output_drained()
                     continue
                 pcm = bytes(output.pending[:self.PACKET_BYTES])
                 del output.pending[:len(pcm)]
@@ -275,7 +278,7 @@ class RealtimeZoomAudio:
     def diagnostics(self):
         return {**self.meeting.diagnostics(), 'transport': 'zoom-realtime',
                 'playback_buffer_limit_bytes': self.MAX_BUFFER_BYTES,
-                'response_limit_seconds': self.MAX_RESPONSE_SECONDS,
+                'response_limit_seconds': None,
                 'gated_samples': self.gated_samples,
                 'gate_basis': 'bridge_receive_before_queue; native packet gate also active',
                 'realtime_sample_rate': 24000, 'playback_packet_ms': 100,

@@ -55,6 +55,9 @@ class TaskCenter:
             self.warmup = asyncio.create_task(prepare())
 
     def _save(self, job):
+        if job['status'] in ('completed', 'failed') and 'announcement' not in job:
+            job['announcement'] = {'state': 'pending', 'attempt': 0,
+                                   'order': len(self.notified)}
         path = self.ledger.directory / 'tasks.json'
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(list(self.jobs.values()), ensure_ascii=False, indent=2))
@@ -63,6 +66,49 @@ class TaskCenter:
         if job['status'] in ('completed', 'failed') and job['task_id'] not in self.notified:
             self.notified.add(job['task_id'])
             self.notifications.put_nowait(self.status(job['task_id']))
+
+    def pending_announcements(self):
+        return [self.status(job['task_id']) for job in sorted(
+            (j for j in self.jobs.values() if j.get('announcement', {}).get('state') == 'pending'),
+            key=lambda j: j['announcement']['order'])]
+
+    def mark_output_origin(self, task_id):
+        self.jobs[task_id]['zoom_output_origin'] = 'addressed_turn'
+        self._save(self.jobs[task_id])
+
+    def offer_announcements(self, task_ids):
+        offers = []
+        for task_id in task_ids:
+            job = self.jobs[task_id]
+            notice = job['announcement']
+            if notice['state'] != 'pending':
+                continue
+            notice.update(state='offered', attempt=notice['attempt'] + 1)
+            self._save(job)
+            offers.append({'task_id': task_id, 'attempt': notice['attempt']})
+        return offers
+
+    def defer_announcements(self, offers):
+        # Offered means context supplied, never that a listener heard the result.
+        for offer in offers:
+            job = self.jobs.get(offer['task_id'], {})
+            notice = job.get('announcement', {})
+            if notice.get('state') == 'offered' and notice['attempt'] == offer['attempt']:
+                notice['state'] = 'pending'
+                self._save(job)
+
+    def confirm_announcement(self, task_id, attempt):
+        job = self.jobs.get(task_id)
+        notice = job.get('announcement', {}) if job else {}
+        if (type(attempt) is not int or notice.get('attempt') != attempt or
+                notice.get('state') not in ('offered', 'confirmed')):
+            return False
+        if notice['state'] != 'confirmed':
+            notice['state'] = 'confirmed'
+            self._save(job)
+            self.emit('background_notification_confirmed', task_id=task_id, attempt=attempt,
+                      basis='explicit_human_confirmation')
+        return True
 
     def submit(self, request):
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:
@@ -111,7 +157,7 @@ class TaskCenter:
 
     def status(self, task_id):
         job = self.jobs.get(task_id)
-        return {k: v for k, v in job.items() if k != 'snapshot'} if job else {'error': 'unknown_task'}
+        return json.loads(json.dumps({k: v for k, v in job.items() if k != 'snapshot'})) if job else {'error': 'unknown_task'}
 
     def update(self, task_id, request):
         job = self.jobs.get(task_id)
