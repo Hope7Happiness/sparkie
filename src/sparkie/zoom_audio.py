@@ -11,7 +11,7 @@ import time
 
 from .audio import AudioFrame
 from .providers import failure_details, ProviderError
-from .zoom_errors import ZoomBridgeError
+from .zoom_errors import ZoomBridgeError, ZoomMicrophoneMuted
 from .zoom_join import NativeJoinProgress, ZoomJoinError
 from .zoom_config import meeting_config, private_write
 
@@ -254,7 +254,7 @@ class ZoomAudioMeeting:
                     self.on_event('zoom_microphone_muted')
                     for future in self.playbacks.values():
                         if not future.done():
-                            future.set_exception(RuntimeError('Zoom microphone was muted during playback'))
+                            future.set_exception(ZoomMicrophoneMuted('Zoom microphone was muted during playback'))
                 elif kind in {b'S', b'D'} and len(data) == 4:
                     ident = struct.unpack('!I', data)[0]
                     entry = self.playbacks.get(ident)
@@ -333,7 +333,7 @@ class ZoomAudioMeeting:
         if sample_rate != 32000 or not pcm or len(pcm) % 2 or len(pcm) > 1920000:
             raise ValueError('Zoom output must be mono PCM16 32000 Hz, at most 30 seconds')
         if not self.mic_ready.is_set():
-            raise RuntimeError('Zoom microphone is not ready')
+            raise ZoomMicrophoneMuted('Zoom microphone is not ready')
         self.play_id += 1
         ident = self.play_id
         future = asyncio.get_running_loop().create_future()

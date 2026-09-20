@@ -14,6 +14,7 @@ import soxr
 
 from .audio import AudioFrame
 from .providers import ProviderError, PlaybackLimitError, failure_details
+from .zoom_errors import ZoomMicrophoneMuted
 
 
 class PCMResampler:
@@ -231,8 +232,8 @@ class RealtimeZoomAudio:
                     self.output_drained()
                     continue
                 pcm = bytes(output.pending[:self.PACKET_BYTES])
-                del output.pending[:len(pcm)]
-                self.buffered -= len(pcm)
+                # Retain the packet until the SDK acknowledges it. On mute the
+                # bridge cancels the old send before we retry this same packet.
                 # Native bridge pads its final 20ms frame. Only original samples count.
                 self._gate_until = time.monotonic() + len(pcm) / 64000 + .35
                 self.play_task = asyncio.create_task(self.meeting.play_audio(pcm, 32000))
@@ -242,22 +243,24 @@ class RealtimeZoomAudio:
                 except asyncio.CancelledError:
                     if not output.cancelled.is_set() or self.stopped:
                         raise
-                except Exception:
+                except ZoomMicrophoneMuted:
                     if self.stopped or self.meeting.stopped.is_set() or self.meeting.failure:
                         raise
-                    # A transient Zoom mute drops this packet but must not kill the
-                    # session; pause the reply until the microphone re-arms.
+                    # Only a typed microphone signal is recoverable here. Timeouts
+                    # and transport errors must not become successful playback.
                     muted = True
                 finally:
                     self.play_task = None
                     self._gate_until = time.monotonic() + .35
                 if muted:
                     self.on_event('zoom_playback_muted', item_id=output.item_id,
-                                  note='Zoom muted Sparkie mid-reply; output resumes when unmuted.')
-                    if not await self._wait_unmuted():
+                                  note='Retry unacknowledged packet after unmute; up to 100ms may repeat.')
+                    if not await self._wait_unmuted(output):
                         return
                     continue
                 if not output.cancelled.is_set():
+                    del output.pending[:len(pcm)]
+                    self.buffered -= len(pcm)
                     first = output.submitted == 0
                     output.submitted += len(pcm)
                     if first:
@@ -270,10 +273,12 @@ class RealtimeZoomAudio:
             self.meeting.request_stop()
             self.on_event('audio_failed', **failure_details(exc))
 
-    async def _wait_unmuted(self):
+    async def _wait_unmuted(self, output):
         while not self.meeting.mic_ready.is_set():
             if self.stopped or self.meeting.stopped.is_set() or self.meeting.failure:
                 return False
+            if output.cancelled.is_set():
+                return True
             try:
                 await asyncio.wait_for(self.meeting.mic_ready.wait(), .2)
             except TimeoutError:

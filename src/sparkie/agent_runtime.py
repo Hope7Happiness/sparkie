@@ -63,7 +63,17 @@ class AgentRuntime:
         self.store, self.bus, self.worker = store, bus, worker
         self.greeting = greeting
         self.runners = {}
+        self.runner_workspaces = {}
         self.mirrored_artifacts = set()
+
+    def reset_workspace(self, workspace_id):
+        self.store.reset(workspace_id)
+        for task_id, owner in self.runner_workspaces.items():
+            if owner == workspace_id and not self.runners[task_id].done():
+                self.runners[task_id].cancel()
+        self.mirrored_artifacts = {key for key in self.mirrored_artifacts if key[0] != workspace_id}
+        self.bus.publish(workspace_id, {'type': 'workspace.reset',
+                                       'generation': self.store.generation(workspace_id)})
 
     def ingest(self, workspace_id, event: TranscriptEvent, live_mirror=False):
         """Persist one meeting event, broadcast the utterance, and dispatch actions.
@@ -111,23 +121,31 @@ class AgentRuntime:
                 workspace_id, instruction, action.payload.get("transcript_id"))
             self.bus.publish(workspace_id, {
                 "type": "task.started", "task_id": task_id, "instruction": instruction})
+            self.runner_workspaces[task_id] = workspace_id
             self.runners[task_id] = asyncio.get_running_loop().create_task(
-                self._run_task(workspace_id, task_id, instruction))
+                self._run_task(workspace_id, task_id, instruction, self.store.generation(workspace_id)))
         elif action.kind == "PRESENT_ARTIFACT":
             artifact_id = action.payload["artifact_id"]
             self.store.set_active_artifact(workspace_id, artifact_id)
             self.bus.publish(workspace_id, {
                 "type": "artifact.present", "artifact_id": artifact_id})
 
-    async def _run_task(self, workspace_id, task_id, instruction):
+    async def _run_task(self, workspace_id, task_id, instruction, generation):
+        if generation != self.store.generation(workspace_id):
+            return
         try:
             if self.worker is None:
                 raise RuntimeError("no_worker")
             artifact = await self.worker(instruction, self.store.transcript(workspace_id))
         except Exception as exc:
+            if generation != self.store.generation(workspace_id):
+                return
             self.store.finish_task(task_id, "failed", error=type(exc).__name__)
             self.bus.publish(workspace_id, {
                 "type": "task.failed", "task_id": task_id, "error_type": type(exc).__name__})
+            return
+        # Cancellation is best effort; a worker may return even after reset.
+        if generation != self.store.generation(workspace_id):
             return
         artifact_id = self.store.create_artifact(
             workspace_id, task_id=task_id, type=artifact.get("type", "report"),
@@ -158,8 +176,9 @@ class AgentRuntime:
             "status": fields["status"], "error_type": error,
             "progress": fields.get("progress")})
         result = fields.get("result")
-        if fields["status"] == "completed" and result and task_id not in self.mirrored_artifacts:
-            self.mirrored_artifacts.add(task_id)
+        key = (workspace_id, self.store.generation(workspace_id), task_id)
+        if fields["status"] == "completed" and result and key not in self.mirrored_artifacts:
+            self.mirrored_artifacts.add(key)
             title, summary = artifact_meta(str(result))
             artifact_id = self.store.create_artifact(
                 workspace_id, task_id=task_id, type="report",
