@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" role="img" aria-label="Illustration of a four-participant meeting, to be replaced by a real recording">
+<rect width="1000" height="600" fill="#102820"/><g stroke="#4e705b" stroke-width="1">
+<rect x="28" y="28" width="458" height="252" rx="6" fill="#526c59"/><rect x="514" y="28" width="458" height="252" rx="6" fill="#7e7256"/><rect x="28" y="305" width="458" height="252" rx="6" fill="#715a4b"/><rect x="514" y="305" width="458" height="252" rx="6" fill="#203d2e"/></g>
+<g fill="#102820" opacity=".3"><ellipse cx="255" cy="241" rx="91" ry="70"/><ellipse cx="742" cy="241" rx="91" ry="70"/><ellipse cx="255" cy="517" rx="91" ry="70"/></g><g fill="#c1c9ac"><circle cx="255" cy="127" r="49"/><circle cx="742" cy="127" r="49" fill="#ddc192"/><circle cx="255" cy="402" r="49" fill="#c5a18b"/></g>
+<circle cx="743" cy="421" r="69" fill="#edb657"/><path d="M743 375c3 29 17 43 46 46-29 3-43 17-46 46-3-29-17-43-46-46 29-3 43-17 46-46Z" fill="#183b32"/>
+
+
+</svg>
