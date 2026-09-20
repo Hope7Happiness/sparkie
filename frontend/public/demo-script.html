@@ -532,7 +532,9 @@ function applyEdits(values) {
   });
 }
 applyEdits(embeddedDraft.edits);
-try {applyEdits(JSON.parse(localStorage.getItem(draftKey) || '{}'));} catch {}
+if (!embeddedDraft.shared) {
+  try {applyEdits(JSON.parse(localStorage.getItem(draftKey) || '{}'));} catch {}
+}
 function editable(key, label) {
   return ' contenteditable="plaintext-only" role="textbox" aria-multiline="true" aria-label="' + escape(label) + '" data-edit="' + key + '"';
 }
@@ -550,11 +552,15 @@ $('#script-board').addEventListener('input', e => {
   const value = element.innerText.replace(/\r\n/g, '\n');
   entry.target[entry.field] = value;
   edits[element.dataset.edit] = value;
+  $('#print-content').innerHTML = printHTML();
   try {
+    if (embeddedDraft.shared) {
+      $('#edit-status').textContent = ' 正在同步…';
+      return;
+    }
     localStorage.setItem(draftKey, JSON.stringify(edits));
     $('#edit-status').textContent = ' 已自动保存。';
   } catch {$('#edit-status').textContent = ' 当前浏览器无法保存；请下载 HTML 保留修改。';}
-  $('#print-content').innerHTML = printHTML();
 });
 
 let role = 'overview', step = 0, elapsed = 0, started = null, checks = {};
