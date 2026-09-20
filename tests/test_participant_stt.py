@@ -129,14 +129,15 @@ class ParticipantTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MacPacketTests(unittest.IsolatedAsyncioTestCase):
-    async def test_realtime_selects_mixed_input_and_preserves_capture_gating(self):
+    async def test_realtime_splits_user_stt_from_mixed_foreground_and_preserves_capture_gating(self):
         from sparkie.realtime_zoom_audio import RealtimeZoomAudio
         from test_zoom_audio import packet
         with tempfile.TemporaryDirectory() as root:
             meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
             audio = RealtimeZoomAudio(meeting, on_event=lambda *args, **kwargs: None)
-            self.assertFalse(meeting.participant_audio)
-            self.assertEqual(meeting.diagnostics()['input_mode'], 'mixed')
+            self.assertTrue(meeting.participant_audio)
+            self.assertTrue(meeting.mixed_audio)
+            self.assertEqual(meeting.diagnostics()['input_mode'], 'mixed_and_per_participant')
             meeting.reader = asyncio.StreamReader()
             meeting.reader_task = asyncio.create_task(meeting.receive())
             pcm = b'\x01\0' * 320
@@ -151,10 +152,68 @@ class MacPacketTests(unittest.IsolatedAsyncioTestCase):
                 frame = await asyncio.wait_for(meeting.queue.get(), 2)
                 self.assertTrue(frame.gated)
                 self.assertEqual(frame.pcm, bytes(len(pcm)))
-                with self.assertRaises(RuntimeError):
-                    meeting.decode_audio(b'U', struct.pack('!IQ', 10, 1200) + pcm)
+                meeting.reader.feed_data(packet(b'U', struct.pack('!IQ', 10, 1200) + pcm))
+                user_frame = await asyncio.wait_for(meeting.participant_queue.get(), 2)
+                self.assertEqual(user_frame.pcm, pcm)
+                self.assertEqual(user_frame.speaker_id, 'zoom:10')
+                self.assertEqual(meeting.queue.qsize(), 0)
             finally:
                 await meeting.leave()
+
+    async def test_participant_overflow_does_not_stop_mixed_input(self):
+        from sparkie.realtime_zoom_audio import RealtimeZoomAudio
+        from test_zoom_audio import packet
+        with tempfile.TemporaryDirectory() as root:
+            meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
+            RealtimeZoomAudio(meeting, on_event=lambda *a, **kw: None)
+            meeting.participant_queue = asyncio.Queue(maxsize=1)
+            meeting.reader = asyncio.StreamReader()
+            meeting.reader_task = asyncio.create_task(meeting.receive())
+            pcm = b'\x01\0' * 320
+            meeting.reader.feed_data(packet(b'U', struct.pack('!IQ', 10, 0) + pcm) * 2 + packet(b'A', pcm))
+            try:
+                mixed = await asyncio.wait_for(meeting.queue.get(), 2)
+                self.assertEqual(mixed.pcm, pcm)
+                self.assertIsNone(meeting.failure)
+                self.assertFalse(meeting.participant_accepting)
+                with self.assertRaisesRegex(ProviderError, 'queue full'):
+                    await anext(meeting.participant_audio_stream())
+            finally:
+                await meeting.leave()
+
+    async def test_old_native_binary_cannot_silently_start_without_dual_streams(self):
+        from unittest.mock import AsyncMock, Mock, patch
+        from test_zoom_audio import packet
+        with tempfile.TemporaryDirectory() as root:
+            meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
+            meeting.port, meeting._token = 123, 'fixture'
+            for handshake, valid in [(b'cancel-v1', False), (meeting.handshake, True)]:
+                reader = asyncio.StreamReader()
+                reader.feed_data(packet(b'H', handshake))
+                writer = Mock(drain=AsyncMock())
+                meeting.failure = None
+                with patch('asyncio.open_connection', new=AsyncMock(return_value=(reader, writer))):
+                    if valid:
+                        await meeting.connect()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'rebuild'):
+                            await meeting.connect()
+                meeting.writer = None
+
+    async def test_input_end_drains_user_frames_and_ignores_packets_during_final_flush(self):
+        with tempfile.TemporaryDirectory() as root:
+            meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
+            meeting.mixed_audio = True
+            meeting.enqueue_frame(frame('zoom:10', 0))
+            meeting.input_finished = True
+            meeting.participant_input_done.set()
+            for i in range(1100):
+                meeting.enqueue_frame(AudioFrame(i, b'\0\0'))
+                meeting.enqueue_frame(frame('zoom:20', 10))
+            records = [f async for f in meeting.participant_audio_stream()]
+            self.assertEqual([f.speaker_id for f in records], ['zoom:10'])
+            self.assertTrue(meeting.queue.empty())
+            self.assertIsNone(meeting.participant_failure)
 
     async def test_wire_demultiplexing_metadata_heartbeat_and_old_binary_rejection(self):
         import json

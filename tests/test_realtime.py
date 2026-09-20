@@ -88,7 +88,7 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
                                ('sk-private-secret', 'unknown_provider_error')]:
             with self.assertRaises(ProviderError) as caught:
                 await self.agent.handle({'type': 'response.done', 'response': {
-                    'id': 'r', 'status': 'failed', 'status_details': {
+                    'id': 'r-' + expected, 'status': 'failed', 'status_details': {
                         'error': {'code': code, 'message': 'private response body'}}}})
             details = failure_details(caught.exception)
             self.assertEqual(details['provider'], 'openai')

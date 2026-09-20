@@ -6,26 +6,13 @@
 
 现已接通真实闭环：Zoom 会议音频 → Deepgram STT → Sparkie 唤醒 → Codex Terra Medium → Deepgram TTS → Zoom 虚拟麦克风 → 其他参会者。沿用已验证的 Linux ARM64 Meeting SDK **7.0.5.3529**。macOS 原生路径（`ZOOM_PLATFORM=macos`）已实现同一闭环、无需 Docker，但尚未完成真实会议验收；以下步骤与记录仍对应 Linux 路径。
 
-## macOS 分用户转写
+## macOS Zoom Realtime 分用户转写
 
-macOS SDK 7.1.5 路径现改用每位参会端的独立音轨，分别送 Deepgram，并保留 Zoom 用户 ID 和显示名。Linux 路径仍用混音。原生代码更新后必须重新构建：
+当前测试入口为 Zoom Realtime，构建和多人验收步骤见 [README](../README.md) 与 [Realtime Zoom](realtime.md#zoom-中验收完整-agent)。同时发送连续混音给 Realtime、独立音轨给 Deepgram；转写与后台上下文保留 speaker_id、speaker 和会议时间。
 
-```bash
-uv run --frozen python scripts/zoom-sanity.py build --platform macos
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en --seconds 600 --response-mode wake
-```
+wake/qa 已标记为 legacy，以下仅保留历史诊断/问答操作和实测证据。
 
-构建需要将 ZOOM_MACOS_SDK_PATH 指向本机 SDK 根目录。固定回复模式即可验收分用户转写，不需要启动推理后端。主持人仍需接纳 Sparkie 并授予原始音频读取所需的录制权限。
-
-在 events.jsonl 检查 zoom_participants、zoom_participant_audio、participant_stt_ready 和 transcript；每条 transcript 的 speaker_id 为 zoom:<userID>，speaker 为显示名或 ID。run.json 的 transcript 按会议时间排序；实时日志保留到达顺序。转写按非零音频建立连接，1.5 秒停顿后释放，默认并行上限 32（SPARKIE_ZOOM_MAX_STT_STREAMS，1–64），成本随活跃音轨数增加；噪声可能保持连接。
-
-macOS 只过滤自身用户音轨，其他人在 Sparkie 播放时仍可被转写；未实现对远端扬声器声学回声的消除。不能区分共用一个 Zoom 端麦克风的多人。会议中同时提出多个唤醒请求时，现有 primitive 仍只处理一个回复，其他请求记录 response_busy；分轨不等于并行语音回复。
-
-本地协议/分流测试覆盖重名、同时输入、长停顿、静默、取消、错误与容量限制；两路合成语音经过真实 Deepgram 分别得到正确转写。真实 Zoom 多人轮流/重叠发言、用户进出及回声效果仍需会议验收。
-
-建议验收：两位参会者各说一句不同内容，再同时发言；让一位停顿超过两秒后继续；检查文本均归入正确 speaker_id，且时间未压缩。再检查重名/改名、退出与再次加入，以及 Sparkie 回复期间的发言。
-
-## 启动（Linux）
+## Legacy wake/qa 启动（Linux）
 
 先完成 [Zoom 接收探针的构建和凭据配置](zoom-sanity.md)，得到 `sparkie-zoom-sanity:7.0.5` 镜像；再执行一次：
 

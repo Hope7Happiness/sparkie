@@ -51,9 +51,11 @@ class RealtimeZoomAudio:
 
     def __init__(self, meeting, *, on_event):
         self.meeting, self.on_event = meeting, on_event
-        # Realtime needs one continuous mixed clock, not concatenated participant streams.
-        if hasattr(meeting, "participant_audio"):
-            meeting.participant_audio = False
+        # Foreground consumes only the continuous mix; STT has an independent per-user queue.
+        self.participant_transcription = hasattr(meeting, 'participant_audio_stream')
+        if self.participant_transcription:
+            meeting.participant_audio = True
+            meeting.mixed_audio = True
         self.outputs, self.output = {}, None
         self.waiting = deque()
         self.changed = asyncio.Event()
@@ -115,10 +117,27 @@ class RealtimeZoomAudio:
                       zoom_sample_rate=32000, echo_mode='silence_during_playback_plus_350ms')
 
     async def audio(self):
+        try:
+            async for frame in self._mixed_audio():
+                yield frame
+        finally:
+            if self.participant_transcription:
+                self.meeting.input_finished = True
+                self.meeting.participant_input_done.set()
+
+    def participant_audio(self):
+        return self.meeting.participant_audio_stream()
+
+    def disable_participant_transcription(self):
+        self.meeting.disable_participant_transcription()
+
+    async def _mixed_audio(self):
         sequence = 0
         async for frame in self.meeting.audio():
             if self.failure:
                 raise self.failure
+            if frame.speaker_id is not None:
+                raise ProviderError('Per-user PCM must not enter the Realtime mixed stream')
             if frame.sample_rate != 32000:
                 raise ProviderError('Zoom bridge requires PCM16 mono 32000Hz')
             gated = frame.gated if frame.gated is not None else self.input_gated()
@@ -277,6 +296,9 @@ class RealtimeZoomAudio:
 
     def diagnostics(self):
         return {**self.meeting.diagnostics(), 'transport': 'zoom-realtime',
+                'participant_transcription': self.participant_transcription,
+                'foreground_echo_mode': 'silence_during_playback_plus_350ms',
+                'transcription_echo_mode': 'exclude_sdk_self_track' if self.participant_transcription else 'foreground_gate',
                 'playback_buffer_limit_bytes': self.MAX_BUFFER_BYTES,
                 'response_limit_seconds': None,
                 'gated_samples': self.gated_samples,

@@ -1,5 +1,13 @@
 # Phase 0 接口约定
 
+## 本地双人讨论转写测试页
+
+当前 /multitrack.html 使用两个互斥的麦克风按钮，将同一真实麦克风路由到两个模拟参会者；点击当前按钮可全部静音。两路共用 32 kHz AudioWorklet 时钟，每 20 ms 发送当前参与者 PCM 与另一条零填充音轨。切换时清除旧部分帧，主线程按 capture epoch 拒绝切换前排队的语音，避免跨身份串音。页面只调用真实 Deepgram，不加入 Zoom、不调用 Realtime 或后台任务。
+
+同源 WebSocket /multitrack-audio 启动独立 Python sparkie.multitrack_lab 子进程。首条 start 含 language 和 tracks（协议支持 2–4 个 {name}，当前 UI 固定两个）；随后 frame 含从零连续递增的 sequence 和同顺序 tracks 数组，每项为 1280 bytes 的 base64 PCM16 mono 32 kHz。统一时间为 sequence × 20 ms；分轨帧使用生产 U 解码/队列及 ParticipantEars，零帧不打开识别连接。finish 排空队列并等待最终转写。
+
+输出 ready、participant_stt_ready/closed、progress、transcript、completed/failed；转写包含 speaker_id、speaker、timestamp_ms、event_id。会话持续到手动结束，不再限制 60 秒音频或 95 秒连接；初始化等待 20 秒、输入空闲 15 秒、最终转写等待 15 秒及缓存上限仍有效。结束时先关闭麦克风再等待最终文本；关闭页面直接释放本轮连接。详情与实际验证见 [双人讨论测试页](multitrack-lab.md)。
+
 ## 当前 primitive 的音频边界
 
 新增 `src/sparkie/audio.py`：`AudioFrame(sequence, pcm, sample_rate)`，PCM 为单声道 S16LE。`AudioMeeting` 接口提供 `join()`、异步 `audio()`、`play_audio(pcm, sample_rate)`、`stop_speaking()` 和 `leave()`。音频版 primitive 使用此接口；下方早期 `MeetingAdapter.speak(text)` 是规划中的文字层接口，当前 engine 不调用它。会议接入和语音合成模块在此边界分别接 Zoom 与 Deepgram TTS。
@@ -52,29 +60,32 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 
 SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。
 
-取消协议更新：两平台 `H` payload 必须为 ASCII `cancel-v1`。`C` 现在携带 4-byte big-endian 单调递增取消 ID；原生 `K` 回传同一 ID，只有旧 generation 的 SDK send/sleep 已结束、待播包已清空后才确认。Python 序列化 C 与新的 P，最多等 5 秒（包括发送时间）；旧 ID 不解除等待。超时、断连或取消等待被中断会禁用该连接，不能继续提交替代音频。原生网络线程不等待 SDK，不在持有 sender mutex 时等待取消；播放线程在空闲边界发 K。旧空 H / 无确认 C 不做兼容降级，启动明确提示重建 macOS receiver 或 Linux image。诊断 reason 包含 bridge_rebuild_required、cancel_ack_timeout、cancel_aborted。
+取消协议：Linux H payload 为 ASCII cancel-v1；macOS 更新为 cancel-v1,dual-input-v1，包含双路输入能力。`C` 现在携带 4-byte big-endian 单调递增取消 ID；原生 `K` 回传同一 ID，只有旧 generation 的 SDK send/sleep 已结束、待播包已清空后才确认。Python 序列化 C 与新的 P，最多等 5 秒（包括发送时间）；旧 ID 不解除等待。超时、断连或取消等待被中断会禁用该连接，不能继续提交替代音频。原生网络线程不等待 SDK，不在持有 sender mutex 时等待取消；播放线程在空闲边界发 K。旧空 H / 无确认 C 不做兼容降级，启动明确提示重建 macOS receiver 或 Linux image。诊断 reason 包含 bridge_rebuild_required、cancel_ack_timeout、cancel_aborted。
 
 macOS `E` 现在为版本 1 JSON：`reason` 只允许 `sdk_send_failed` / `playback_active` / `microphone_unavailable` / `invalid_input_format`，另带整数 `sdk_result`、`playback_id`、`frame_index`（从 1 开始的发送尝试；无尝试为 0）。`sdk_result=-1` 表示未调用 SDK，没有实际返回码。原生日志保留相同 `BRIDGE_ERROR`。Python 兼容上述四种旧固定文本，未知内容只记 `unknown_native_error`，额外字段和任意正文不会进入遥测。`ZoomBridgeError` 的白名单字段进入 `audio_failed`、`session_failed` 和 `run.json.failure`；错误仍终止本轮，不盲目重试 SDK 发送。
 
 `zoom_playback_submitted` 只报告 SDK 首帧接受，不能作为另一参会者的 DAC 时间或可听确认。`zoom-audio` 不设置 `audio_origin` / `last_playback_started_at`，不输出本地设备时延估算。Linux 混音输入在播放及之后 350 ms 替换为静音；这会失去同时发言，也不能在该窗口内靠语音取消。macOS 分用户路径见下文。
 
-### macOS 分用户音频（SDK 7.1.5）
+### macOS Zoom Realtime 分用户转写（SDK 7.1.5）
 
-macOS 原生配置 `participant_audio` 选择输入协议：旧 `wake` / `qa` 路径默认为 true，使用下述分用户转写；`RealtimeZoomAudio` 在入会前选择 false，保留连续的 A 混音时钟及播放门控。两个模式不同时发送音频，避免把同时发言的分用户帧串联成错误的时间线。需重建接收器后使用。
+RealtimeZoomAudio 在入会前选择 participant_audio=true、mixed_audio=true。原生桥同时发送 A 连续混音与 U 分用户音频；Python 为两者使用独立有界队列。A 只进入 32→24 kHz 重采样和 Realtime 前台；U 只进入 ParticipantEars 与独立 Deepgram 连接。两者不能拼接，U 也不会再复制到混音转写队列。Linux 和浏览器保持原有转写链路。wake/qa 为 legacy，保留其原有独立模式。
 
-macOS 语音接收器改用 `onOneWayAudioRawDataReceived:userID:`；旧 nodeID 回调保留空实现以免重复处理。混音回调只发健康心跳，不转发混合 PCM。协议扩展：
+macOS H 握手必须是 ASCII cancel-v1,dual-input-v1；旧二进制会明确提示重建。Linux 仍使用 cancel-v1。既有取消确认协议保持不变。
 
-- `U`：userID（4 字节 BE）+ 帧起始 timestamp_ms（8 字节 BE）+ PCM16 mono 32 kHz，总 payload 不超过 64000 字节。
-- `J`：JSON 参会端列表，含 user_id、name、is_self；主线程每秒检查变化，音频回调不查询参会端信息、不执行网络 I/O。
-- `R`：空 payload，混音接收健康心跳；静默会议也能就绪。
+- A：混音 PCM16 mono 32 kHz，前台继续保留播放/尾音门控。
+- U：userID（4 字节 BE）+ 帧起始 timestamp_ms（8 字节 BE）+ PCM16 mono 32 kHz，总 payload 不超过 64000 字节；过滤 SDK 自身 ID，不做全局播放门控。
+- J：JSON 参会端列表，含 user_id、name、is_self；主线程每秒检查变化，音频回调不查名字、不做网络 I/O。
+- R：空 payload 健康心跳，静默会议也能就绪。
 
-`AudioFrame` 新增可选 speaker_id、timestamp_ms，默认 None，保留既有调用兼容。时间原点为本轮 SDK 音频订阅附近；优先归一化 SDK getTimeStamp，返回零时用单调回调时间减帧长估计，不是精确声学时间。旧 macOS 二进制发出的 A 混音帧会明确报错要求重建；Linux A 协议保留。
+AudioFrame 携带可选 speaker_id、timestamp_ms；优先使用归一化 SDK getTimeStamp，缺失时用单调回调时间减帧长估计，不是精确声学时间。TranscriptEvent 的 speaker_id 为 zoom:<userID>，speaker 为显示名或 ID；同名参会端不合并。
 
-`ParticipantEars` 按用户分流到独立 DeepgramEars，每条连接有独立断句器。无非零 PCM 的参会者不建连接；每人 1.5 秒无非零帧后补 500 ms 静音并关闭连接，之后发言建立新段，事件 ID 带用户和段编号。背景噪声可能使连接保持活跃，这不是语义 VAD。段内音频空隙补静音，长停顿以新的会议时间偏移处理。默认最多 32 条并行连接（含正在结束的连接），SPARKIE_ZOOM_MAX_STT_STREAMS 可调整为 1–64；每条输入最多 500 帧，超限或任一转写错误明确结束本轮，不静默串音或漏掉用户。
+ParticipantEars 按用户分流，每条连接独立断句。仅非零 PCM 建立/续期连接，1.5 秒无非零帧后补 500 ms 静音并关闭；之后发言开启新段，事件 ID 带用户和段编号。段内空隙补静音，长停顿按新会议时间偏移处理。噪声可能保持连接，这不是语义 VAD。默认并发上限 32（含结束中的连接），SPARKIE_ZOOM_MAX_STT_STREAMS 可设为 1–64。
 
-`TranscriptEvent` 新增可选 speaker_id（默认 None）；macOS 为 zoom:<userID>，speaker 为显示名，名字不可得时回退为 ID。重名用户不会合并，退会前取得的名字仍可用于最终转写。实时事件按提供者完成顺序到达；run.json 的 transcript 按 timestamp_ms 排序，问答上下文保留身份和时间。一个 Zoom 端内多人共用麦克风仍不能分开。
+Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台 A 仍继续。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
 
-macOS 分用户模式只过滤 SDK 自身音轨，不采用上述 Linux 的全局播放静音门控；其他人的发言在播放期间仍可转写，远端扬声器回声仍可能被识别。分流测试和真实 Deepgram 合成音频测试不等于真实 Zoom 多人验收。
+启动 transcript_ready 的 readiness=router 仅表示分流器可接收；每位用户的真实连接就绪单独记录 participant_stt_ready。结束时先停止分轨输入、排空并刷新转写，最多等 10 秒，超时记录缺口，然后关闭所有连接。transcript.jsonl 按结果到达顺序保存，后台快照保留身份与时间；run.json 的 transcript 按 timestamp_ms 排序。
+
+同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。前台混音播放门控仍限制播放期间的语音打断。离线或合成输入验证不作为真实多人会议成功证据。
 
 ## Realtime 前台与后台分析（本地验收）
 
@@ -91,7 +102,6 @@ Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网
 
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
 `update_task(task_id, request)` 接收完整修订请求并刷新快照，保持任务 ID。queued 任务保留队列位置；running 的 Devin 任务通过队列传递修订，ACP 中断当前轮后在同一会话继续。返回 update_delivery=pending 不能宣称已执行；applied_revision 和 delivered 表示已送入后台连接。request_history 保存历史请求，连续修订以最新完整请求为准。其他 running 后端及 completed 任务拒绝更新，已发生的操作不会回滚。
-`create_desktop_file(filename, content)` 和 `open_website(url)` 使用同一任务状态/通知协议，但直接执行本机操作，不占 Codex 串行队列。文件使用独占创建并读回核验；网址仅允许 HTTP(S)，结果只确认浏览器启动请求，不保证页面加载完成。
 worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。取消 Codex 任务会终止对应进程；取消 Devin 当前轮保留常驻会话，结束语音会话会终止进程组。
 `task_workers.py` 选择独立 Codex / Devin 适配器，Devin 协议实现位于 `devin_acp.py`。共用 `run(request, transcript)` / `run_with_progress(request, transcript, progress)`；持久 worker 另提供 start / close，支持运行中修订时通过 updates 队列接收 `(request, snapshot, revision)`，initial_revision 表示开始运行时的修订号。`SPARKIE_TASK_BACKEND=codex|devin` 仅选择 Realtime 后台，默认 codex；DEVIN_MODEL 默认 swe-1-6-fast。前台语音及旧 Q&A SPARKIE_BACKEND 不变。
 
@@ -112,7 +122,7 @@ Devin 每次语音会话启动一个 `devin acp --model ...` 进程，经 initia
 
 WebSocket `/audio?session=<id>` 仅接受通过本机网络接口地址的同源 Origin、当前会话和一个连接，PCM 不进入状态轮询或磁盘日志。browser→Python：audio_settings、连续 sequence 的 audio_input、带 generation 的 audio_progress。Python→browser：audio_ready、audio_output、audio_clear。只有 provider ready 后才发输入；24 kHz PCM16 mono、20 ms 包；队列/管道溢出明确失败。清空播放递增 generation，旧音频/播放进度不能复活。AudioWorklet 每 20 ms 报告渲染进度供截断使用，不宣称是准确 DAC 时间。密钥仍仅保存在 Python。浏览器断开关闭会话并释放麦克风。
 
-Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页检索、复杂文件/代码和外部工具请求应直接委派；简单桌面文件创建与打开指定网址优先使用上述本机工具。
+Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页检索、文件/代码和外部工具请求统一委派，包括创建桌面文件和打开网页或本地报告。前台仅保留 delegate_task、task_status、update_task、cancel_task 和 remain_silent 五个工具，本机快捷执行分支已移除。
 
 浏览器 `seconds=0` 表示手动结束；限时模式支持 1–3600 秒。浏览器输入包续期页面及音频心跳，输入停顿只提示恢复麦克风，不取消后台任务；关闭页面、断开音频 WebSocket 或显式结束仍终止会话。`browser_audio_settings` 包含 AudioContext 和 track 状态，供排查暂停/设备中断。
 
