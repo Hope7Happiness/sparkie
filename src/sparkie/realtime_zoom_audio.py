@@ -14,6 +14,7 @@ import soxr
 
 from .audio import AudioFrame
 from .providers import ProviderError, PlaybackLimitError, failure_details
+from .zoom_errors import ZoomMicrophoneMuted
 
 
 class PCMResampler:
@@ -63,6 +64,7 @@ class RealtimeZoomAudio:
         self.failure = None
         self.stopped = False
         self.interrupting = False
+        self.paused_for_candidate = False
         self._stop_lock = asyncio.Lock()
         self.captured_samples = 0
         self.audio_origin = None
@@ -195,11 +197,21 @@ class RealtimeZoomAudio:
             output.finished = True
             self.changed.set()
 
+    def pause_speaking(self):
+        # Hold unsent PCM at the next 100ms packet boundary. An SDK packet already
+        # in flight must finish so resuming cannot repeat or skip unknown samples.
+        self.paused_for_candidate = True
+        self.changed.set()
+
+    def resume_speaking(self):
+        self.paused_for_candidate = False
+        self.changed.set()
+
     async def pump(self):
         try:
             while not self.stopped:
                 self.changed.clear()
-                if self.interrupting:
+                if self.interrupting or self.paused_for_candidate:
                     await self.changed.wait()
                     continue
                 if self.output is None or self.output.cancelled.is_set() or self.output.drained:
@@ -220,20 +232,35 @@ class RealtimeZoomAudio:
                     self.output_drained()
                     continue
                 pcm = bytes(output.pending[:self.PACKET_BYTES])
-                del output.pending[:len(pcm)]
-                self.buffered -= len(pcm)
+                # Retain the packet until the SDK acknowledges it. On mute the
+                # bridge cancels the old send before we retry this same packet.
                 # Native bridge pads its final 20ms frame. Only original samples count.
                 self._gate_until = time.monotonic() + len(pcm) / 64000 + .35
                 self.play_task = asyncio.create_task(self.meeting.play_audio(pcm, 32000))
+                muted = False
                 try:
                     await self.play_task
                 except asyncio.CancelledError:
                     if not output.cancelled.is_set() or self.stopped:
                         raise
+                except ZoomMicrophoneMuted:
+                    if self.stopped or self.meeting.stopped.is_set() or self.meeting.failure:
+                        raise
+                    # Only a typed microphone signal is recoverable here. Timeouts
+                    # and transport errors must not become successful playback.
+                    muted = True
                 finally:
                     self.play_task = None
                     self._gate_until = time.monotonic() + .35
+                if muted:
+                    self.on_event('zoom_playback_muted', item_id=output.item_id,
+                                  note='Retry unacknowledged packet after unmute; up to 100ms may repeat.')
+                    if not await self._wait_unmuted(output):
+                        return
+                    continue
                 if not output.cancelled.is_set():
+                    del output.pending[:len(pcm)]
+                    self.buffered -= len(pcm)
                     first = output.submitted == 0
                     output.submitted += len(pcm)
                     if first:
@@ -246,11 +273,24 @@ class RealtimeZoomAudio:
             self.meeting.request_stop()
             self.on_event('audio_failed', **failure_details(exc))
 
+    async def _wait_unmuted(self, output):
+        while not self.meeting.mic_ready.is_set():
+            if self.stopped or self.meeting.stopped.is_set() or self.meeting.failure:
+                return False
+            if output.cancelled.is_set():
+                return True
+            try:
+                await asyncio.wait_for(self.meeting.mic_ready.wait(), .2)
+            except TimeoutError:
+                pass
+        return True
+
     async def stop_speaking(self):
         async with self._stop_lock:
             await self._stop_speaking()
 
     async def _stop_speaking(self):
+        self.paused_for_candidate = False
         active = self.play_task is not None or any(
             not o.cancelled.is_set() and not o.drained for o in self.outputs.values())
         if not active:
@@ -301,6 +341,7 @@ class RealtimeZoomAudio:
                 'transcription_echo_mode': 'exclude_sdk_self_track' if self.participant_transcription else 'foreground_gate',
                 'playback_buffer_limit_bytes': self.MAX_BUFFER_BYTES,
                 'response_limit_seconds': None,
+                'paused_for_candidate': self.paused_for_candidate,
                 'gated_samples': self.gated_samples,
                 'gate_basis': 'bridge_receive_before_queue; native packet gate also active',
                 'realtime_sample_rate': 24000, 'playback_packet_ms': 100,

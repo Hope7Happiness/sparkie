@@ -1,15 +1,16 @@
 """Offline reproduction of native Connecting stall; no SDK/network initialization."""
 import asyncio
 import json
+import struct
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import AsyncMock
 
 from sparkie.providers import failure_details
-from sparkie.zoom_audio import ZoomMacAudioMeeting
+from sparkie.zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
 from sparkie.zoom_join import NativeJoinProgress, ZoomJoinError
-from test_zoom_audio import FakeProcess
+from test_zoom_audio import FakeProcess, packet
 
 
 class JoinTests(unittest.IsolatedAsyncioTestCase):
@@ -34,6 +35,59 @@ class JoinTests(unittest.IsolatedAsyncioTestCase):
 
     def write(self, lines):
         self.log.write_bytes(bytes([10]).join(line.encode() for line in lines) + bytes([10]))
+
+    def startup_packets(self):
+        self.meeting.mixed_audio = True
+        self.meeting.reader = asyncio.StreamReader()
+        self.meeting.receive = ZoomAudioMeeting.receive.__get__(self.meeting)
+        pcm = b'\x01\x00' * 320
+        # Reproduce more than the entire 1000-frame mix buffer while U runs too.
+        self.meeting.reader.feed_data((packet(b'A', pcm) +
+            packet(b'U', struct.pack('!IQ', 7, 0) + pcm)) * 1100)
+        self.write(['MEETING_STATUS state=3 error=101 reason=0'])
+        return pcm
+
+    async def test_missing_microphone_reports_readiness_timeout_not_queuefull(self):
+        self.startup_packets()
+        self.meeting.join_timeout = .2
+        with self.assertRaises(ZoomJoinError) as caught:
+            await self.meeting.join()
+        fields = failure_details(caught.exception)
+        self.assertEqual(fields['reason'], 'audio_readiness_timeout')
+        self.assertTrue(fields['audio_ready'])
+        self.assertFalse(fields['microphone_ready'])
+        self.assertEqual(self.meeting.startup_frames_discarded, 2200)
+        self.assertEqual(self.meeting.max_queued_frames, 0)
+        self.assertTrue(self.meeting.participant_queue.empty())
+        self.assertTrue(self.process.terminated)
+        self.assertEqual(sum(k == 'zoom_startup_audio_discarded' for k, _ in self.events), 1)
+        self.assertFalse(any(k == 'audio_failed' for k, _ in self.events))
+
+    async def test_delayed_microphone_starts_fresh_mix_and_participant_input(self):
+        pcm = self.startup_packets()
+        self.meeting.join_timeout = 1
+        joining = asyncio.create_task(self.meeting.join())
+        try:
+            async with asyncio.timeout(1):
+                while self.meeting.frames_received < 2200:
+                    await asyncio.sleep(.001)
+            self.assertFalse(joining.done())
+            self.assertTrue(self.meeting.queue.empty())
+            self.assertTrue(self.meeting.participant_queue.empty())
+            self.meeting.reader.feed_data(packet(b'M'))
+            await joining
+            self.meeting.reader.feed_data(packet(b'A', pcm) +
+                packet(b'U', struct.pack('!IQ', 7, 11000) + pcm))
+            mixed = await asyncio.wait_for(self.meeting.queue.get(), 1)
+            user = await asyncio.wait_for(self.meeting.participant_queue.get(), 1)
+            self.assertEqual(mixed.pcm, pcm)
+            self.assertIsNone(mixed.speaker_id)
+            self.assertEqual(user.speaker_id, 'zoom:7')
+            self.assertEqual(user.timestamp_ms, 11000)
+            self.assertIsNone(self.meeting.failure)
+        finally:
+            joining.cancel()
+            await asyncio.gather(joining, return_exceptions=True)
 
     async def test_exact_connecting_stall_is_bounded_classified_and_cleaned(self):
         self.write(['SDK_INIT result=0', 'SDK_AUTH_RESULT result=0', 'JOIN_REQUEST result=0',

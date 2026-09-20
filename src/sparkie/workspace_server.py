@@ -23,7 +23,7 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from .agent_runtime import AgentRuntime, utterance
+from .agent_runtime import AgentRuntime, artifact_meta, utterance
 from .event_bus import EventBus
 from .task_center import CodexTaskWorker
 from .workspace import WorkspaceStore
@@ -61,10 +61,14 @@ class WorkspaceServer:
                 return _respond(400, {"error": "kind and external_id required"})
             workspace_id = self.store.resolve_or_create(
                 kind, external, (query.get("title") or [""])[0])
+            if (query.get("reset") or [None])[0] == "1":
+                self.runtime.reset_workspace(workspace_id)
             return _respond(200, self.store.get_workspace(workspace_id))
         match = WORKSPACE_PATH.match(path)
         if match:
             snapshot = self.store.snapshot(match.group(1))
+            if snapshot is not None:
+                snapshot['seq'] = self.bus.sequences.get(match.group(1), 0)
             return _respond(200 if snapshot else 404, snapshot or {"error": "unknown workspace"})
         match = ARTIFACT_PATH.match(path)
         if match:
@@ -73,11 +77,17 @@ class WorkspaceServer:
         return None if EVENTS_PATH.match(path) else _respond(404, {"error": "not found"})
 
     async def handle(self, connection):
-        match = EVENTS_PATH.match(connection.request.path)
+        url = urlparse(connection.request.path)
+        match = EVENTS_PATH.match(url.path)
         if not match or not self.store.get_workspace(match.group(1)):
             await connection.close(4404, "unknown workspace")
             return
         workspace_id = match.group(1)
+        generation = self.store.generation(workspace_id)
+        requested = (parse_qs(url.query).get('generation') or [str(generation)])[0]
+        if requested != str(generation):
+            await connection.close(4409, 'workspace session changed')
+            return
         queue = self.bus.subscribe(workspace_id)
         sender = asyncio.get_running_loop().create_task(self._send(connection, queue))
         try:
@@ -86,16 +96,25 @@ class WorkspaceServer:
                     message = json.loads(raw)
                 except (TypeError, json.JSONDecodeError):
                     continue
+                if not isinstance(message, dict):
+                    continue
+                # Old session sockets cannot write into a freshly reset canvas.
+                # A browser may explicitly adopt the generation in its new snapshot.
+                if message.get('generation', generation) != self.store.generation(workspace_id):
+                    continue
                 kind = message.get("type")
                 if kind == "utterance" and isinstance(message.get("text"), str):
                     self.runtime.ingest(workspace_id, utterance(
                         workspace_id, message["text"][:4000], message.get("speaker"),
                         source=message.get("source") if message.get("source") == "bot" else "human",
-                        is_final=message.get("is_final", True)))
+                        is_final=message.get("is_final", True)),
+                        live_mirror=bool(message.get("live")))
                 elif kind == "end_meeting":
                     self.runtime.end_meeting(workspace_id)
                 elif kind == "cancel_task" and isinstance(message.get("task_id"), str):
                     self.runtime.cancel_task(workspace_id, message["task_id"])
+                elif kind == "task_update":
+                    self.runtime.mirror_task(workspace_id, message)
         finally:
             sender.cancel()
             self.bus.unsubscribe(workspace_id, queue)
@@ -118,13 +137,24 @@ async def workspace_session(args):
     args.db.parent.mkdir(parents=True, exist_ok=True)
     store = WorkspaceStore(args.db)
     bus = EventBus()
-    if args.worker == "codex":
-        worker = CodexTaskWorker(model=os.getenv("SPARKIE_CODEX_MODEL") or "gpt-5.6-terra",
-                                 workspace=Path.cwd())
+    worker = None
+    if args.worker in ("codex", "devin"):
+        if args.worker == "devin":
+            from .devin_acp import DevinTaskWorker
+            worker = DevinTaskWorker(model=os.getenv("DEVIN_MODEL") or "swe-1-6-fast")
+        else:
+            worker = CodexTaskWorker(model=os.getenv("SPARKIE_CODEX_MODEL") or "gpt-5.6-terra",
+                                     workspace=Path.cwd())
         async def task_worker(instruction, transcript):
-            answer = await worker.run(instruction, transcript)
-            return {"type": "report", "title": instruction[:80],
-                    "summary": answer[:500], "content": {"answer": answer}}
+            # The deliverable belongs in the reply body — a file path alone
+            # would leave the artifact empty for anyone watching the workspace.
+            prompt = (instruction + "\n\nReply with the complete deliverable itself "
+                      "(the full text/document in Markdown), not just a description "
+                      "of it or a file path.")
+            answer = await worker.run(prompt, transcript)
+            title, summary = artifact_meta(answer)
+            return {"type": "report", "title": title,
+                    "summary": summary, "content": {"markdown": answer}}
     else:
         async def task_worker(instruction, transcript):
             return {"type": "demo", "title": instruction[:80],
@@ -138,5 +168,11 @@ async def workspace_session(args):
     try:
         await server.serve_forever()
     finally:
-        await runtime.close()
-        store.close()
+        try:
+            await runtime.close()
+        finally:
+            try:
+                if worker is not None and hasattr(worker, 'close'):
+                    await worker.close()
+            finally:
+                store.close()

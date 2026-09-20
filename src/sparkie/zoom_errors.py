@@ -4,6 +4,10 @@ import json
 from .providers import ProviderError
 
 
+class ZoomMicrophoneMuted(ProviderError):
+    """Explicit microphone readiness/mute signal, not a generic playback failure."""
+
+
 class ZoomBridgeError(ProviderError):
     REASONS = {'sdk_send_failed', 'playback_active', 'microphone_unavailable',
                'invalid_input_format', 'unknown_native_error'}

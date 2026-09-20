@@ -53,7 +53,7 @@ class Element {
   get tags() { return [...this.walk()].map(el => el.tag); }
 }
 
-function harness() {
+function harness({ fetch = async () => { throw new Error('offline'); } } = {}) {
   const root = new Element('body');
   const byId = new Map();
   const document = {
@@ -67,9 +67,9 @@ function harness() {
   };
   const source = readFileSync(new URL('./workspace.js', import.meta.url), 'utf8')
     .replace(/^import '\.\/[\w-]+\.css';$/gm, '')
-    + '\nglobalThis.api={renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
+    + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
   const context = vm.createContext({
-    document, WebSocket: { OPEN: 1 }, fetch: async () => { throw new Error('offline'); },
+    document, WebSocket: { OPEN: 1 }, fetch,
     URL, Blob, FormData, console,
   });
   vm.runInContext(source, context);
@@ -77,6 +77,41 @@ function harness() {
 }
 
 const stage = document => document.getElementById('stage');
+
+test('reset discards in-flight artifact hydration from the previous session', async () => {
+  let resolve;
+  const response = new Promise(done => { resolve = done; });
+  const { api, document } = harness({ fetch: () => response });
+  api.state.server = 'http://localhost';
+  api.state.artifacts.set('old', { artifact_id: 'old', title: 'Old meeting' });
+  api.state.activeArtifact = 'old';
+  const pending = api.hydrateArtifact('old');
+  api.clearWorkspaceUI();
+  resolve({ ok: true, json: async () => ({ content: { markdown: 'Old content' } }) });
+  await pending;
+  assert.equal(api.state.artifacts.size, 0);
+  assert.equal(api.state.hydrated.size, 0);
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(stage(document).textContent, '');
+});
+
+test('reset snapshot adopts generation and replays only newer buffered events', async () => {
+  let resolve;
+  const response = new Promise(done => { resolve = done; });
+  const { api, document } = harness({ fetch: () => response });
+  api.state.server = 'http://localhost';
+  api.state.workspaceId = 'ws_test';
+  const pending = api.reloadSnapshot();
+  api.onEvent({ type: 'utterance', seq: 5, text: 'already in snapshot' });
+  api.onEvent({ type: 'utterance', seq: 6, text: 'newer than snapshot' });
+  resolve({ json: async () => ({ workspace: { generation: 2 }, seq: 5,
+    transcript: [{ text: 'already in snapshot' }], tasks: [], artifacts: [] }) });
+  await pending;
+  assert.equal(api.state.generation, 2);
+  assert.equal(document.getElementById('transcript').children.length, 2);
+  assert.equal(document.getElementById('utterance-count').textContent, '2');
+  assert.equal(api.state.snapshotEvents, null);
+});
 
 test('markdown renders headings, emphasis, lists, code and links as real nodes', () => {
   const { api } = harness();
@@ -119,6 +154,25 @@ test('markdown renders headings, emphasis, lists, code and links as real nodes',
   assert.equal(anchor.rel, 'noopener noreferrer');
 });
 
+test('markdown renders pipe tables as real tables', () => {
+  const { api } = harness();
+  const md = api.renderMarkdown([
+    '| # | Task | Status |',
+    '|---|---|---|',
+    '| 1 | Research **products** | Done |',
+    '| 2 | Weather | Done |',
+    '',
+    'after the table',
+  ].join('\n'));
+  const table = md.querySelector('table');
+  assert.equal(table.querySelectorAll('th').length, 3);
+  assert.equal(table.querySelector('th').textContent, '#');
+  const cells = table.querySelectorAll('td');
+  assert.equal(cells.length, 6);
+  assert.equal(cells[1].querySelector('strong').textContent, 'products');
+  assert.equal(md.querySelector('p').textContent, 'after the table');
+});
+
 test('markdown never injects markup and drops unsafe link schemes', () => {
   const { api } = harness();
   const md = api.renderMarkdown('<script>alert(1)</script>\n\n[点我](javascript:alert(1))');
@@ -136,7 +190,7 @@ test('task cards carry a status for every lifecycle event', () => {
 
   api.upsertTask({ task_id: 't1', instruction: 'research related work', status: 'queued' });
   assert.equal(card().dataset.status, 'queued');
-  assert.equal(card().querySelector('small').textContent, '排队中');
+  assert.equal(card().querySelector('small').textContent, 'Queued');
 
   api.upsertTask({ type: 'task.started', task_id: 't1' });
   assert.equal(card().dataset.status, 'running');
@@ -144,12 +198,27 @@ test('task cards carry a status for every lifecycle event', () => {
 
   api.upsertTask({ type: 'task.completed', task_id: 't1' });
   assert.equal(card().dataset.status, 'completed');
-  assert.equal(card().querySelector('small').textContent, '已完成');
+  assert.equal(card().querySelector('small').textContent, 'Done');
 
   api.upsertTask({ type: 'task.failed', task_id: 't1', error_type: 'TimeoutError' });
   assert.equal(card().dataset.status, 'failed');
-  assert.equal(card().querySelector('small').textContent, '失败 · TimeoutError');
+  assert.equal(card().querySelector('small').textContent, 'Failed · TimeoutError');
   assert.equal(document.getElementById('task-count').textContent, '1', 'one card, not four');
+});
+
+test('task.updated mirrors a live session task in place', () => {
+  const { api, document } = harness();
+  const card = () => document.querySelector('[data-task="job_9"]');
+
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', request: 'dig into X', status: 'queued' });
+  assert.equal(card().dataset.status, 'queued');
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X',
+                   status: 'running', progress: 'fetching data' });
+  assert.equal(card().querySelector('small').textContent, 'Running… · fetching data');
+  api.upsertTask({ type: 'task.updated', task_id: 'job_9', instruction: 'dig into X', status: 'completed' });
+  assert.equal(card().dataset.status, 'completed');
+  assert.equal(card().querySelector('h3').textContent, 'dig into X');
+  assert.equal(document.getElementById('task-count').textContent, '1');
 });
 
 test('stage renders each artifact content shape', () => {
@@ -180,7 +249,7 @@ test('stage renders each artifact content shape', () => {
   assert.equal(body().querySelector('.stage-caption').querySelector('a').href, 'https://example.com');
 
   api.renderStage({ artifact_id: 'a8', content: { markdown_url: 'https://example.com/notes.md' } });
-  assert.equal(body().querySelector('.stage-md').textContent, '加载 markdown…');
+  assert.equal(body().querySelector('.stage-md').textContent, 'Loading markdown…');
   assert.equal(body().querySelector('.type-badge').dataset.kind, 'markdown_url');
   assert.equal(body().querySelector('iframe'), null, 'markdown url never goes through an iframe');
 
@@ -217,7 +286,9 @@ test('artifact list cards get a type badge matching their content', () => {
   api.upsertArtifact({ artifact_id: 'art_1', title: '报告', type: 'report' });
   const card = document.querySelector('[data-artifact="art_1"]');
   assert.equal(card.querySelector('.type-badge').dataset.kind, 'report');
-  assert.equal(card.querySelector('small').textContent, 'art_1');
+  assert.equal(card.querySelector('small').textContent, '', 'id is not shown as a subtitle');
+  api.upsertArtifact({ artifact_id: 'art_1', title: '报告', type: 'report', summary: 'read me' });
+  assert.equal(card.querySelector('small').textContent, 'read me', 'summary becomes the subtitle');
 
   api.upsertArtifact({ artifact_id: 'art_2', content: { pdf: 'https://example.com/a.pdf' } });
   assert.equal(document.querySelector('[data-artifact="art_2"]').querySelector('.type-badge').dataset.kind, 'pdf');

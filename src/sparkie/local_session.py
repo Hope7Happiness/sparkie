@@ -33,7 +33,7 @@ async def local_session(args):
         raise ValueError("Set DEEPGRAM_API_KEY in .env first")
     response_mode = getattr(args, "response_mode", "wake")
     brain = configured_brain() if response_mode == "qa" else None
-    language = args.language or os.getenv("DEEPGRAM_LANGUAGE") or "en"
+    language = args.language or os.getenv("DEEPGRAM_LANGUAGE") or "en-US"
     session_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:6]
     output = args.output / session_id
     output.mkdir(parents=True)

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS meetings(
   external_id TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'live',
+  generation INTEGER NOT NULL DEFAULT 0,
   created_at REAL NOT NULL,
   UNIQUE(external_kind, external_id));
 CREATE TABLE IF NOT EXISTS transcript_events(
@@ -67,6 +68,10 @@ class WorkspaceStore:
     def __init__(self, path):
         self.db = sqlite3.connect(str(path))
         self.db.executescript(SCHEMA)
+        # Existing workspace databases retain their meeting IDs and history.
+        if 'generation' not in {row[1] for row in self.db.execute('PRAGMA table_info(meetings)')}:
+            self.db.execute('ALTER TABLE meetings ADD COLUMN generation INTEGER NOT NULL DEFAULT 0')
+            self.db.commit()
 
     def close(self):
         self.db.close()
@@ -108,6 +113,18 @@ class WorkspaceStore:
         self.db.execute("UPDATE meetings SET status=? WHERE workspace_id=?", (status, workspace_id))
         self.db.commit()
 
+    def reset(self, workspace_id):
+        """A new session reusing an external meeting id starts a fresh canvas."""
+        with self.db:
+            for table in ('transcript_events', 'tasks', 'artifacts', 'meeting_state'):
+                self.db.execute(f"DELETE FROM {table} WHERE meeting_id=?", (workspace_id,))
+            self.db.execute("UPDATE meetings SET status='live', generation=generation+1 WHERE workspace_id=?",
+                            (workspace_id,))
+
+    def generation(self, workspace_id):
+        row = self.db.execute('SELECT generation FROM meetings WHERE workspace_id=?', (workspace_id,)).fetchone()
+        return row[0] if row else None
+
     # -- transcript -------------------------------------------------------------
     def append_transcript(self, workspace_id, event: TranscriptEvent):
         cursor = self.db.execute(
@@ -136,6 +153,19 @@ class WorkspaceStore:
         self.db.execute(
             "UPDATE tasks SET status=?, result=?, error=?, finished_at=? WHERE task_id=?",
             (status, result, error, time.time(), task_id))
+        self.db.commit()
+
+    def upsert_task(self, workspace_id, task_id, instruction, status, result=None, error=None):
+        """Mirror an external session's task lifecycle; task_id is owned by the caller."""
+        finished = time.time() if status in ('completed', 'failed', 'cancelled') else None
+        self.db.execute(
+            "INSERT INTO tasks(task_id, meeting_id, instruction, status, result, error, created_at, finished_at)"
+            " VALUES(?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(task_id) DO UPDATE SET status=excluded.status,"
+            " result=COALESCE(excluded.result, result), error=COALESCE(excluded.error, error),"
+            " finished_at=COALESCE(excluded.finished_at, finished_at)",
+            (task_id, workspace_id, instruction or task_id, status, result, error,
+             time.time(), finished))
         self.db.commit()
 
     # -- artifacts ---------------------------------------------------------------

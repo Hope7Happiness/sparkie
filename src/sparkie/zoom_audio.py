@@ -11,7 +11,7 @@ import time
 
 from .audio import AudioFrame
 from .providers import failure_details, ProviderError
-from .zoom_errors import ZoomBridgeError
+from .zoom_errors import ZoomBridgeError, ZoomMicrophoneMuted
 from .zoom_join import NativeJoinProgress, ZoomJoinError
 from .zoom_config import meeting_config, private_write
 
@@ -51,6 +51,13 @@ class ZoomAudioMeeting:
         self._cancel_id = 0
         self._cancel_waiter = None
         self.cancel_timeout = 5.0
+        self.meeting_ended = False
+        self._joining = False
+        self.startup_frames_discarded = 0
+
+    def meeting_end_observed(self):
+        """Sanitized fields if the SDK reported the meeting ended; else None."""
+        return None
 
     async def docker(self, *args):
         process = await asyncio.create_subprocess_exec('docker', *args, stdout=asyncio.subprocess.PIPE,
@@ -120,6 +127,7 @@ class ZoomAudioMeeting:
                 await asyncio.sleep(.5)
 
     async def join(self):
+        self._joining = True
         joining = asyncio.create_task(self._join())
         succeeded = False
         try:
@@ -153,6 +161,7 @@ class ZoomAudioMeeting:
                     await self.leave()
                 except Exception as exc:
                     self.on_event('zoom_cleanup_failed', error_type=type(exc).__name__)
+            self._joining = False
         self.on_event('zoom_audio_ready', sample_rate=32000, channels=1)
 
     async def _join(self):
@@ -214,7 +223,18 @@ class ZoomAudioMeeting:
                     if kind == b'A':
                         gated = self.input_gate()
                         frame = AudioFrame(frame.sequence, bytes(len(data)) if gated else data, gated=gated)
-                    self.enqueue_frame(frame)
+                    if self._joining:
+                        # No capture/playback consumer exists until join returns.
+                        # Discard pre-ready input on BOTH paths: buffering here
+                        # overflows, while transcribing U can authorize unheard replies.
+                        self.startup_frames_discarded += 1
+                        if self.startup_frames_discarded == 1:
+                            self.on_event('zoom_startup_audio_discarded',
+                                          reason='waiting_for_audio_and_microphone',
+                                          audio_ready=self.audio_ready.is_set(),
+                                          microphone_ready=self.mic_ready.is_set())
+                    else:
+                        self.enqueue_frame(frame)
                     self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
                     if self.frames_received % 32 == 0:
                         # StreamReader may return buffered packets without suspending.
@@ -234,7 +254,7 @@ class ZoomAudioMeeting:
                     self.on_event('zoom_microphone_muted')
                     for future in self.playbacks.values():
                         if not future.done():
-                            future.set_exception(RuntimeError('Zoom microphone was muted during playback'))
+                            future.set_exception(ZoomMicrophoneMuted('Zoom microphone was muted during playback'))
                 elif kind in {b'S', b'D'} and len(data) == 4:
                     ident = struct.unpack('!I', data)[0]
                     entry = self.playbacks.get(ident)
@@ -258,6 +278,19 @@ class ZoomAudioMeeting:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            ended = self.meeting_end_observed()
+            if ended is not None:
+                # The native side observed the meeting end and closed cleanly;
+                # the socket EOF is teardown, not a transport failure.
+                self.meeting_ended = True
+                for future in self.playbacks.values():
+                    if not future.done():
+                        future.set_exception(RuntimeError('Zoom meeting ended'))
+                if self._cancel_waiter and not self._cancel_waiter.done():
+                    self._cancel_waiter.set_exception(RuntimeError('Zoom meeting ended'))
+                self.stopped.set()
+                self.on_event('zoom_meeting_ended', **ended)
+                return
             self.failure = exc
             # Resolve control waiters before diagnostics: a broken event sink must
             # never hide the primary failure behind a second playback timeout.
@@ -300,7 +333,7 @@ class ZoomAudioMeeting:
         if sample_rate != 32000 or not pcm or len(pcm) % 2 or len(pcm) > 1920000:
             raise ValueError('Zoom output must be mono PCM16 32000 Hz, at most 30 seconds')
         if not self.mic_ready.is_set():
-            raise RuntimeError('Zoom microphone is not ready')
+            raise ZoomMicrophoneMuted('Zoom microphone is not ready')
         self.play_id += 1
         ident = self.play_id
         future = asyncio.get_running_loop().create_future()
@@ -384,7 +417,9 @@ class ZoomAudioMeeting:
 
     def diagnostics(self):
         return {'frames_received': self.frames_received, 'bytes_received': self.bytes_received,
+                'startup_frames_discarded': self.startup_frames_discarded,
                 'frames_consumed': self.frames_consumed, 'max_queued_frames': self.max_queued_frames,
+                'meeting_ended': self.meeting_ended,
                 'max_receive_gap_ms': self.max_receive_gap_ms, 'raw_audio_saved': False, 'echo_mode': 'silence_during_playback_plus_350ms',
                 'remote_audible_latency_measured': False}
 
@@ -489,6 +524,13 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
 
     def is_self(self, speaker_id):
         return self.participants.get(speaker_id, {}).get('is_self', False)
+
+    def meeting_end_observed(self):
+        for _ in self.join_progress.read():
+            pass
+        if self.join_progress.state == 7:
+            return self.join_progress.snapshot()
+        return None
 
     def diagnostics(self):
         base = {**super().diagnostics(), 'join': self.join_progress.snapshot()}

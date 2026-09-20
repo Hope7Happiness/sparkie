@@ -1,5 +1,20 @@
 # Phase 0 接口约定
 
+## macOS Zoom 分轨语音打断（当前行为）
+
+本节覆盖下文旧混音前台的打断限制，仅适用于支持 dual-input-v1 的 macOS Realtime 会话。Linux、browser/local 和 legacy wake/qa 保留既有输入路径。
+
+- 原生 U 音轨排除 SDK 自身 userID；ParticipantEars 再按 is_self 过滤。播放期间继续读取各真人音轨，不使用全局播放静音门控。
+- Deepgram 请求 vad_events=true。共享 SpeechActivity(phase, timestamp_ms, speaker_id, stream_id) 区分 candidate / started / stopped：原始 SpeechStarted 只发 candidate，首个包含文字的 interim 或 final 才发 started；不等待整句最终转写，也不把无文字 VAD 直接视为真人打断。首次连接与识别延迟仍影响正式停止时间。
+- SpeechActivity 与 TranscriptEvent 经同一有界队列按每条连接的顺序送入 RealtimeAgent。candidate 在当前输出链上开启固定 350ms 确认窗口，暂停后续 100ms 音频包的提交，保留模型回复和待播 PCM；当前已提交的包正常完成以避免续播重复/丢样。重复 candidate 不延长窗口。窗口内 started 才正式取消生成、清空播放并沿用 cancel-v1 与语义截断；否则从保留的剩余 PCM 继续播放，不重新生成。晚到的 started 仍会正式打断已恢复的输出。明确 mute/stop、输入失败和退出取消恢复定时器。speech_final / UtteranceEnd 或连接正常结束释放 speaking；重复 final 及同段 interim 回放不能再次打断。
+- 使用分轨最终文本作为 Realtime 的权威用户输入，包括普通讨论与播放期间的发言。原 A 混音流保留采集时钟，但发给 Realtime 的 PCM 全部置零；不把混音和分轨文本当成两轮输入。输入模式由会话启动时确定，不调用人工 human_turn 切换，不依赖前台混音 VAD。前台因此等待 Deepgram 最终文本，不再直接理解该模式的原始声学输入。
+- 确认人声停止当前输出，但普通讨论不自动授权新回复；最终文本仍要求 Sparkie/Sparky 显式唤醒。仅短的明确静音指令（stop / stop speaking / never mind / cancel 等）关闭自动输出；带唤醒的 cancel the task / stop the server 交给 agent 处理。mute 立即取消当前输出并暂停自动结果播报；unmute 只保留给下一轮最终文本，后台通知不能抢占。新回答等待所有确认发言的音轨结束及旧 response.done；正式取消后不续播旧 PCM。
+- 打断不取消后台工作，也不等于永久静音。通知循环每 100ms 重新检查 pending 结果，不依赖一次性的完成队列事件；确认人声打断的结果在发言结束、至少 750ms 安静且输出空闲时重新生成报告，已 offered/confirmed 的结果不自动重复。只有明确 mute/stop 或输入失败暂停自动报告；新的显式唤醒或可信 report_task 可以解除相应的静音状态。分轨识别失败时停止当前输出，保持 Realtime 连接和后台任务，记录 zoom_barge_in_unavailable 与转写覆盖缺口；不会静默降级为可能自打断的混音。恢复自动语音需重启会话；可信 human_turn 手动文本控制仍可用。
+
+诊断：zoom_speech_candidate / zoom_barge_in_pending / zoom_barge_in_false_alarm 记录疑似声音、350ms 暂停和保留音频的恢复；zoom_human_speech_started / zoom_human_speech_stopped 含 speaker_id、stream_id；开始事件在本地/native 取消之前发出，其 elapsed_ms 表示应用收到语音事件，不是远端听到停止的时刻。transcription_config.foreground_input=participant_final_text、barge_in=participant_interim_text。分轨 ID 排除机器人自身音轨，不能排除他人麦克风重新录入的扬声器回声，也不能区分共用同一 Zoom 端的多人。
+
+离线测试覆盖真实适配器间的事件/状态闭环，不代表真实 Zoom 会议验收或远端可听延迟已通过。启动和真人验收见 docs/realtime.md 的“分轨打断验收”。
+
 ## 本地双人讨论转写测试页
 
 当前 /multitrack.html 使用两个互斥的麦克风按钮，将同一真实麦克风路由到两个模拟参会者；点击当前按钮可全部静音。两路共用 32 kHz AudioWorklet 时钟，每 20 ms 发送当前参与者 PCM 与另一条零填充音轨。切换时清除旧部分帧，主线程按 capture epoch 拒绝切换前排队的语音，避免跨身份串音。页面只调用真实 Deepgram，不加入 Zoom、不调用 Realtime 或后台任务。
@@ -68,7 +83,7 @@ macOS `E` 现在为版本 1 JSON：`reason` 只允许 `sdk_send_failed` / `playb
 
 ### macOS Zoom Realtime 分用户转写（SDK 7.1.5）
 
-RealtimeZoomAudio 在入会前选择 participant_audio=true、mixed_audio=true。原生桥同时发送 A 连续混音与 U 分用户音频；Python 为两者使用独立有界队列。A 只进入 32→24 kHz 重采样和 Realtime 前台；U 只进入 ParticipantEars 与独立 Deepgram 连接。两者不能拼接，U 也不会再复制到混音转写队列。Linux 和浏览器保持原有转写链路。wake/qa 为 legacy，保留其原有独立模式。
+RealtimeZoomAudio 在入会前选择 participant_audio=true、mixed_audio=true。原生桥同时发送 A 连续混音与 U 分用户音频；Python 为两者使用独立有界队列。A 进入 32→24 kHz 重采样以保留前台输入时钟，当前分轨模式发送给 Realtime 前会置零；U 进入 ParticipantEars 与独立 Deepgram 连接，提供前台 VAD 边界和最终文本。两者不能拼接，U 也不会再复制到混音转写队列。Linux 和浏览器保持原有转写链路。wake/qa 为 legacy，保留其原有独立模式。
 
 macOS H 握手必须是 ASCII cancel-v1,dual-input-v1；旧二进制会明确提示重建。Linux 仍使用 cancel-v1。既有取消确认协议保持不变。
 
@@ -81,13 +96,13 @@ AudioFrame 携带可选 speaker_id、timestamp_ms；优先使用归一化 SDK ge
 
 ParticipantEars 按用户分流，每条连接独立断句。仅非零 PCM 建立/续期连接，1.5 秒无非零帧后补 500 ms 静音并关闭；之后发言开启新段，事件 ID 带用户和段编号。段内空隙补静音，长停顿按新会议时间偏移处理。噪声可能保持连接，这不是语义 VAD。默认并发上限 32（含结束中的连接），SPARKIE_ZOOM_MAX_STT_STREAMS 可设为 1–64。
 
-Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台 A 仍继续。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
+Realtime 的分轨入口队列最多 500 帧，每条转写连接也最多 500 帧。分轨队列、并发超限或提供者失败会停止本轮分轨转写并记录 transcript_degraded / coverage_gap；后续 U 丢弃，前台连接和后台任务仍继续，但自动语音输出关闭。桥断线或协议错误则终止整个会话。前台混音门控只记 realtime_input_coverage，不伪造分轨转写缺口。
 
 积压输入使用 get_nowait 优先排空，空队列才进入带超时的等待；分流器每路由 32 帧主动让出执行。避免桥接收器批量读入 A/U 时，分流器逐帧让出导致入口队列被调度差异填满。保留原有容量与显式超限行为，不靠扩大队列掩盖慢消费者。
 
 启动 transcript_ready 的 readiness=router 仅表示分流器可接收；每位用户的真实连接就绪单独记录 participant_stt_ready。结束时先停止分轨输入、排空并刷新转写，最多等 10 秒，超时记录缺口，然后关闭所有连接。transcript.jsonl 按结果到达顺序保存，后台快照保留身份与时间；run.json 的 transcript 按 timestamp_ms 排序。
 
-同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。前台混音播放门控仍限制播放期间的语音打断。离线或合成输入验证不作为真实多人会议成功证据。
+同一 Zoom 端共用麦克风不能分人；远端声学回声可能进入分轨 STT。当前前台通过独立分轨 VAD 打断，不依赖混音门控。离线或合成输入验证不作为真实多人会议成功证据。
 
 ## Realtime 前台与后台分析（本地验收）
 
@@ -105,7 +120,7 @@ Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
 `update_task(task_id, request)` 接收完整修订请求并刷新快照，保持任务 ID。queued 任务保留队列位置；running 的 Devin 任务通过队列传递修订，ACP 中断当前轮后在同一会话继续。返回 update_delivery=pending 不能宣称已执行；applied_revision 和 delivered 表示已送入后台连接。request_history 保存历史请求，连续修订以最新完整请求为准。其他 running 后端及 completed 任务拒绝更新，已发生的操作不会回滚。
 worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。取消 Codex 任务会终止对应进程；取消 Devin 当前轮保留常驻会话，结束语音会话会终止进程组。
-`task_workers.py` 选择独立 Codex / Devin 适配器，Devin 协议实现位于 `devin_acp.py`。共用 `run(request, transcript)` / `run_with_progress(request, transcript, progress)`；持久 worker 另提供 start / close，支持运行中修订时通过 updates 队列接收 `(request, snapshot, revision)`，initial_revision 表示开始运行时的修订号。`SPARKIE_TASK_BACKEND=codex|devin` 仅选择 Realtime 后台，默认 codex；DEVIN_MODEL 默认 swe-1-6-fast。前台语音及旧 Q&A SPARKIE_BACKEND 不变。
+`task_workers.py` 选择独立 Codex / Devin 适配器，Devin 协议实现位于 `devin_acp.py`。共用 `run(request, transcript)` / `run_with_progress(request, transcript, progress)`；持久 worker 另提供 start / close，支持运行中修订时通过 updates 队列接收 `(request, snapshot, revision)`，initial_revision 表示开始运行时的修订号。`SPARKIE_TASK_BACKEND=codex|devin` 选择 Realtime 后台及 workspace 默认 worker；显式 --worker 优先，未配置时默认 codex；DEVIN_MODEL 默认 swe-1-6-fast。前台语音及旧 Q&A SPARKIE_BACKEND 不变。
 
 Devin 每次语音会话启动一个 `devin acp --model ...` 进程，经 initialize / session/new / session/set_mode 建立无审批会话；后续串行发送 session/prompt，共享历史。session/update 仅提取公开回答和工具类型/状态，忽略思考内容及原始工具输出；session/request_permission 复用已有用户授权，仅选择当前会话的 allow_once 选项。取消用 session/cancel，5 秒无应答则杀进程组；连接断开、RPC 错误、非 end_turn、空结果均不能作成功。进程断开不自动重启或重放任务，避免重复外部操作及丢失上下文。取消确认期限和 60 秒启动期限不是任务超时。
 
@@ -135,7 +150,7 @@ Realtime 的 Deepgram 适配器可通过 on_partial 回调发出 `transcript_par
 
 `bash scripts/zoom.sh` 默认 `--response-mode realtime`，复用同一 `RealtimeAgent`、`TaskCenter` 和所选 Codex / Devin worker。输入并行送 GPT Realtime 与 Deepgram；回复直接使用 Realtime 输出音频，不经过 Deepgram TTS。`wake` / `qa` 仅在显式指定时进入旧 primitive。也可直接用 `python -m sparkie.realtime_session --transport zoom`。
 
-`RealtimeZoomAudio.append_output` 只进行有状态重采样和有界入队（所有 item 合计最多 120 秒待播 PCM，7,680,000 bytes；另有最多一个 100ms 在途包）；独立异步播放任务按 100ms 包复用 Zoom 原生桥的 20ms 发送节奏。保留 item_id、取消状态与生成/SDK 提交进度；取消清除尚未发送的内容，迟到的相同 item 音频不会恢复播放；后台结果通知等待待播语音处理完毕。SDK 错误会结束输入并报告失败。
+`RealtimeZoomAudio.append_output` 只进行有状态重采样和有界入队（所有 item 合计最多 120 秒待播 PCM，7,680,000 bytes，包含最多一个尚未确认的 100ms 在途包）；独立异步播放任务按 100ms 包复用 Zoom 原生桥的 20ms 发送节奏。保留 item_id、取消状态与生成/SDK 提交进度；取消清除尚未发送的内容，迟到的相同 item 音频不会恢复播放；后台结果通知等待待播语音处理完毕。SDK 错误会结束输入并报告失败。
 
 Zoom 播放队列或单条回复时长达到上限时，`PlaybackLimitError` 由 Realtime adapter 捕获：记录 `realtime_playback_limited`，取消当前回复并按已确认的 SDK 播放进度截断上下文；清空待播音频，继续接收后续会话，不扩大队列。该回复可能只播放一部分。`session_failed` 和 `run.json.failure` 保存 `error_type`、`provider`、本地白名单 `reason`、可用的代码位置 `source` 和白名单 `provider_code`；未知原因标为 `unclassified`，不保存异常正文、provider message、响应 body 或凭据。
 
@@ -189,6 +204,10 @@ Cancelled audio cleanup records the provider content_index and also tracks audio
 
 ### Zoom output mute MVP (supersedes automatic replies for all Zoom turns)
 
+Zoom final-transcript matching also checks explicit sentence starts within an aggregated final segment: after 。！？!? or a period followed by whitespace/end. Only the observed compact greeting helloSparkie/helloSparky (case-insensitive, with the existing exact name boundary) gains a missing space before applying wake.py rules. Commas, mid-sentence name mentions and speculative transliterations do not become wakes. The last explicit addressed wake/cancel in a segment wins; an unaddressed cancel is recognized only at the original segment start. The selected addressed suffix is supplied as the fresh request; preceding discussion remains in the live audio context. This normalization is Zoom-only; shared wake.py and browser/local behavior are unchanged.
+
+Diagnostics: zoom_wake_decision contains fixed decision/reason, sentence_index and compact_greeting_normalized, never transcript text. zoom_response_not_requested distinguishes wake_rejected, explicit_mute, output_muted and waiting_for_turn_or_response (with state booleans). zoom_response_requested is emitted after response.create is sent; it is not provider acceptance or audibility. Existing realtime_response_started and zoom_output_suppressed distinguish provider response creation and rejected PCM. Duplicate final transcripts still cannot request twice.
+
 Zoom Realtime sessions install a local ZoomOutputPolicy and begin output-muted. This is Python output routing, not Zoom platform microphone toggling or input mute. PCM input, Deepgram, the same foreground Realtime connection/conversation and Codex jobs continue. No reconnection/context rebuild occurs on wake. Browser/local sessions do not install this policy and retain their existing behavior.
 
 create_response remains false. While output-muted, ordinary committed audio stays in the Realtime conversation but does not request an assistant response. This avoids creating unheard assistant answers without losing incoming meeting context. Deepgram final human transcripts apply the exact existing wake.py sentence-start Sparkie/Sparky rules (optional Hi/Hey/Hello, existing ASR special case); partial/bot/duplicate records cannot open output. Cancellation uses existing CANCEL rules, with or without a leading address; no model classifier or new fuzzy phrases. The addressed final text is additionally inserted as the explicit request before response.create because the two providers do not share turn IDs. That can duplicate the textual representation of already heard audio, but never creates a second response from the audio commit. ASR segmentation/latency and sentence-start product-name false wakes retain their existing limitations.
@@ -197,9 +216,9 @@ Zoom mixed-input VAD no longer automatically interrupts responses (interrupt_res
 
 The output permit belongs to a response chain, including its legitimate tool continuations and all queued items. It closes only after the terminal response.done and queue drain/cancellation. Late or unsolicited responses cannot reuse a permit: unowned audio is suppressed before resampling/enqueue, tracked as unheard draft content and truncated through existing semantic-interruption mechanisms. The transport independently checks item ownership. zoom_output_state / zoom_output_control / zoom_output_suppressed are concise diagnostics, never remote-audibility evidence.
 
-There is no product speech-duration limit and Zoom's former per-item 120-second generation limit is removed. The aggregate bounded pending-PCM capacity remains 120 seconds (7,680,000 bytes plus one in-flight packet); it is a backlog safety limit, not a maximum total reply duration. Overflow still fails explicitly/cancels rather than dropping audio or growing unbounded. Long replies drain normally while generation continues. Configured overall session expiry also remains in force.
+There is no product speech-duration limit and Zoom's former per-item 120-second generation limit is removed. The aggregate bounded pending-PCM capacity remains 120 seconds (7,680,000 bytes including the unacknowledged in-flight packet); it is a backlog safety limit, not a maximum total reply duration. Overflow still fails explicitly/cancels rather than dropping audio or growing unbounded. Long replies drain normally while generation continues. Configured overall session expiry also remains in force.
 
-Tasks created by an authorized response chain (delegate_task or the direct create_desktop_file/open_website tools) receive zoom_output_origin=addressed_turn in tasks.json and an in-session eligibility record. Only their pending notification attempts may open output at the existing idle opportunity; unrelated task completions remain pending/visible and cannot open output or be automatically mixed into offered semantics. Mute/interruption returns affected offers to pending without cancelling jobs or marking them delivered. Confirmed states remain unchanged. Automatic reannouncement pauses after dismissal/manual mute until a new wake; pending information is reconsidered on that new chain or an explicit eligible report_task. Eligibility is not restored as an output permit after restart.
+Tasks created by an authorized response chain (delegate_task) receive zoom_output_origin=addressed_turn in tasks.json and an in-session eligibility record. Only their pending notification attempts may open output at the existing idle opportunity; unrelated task completions remain pending/visible and cannot open output or be automatically mixed into offered semantics. Mute/interruption returns affected offers to pending without cancelling jobs or marking them delivered. Confirmed states remain unchanged. Automatic reannouncement pauses only after explicit dismissal/manual mute until a new wake; ordinary participant interruption remains pending and is retried when quiet; pending information is reconsidered on that new chain or an explicit eligible report_task. Eligibility is not restored as an output permit after restart.
 
 Trusted controls: {"action":"mute"} immediately revokes the current chain and stops/clears all queued audio through semantic interruption and cancel-v1; jobs and input continue. {"action":"unmute"} also clears/revokes any stale chain and arms the **next final human turn**, even without a wake name; it does not replay PCM, immediately speak, or enable all future turns. A wake name can reopen output after mute; mute is not a permanent hard lock. In external-human mode, final human_turn text uses the same rules; start still stops current playback. Speaker separation is not implemented. Existing external-text input selection remains an independent input mode, never a consequence of mute/unmute.
 
@@ -208,6 +227,8 @@ Restart/new sessions always start output-muted with no restored chain. There is 
 ### Bounded Zoom join and macOS native startup diagnostics
 
 Python owns an absolute join_timeout (default 120 seconds), now covering launch, bridge handshake and audio/microphone readiness. A watchdog observes startup even when the bridge handshake itself blocks. No automatic join retry is performed. Success still requires both received audio and microphone readiness, not JOIN_REQUEST result=0 or AudioReady alone.
+
+The macOS receiver joins muted, installs the external microphone, then requests unmute, restoring the pre-multitrack startup sequence. An already-unmuted SDK state is not proof that the external source received onMicStartSend. There is no automatic re-unmute loop. Until join succeeds, both A and U input frames are discarded before entering their consumer queues; zoom_startup_audio_discarded explicitly marks this startup coverage gap and audio diagnostics count startup_frames_discarded. Participant metadata and readiness/control packets continue to be processed. Startup speech cannot trigger an unplayable reply, and a missing mic callback reaches the existing bounded audio_readiness_timeout instead of QueueFull. Speak only after listening_ready; after that, normal bounded queues and overflow failures remain unchanged.
 
 The installed macOS receiver already writes fixed startup/status records to its private sdk.log. Python incrementally reads only full allowlisted records (bounded reads and line buffers); no SDK rebuild or protocol change is needed. zoom_join_progress preserves native_stage/sdk_result and, when available, meeting_state, meeting_state_name, meeting_error, meeting_end_reason, state_observed_ms plus fixed actionable hints. Raw SDK lines, arbitrary error text, config values and credentials are never copied into events/run.json. These are macOS SDK 7.1.5 enum values; 1/101 is Connecting/no error, not an immediate failure. State 2 is WaitingForHost and 10 is InWaitingRoom.
 
@@ -222,6 +243,67 @@ Failed/cancelled join cancels its handshake task and reader, closes its bridge, 
 
 `agent_runtime.py` 每条 ingest 的最终 human 转录产出动作列表：IGNORE / RESPOND / CREATE_TASK / PRESENT_ARTIFACT（Update/idea/decision 等记忆类动作后续以同词汇扩展）。路由目前是启发式：`wake.addressed_request` 判唤醒，研究类关键词建任务，"show us / 展示" 类呈现最近 ready artifact，其余唤醒请求发 `agent.respond` 事件（实际语音应答仍由 voice adapter/既有 engine 消费，runtime 不合成语音）。CREATE_TASK 存 tasks 表并发 `task.started`，异步 worker 完成后写 artifacts 表、发 `task.completed` + `artifact.ready`；PRESENT_ARTIFACT 写 `meeting_state.active_artifact_id` 并发 `artifact.present`。worker 签名为 `async (instruction, transcript) -> {type,title,summary,content}`；`--worker codex` 复用 `CodexTaskWorker`（真实后台任务），`demo` 返回明确标注 simulated 的占位 artifact。
 
-`workspace_server.py` 由 `sparkie workspace` 启动（默认 127.0.0.1:8790，SQLite 存 `output/workspace.db`）：`GET /api/meetings/resolve?kind=..&external_id=..`（resolve_or_create）、`GET /api/workspaces`（全部 workspace + 计数，落地列表）、`GET /api/workspaces/<id>`（snapshot）、`GET /api/artifacts/<id>`（单个 artifact 含 content）、`GET /healthz`、`WS /workspaces/<id>/events`（广播流）。客户端消息：`{"type":"utterance","text":..,"speaker":..,"source":"human|bot","is_final":..}` ingest；`{"type":"end_meeting"}` 置 ended 并排队报告任务；`{"type":"cancel_task","task_id":..}` 取消运行中任务并发 `task.cancelled`。websockets 的 HTTP 层不读 body，所有写入都走事件 socket；CORS 全开、无 share token 与鉴权，仅限本机 MVP。RTMS webhook、Zoom App 面板、`/m/<token>` 私链均未实现；voice output 仍走既有 MeetingAdapter/AudioMeeting 路径，不在此层。
+`workspace_server.py` 由 `sparkie workspace` 启动（默认 127.0.0.1:8790，SQLite 存 `output/workspace.db`）：`GET /api/meetings/resolve?kind=..&external_id=..`（resolve_or_create；`reset=1` 时清空该 workspace 的 transcript/tasks/artifacts/meeting_state 并向订阅者广播 `workspace.reset`——会议号复用时每次入会开一张新画布，meetings 行与 workspace_id 不变）、`GET /api/workspaces`（全部 workspace + 计数，落地列表）、`GET /api/workspaces/<id>`（snapshot）、`GET /api/artifacts/<id>`（单个 artifact 含 content）、`GET /healthz`、`WS /workspaces/<id>/events`（广播流）。客户端消息：`{"type":"utterance","text":..,"speaker":..,"source":"human|bot","is_final":..}` ingest；`{"type":"end_meeting"}` 置 ended 并排队报告任务；`{"type":"cancel_task","task_id":..}` 取消运行中任务并发 `task.cancelled`；`{"type":"task_update","task_id":..,"status":..,"request":..,"result":..,"error":..,"error_type":..,"progress":..}` 把 live session 的 TaskCenter 生命周期 upsert 进 tasks 表并广播 `task.updated`（task_id 由会话侧拥有，与 runtime 自建的 `t_` 前缀 id 不冲突）；completed 且带 result 时落成 artifacts 行（content={markdown: result}）并广播 `artifact.ready`，可被 "show us" / artifact.present 投放。utterance 消息可带 `"live": true`：live session 的镜像转写只保留 PRESENT_ARTIFACT 动作，跳过 RESPOND/CREATE_TASK，避免与会话自己的 agent 双重触发；浏览器 cancel_task 对镜像任务同样生效——`task.cancelled` 广播回到会话侧 WS，由 session 回调 TaskCenter.cancel 真正杀 job。websockets 的 HTTP 层不读 body，所有写入都走事件 socket；CORS 全开、无 share token 与鉴权，仅限本机 MVP。RTMS webhook、Zoom App 面板、`/m/<token>` 私链均未实现；voice output 仍走既有 MeetingAdapter/AudioMeeting 路径，不在此层。
 
-`workspace_client.py` 是会议侧容错镜像：`realtime_session`（browser/local/zoom 三种 transport）与旧 `zoom_session` 启动时 resolve workspace（zoom 用 `ZOOM_MEETING_ID` 作 `zoom_uuid` external_id），最终 human 转写与 assistant_transcript（bot source）都镜像为 utterance；连不上服务器或任何发送失败都静默降级为 no-op，不影响会议。会话结束时发 `end_meeting`：runtime 置 `status=ended` 广播 `meeting.ended`，有转写且有 worker 时经正常任务管线产出报告 artifact（指令为转写内 Markdown 纪要），`ended` 状态会议的新 artifact 自动 `artifact.present`——会后打开页面即见纪要。页面 `/workspace.html` 展示转写、任务（含取消）、artifacts 与 stage；artifact.content 按 markdown/image/pdf/url shape 渲染，data URI 转 blob URL 供 PDF iframe。
+`workspace_client.py` 是会议侧容错镜像：`realtime_session`（browser/local/zoom 三种 transport）与旧 `zoom_session` 启动时以 `reset=1` resolve workspace（zoom 用 `ZOOM_MEETING_ID` 作 `zoom_uuid` external_id），最终 human 转写与 assistant_transcript（bot source）镜像为 `live: true` 的 utterance，TaskCenter 的 `background_task` 事件镜像为 `task_update`（queued/running/completed/failed/cancelled 全程可见）；client 订阅广播流，`task.cancelled` 广播回调到 `center.cancel`，页面上的取消按钮可终止 live job；连不上服务器或任何发送失败都静默降级为 no-op，不影响会议。会话结束时发 `end_meeting`：runtime 置 `status=ended` 广播 `meeting.ended`，有转写且有 worker 时经正常任务管线产出报告 artifact（指令为转写内 Markdown 纪要），`ended` 状态会议的新 artifact 自动 `artifact.present`——会后打开页面即见纪要。页面 `/workspace.html` 展示转写、任务（含取消）、artifacts 与 stage；artifact.content 按 markdown/image/pdf/url shape 渲染，data URI 转 blob URL 供 PDF iframe。
+
+
+
+### Workspace session generation and reset isolation
+
+The meetings table now has a persistent integer generation (existing databases migrate to 0). Reset atomically clears the session tables and increments generation, cancels only that workspace's runtime jobs, and publishes workspace.reset with the new generation. Jobs capture generation before scheduling and check it before reading context, publishing errors, or storing results; even a worker that returns after cancellation cannot repopulate the new session. Cancellation does not undo external work already performed.
+
+Resolve responses and snapshots expose workspace.generation. Clients connect to /workspaces/<id>/events?generation=<n>; a stale resolve-to-connect attempt closes with 4409. Writes carry generation and are ignored when stale; legacy sockets without this field stay bound to their connection generation. A live WorkspaceClient keeps its original generation and disables mirroring after a reset, including old end_meeting messages. Browsers adopt the new snapshot generation for subsequent cancel/utterance requests. Snapshots include the bus seq at read time; during reset refresh the browser buffers events and only replays events newer than that snapshot. Reset also invalidates old artifact fetches, hydration cache and active selection. This is session isolation, not authentication.
+
+### Zoom microphone mute versus playback failure
+
+Only ZoomMicrophoneMuted (the explicit N signal or a pre-send readiness check) is retried. Playback timeouts, malformed PCM and transport failures propagate as failures. PCM stays in the bounded buffer until a complete SDK packet acknowledgement; mute retains that packet, waits for microphone readiness, then retries after the existing native cancellation acknowledgement. Since partial packet progress is unknown, a mid-packet mute may repeat up to 100ms on recovery, but does not silently skip audio or report a dropped packet as played. A confirmed human interrupt or manual stop still cancels retained audio. Startup continues discarding input while _joining; post-join queued audio is drained without a startup flush.
+
+### Optional semantic Zoom wake router
+
+RealtimeAgent accepts an optional wake_router with async start(), classify(text)
+and close(), plus model for diagnostics. classify returns accept or reject; only
+the agent/output policy can authorize speech. SPARKIE_WAKE_ROUTER=devin selects
+the dedicated tool-free Devin adapter with SPARKIE_WAKE_MODEL (default
+gemini-3-5-flash-minimal). Unset/rules preserves the existing local policy. This
+setting affects Zoom Realtime only and is independent of DEVIN_MODEL for tasks.
+
+Final human text still enters meeting context once. Semantic classification runs
+outside turn_lock and consumes the full final utterance. A monotonically
+increasing local version fences acceptance against new speech, a newer final,
+manual controls, input failure and shutdown. Old provider-output cancellation
+does not invalidate a newer human decision. Explicit dismissal/manual-next controls
+stay local; raw speech candidates and the 350ms recovery do not wait on the model.
+Routing errors/2.5s deadlines fail silent for that utterance. Eligible task
+notifications are deferred only while a decision is pending, then use existing
+quiet/authorization rules. No task-worker conversation or lock is reused.
+
+Diagnostics: zoom_wake_router_config, zoom_wake_router_ready/unavailable,
+zoom_wake_routing, zoom_wake_router_failed (error_type, action, latency_ms when
+available), zoom_wake_decision (semantic_router/local_control), and
+zoom_wake_decision_discarded for late returns. Provider response bodies and
+thoughts are not logged. See fast-wake-router-research.md for live-call evidence
+and the remaining user-run Zoom validation.
+
+### Semantic completion before Zoom wake routing
+
+Zoom per-participant sessions default to SPARKIE_TURN_DETECTION=semantic_vad
+(legacy deepgram is explicitly selectable). SemanticTurnEars pairs Deepgram
+finalized word timestamps with a separate Realtime semantic_vad/medium detector for
+each non-self participant. Both receive the same padded audio timeline. Only an
+aligned complete turn becomes TranscriptEvent; Deepgram speech_final fragments
+no longer call human_transcript individually in this mode. Fast text-confirmed
+SpeechActivity.started still interrupts immediately, independently of completion.
+
+SpeechActivity.stream_id may contain an adapter-local turn suffix. ParticipantEars
+prefixes it with the participant and provider-stream serial instead of replacing
+it, and tracks each active suffix separately. This prevents a late old stopped
+event from clearing a new turn by the same speaker. Unsuffixed adapters keep their
+existing IDs. Semantic mode supplies paced silence when callbacks stop and closes
+idle provider streams after 15s; legacy mode keeps its previous 1.5s policy.
+
+Alignment uses finalized result coverage or the audio frontier acknowledged by a
+Deepgram Finalize response. A pending boundary times out after 5s. Detector or
+alignment failure uses participant_input_failed and a semantic_turn_unavailable
+coverage gap, without falling back to fragmented wake requests. Actual API
+configuration, usage implications and validation are in semantic-turn-detection.md.

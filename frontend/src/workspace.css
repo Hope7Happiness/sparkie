@@ -40,25 +40,23 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
 #state::before{font-size:8px;margin-right:8px;color:var(--clay);animation:pulse 2.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-/* ---------- connect card ---------- */
-.session{position:relative;padding:30px 34px 26px;border-radius:22px;box-shadow:var(--shadow);overflow:hidden}
-.session::before{content:'';position:absolute;inset:0 0 auto;height:3px;
-  background:linear-gradient(90deg,var(--green),var(--clay) 46%,var(--indigo))}
-.session-head{margin-bottom:22px}
-.eyebrow{margin:0;font-size:10px;letter-spacing:2.4px;color:var(--indigo);opacity:.75}
-.session h1{margin:9px 0 6px;font-size:27px;letter-spacing:-1px;font-weight:650}
-.session-sub{margin:0;font-size:13.5px;line-height:1.6;color:#7c8474;max-width:60ch}
-.connect{display:grid;grid-template-columns:1.1fr 1.5fr 1fr auto;gap:14px;align-items:end}
-.connect label{font-size:11px;letter-spacing:.3px;color:#6e7691;gap:7px}
-.connect input,#simulate input{width:100%;padding:10px 12px;border:1px solid #dde0d2;border-radius:9px;
+/* ---------- join bar (top) ---------- */
+.join-bar{display:flex;align-items:center;gap:8px;flex:1;max-width:640px}
+.join-bar input{padding:8px 12px;border:1px solid #dde0d2;border-radius:9px;
   background:#fcfbf6;color:#43503c;font:inherit;font-size:13px;transition:border-color .15s,box-shadow .15s}
-.connect input::placeholder,#simulate input::placeholder{color:#b0b5a3}
-.connect input:focus{outline:none;border-color:#9aa6cd;box-shadow:0 0 0 3px rgba(74,90,147,.16);background:#fff}
-#simulate input:focus{outline:none;border-color:#a9b596;box-shadow:0 0 0 3px rgba(139,157,113,.18);background:#fff}
-.connect button{padding:11px 22px;border-radius:9px;font-weight:550;border-color:transparent;
+.join-bar input::placeholder{color:#b0b5a3}
+.join-bar input:focus{outline:none;border-color:#9aa6cd;box-shadow:0 0 0 3px rgba(74,90,147,.16);background:#fff}
+.join-bar .server-input{width:132px;color:#8a9078;font-size:12px}
+.join-bar .meeting-input{flex:1;min-width:120px}
+.join-bar button{padding:9px 20px;border-radius:9px;font-weight:550;border:1px solid transparent;color:#fff;
   background:linear-gradient(180deg,#5b6da9,var(--indigo));box-shadow:0 6px 16px -10px rgba(74,90,147,.9)}
-.connect button:hover{filter:brightness(1.06)}
-#error{margin:16px 0 0;padding:11px 14px;border:1px solid var(--bad-line);border-radius:10px;background:var(--bad-soft)}
+.join-bar button:hover{filter:brightness(1.06)}
+#simulate input{width:100%;padding:10px 12px;border:1px solid #dde0d2;border-radius:9px;
+  background:#fcfbf6;color:#43503c;font:inherit;font-size:13px;transition:border-color .15s,box-shadow .15s}
+#simulate input::placeholder{color:#b0b5a3}
+#simulate input:focus{outline:none;border-color:#a9b596;box-shadow:0 0 0 3px rgba(139,157,113,.18);background:#fff}
+#error{margin:-14px 0 14px;padding:11px 14px;border:1px solid var(--bad-line);border-radius:10px;background:var(--bad-soft)}
+#error:empty{display:none}
 
 /* ---------- workspace grid ---------- */
 .workspace{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.85fr);gap:22px;margin-top:26px;align-items:start}
@@ -146,6 +144,10 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
   font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
 .md blockquote{margin:14px 0;padding:2px 16px;border-left:3px solid var(--green);
   background:linear-gradient(90deg,var(--green-soft),transparent 70%);border-radius:0 10px 10px 0;color:#57614e}
+.md table{margin:14px 0;border-collapse:collapse;width:100%;font-size:12.5px;line-height:1.55}
+.md th,.md td{padding:7px 11px;border:1px solid var(--line-soft);text-align:left;vertical-align:top}
+.md thead th{background:var(--indigo-soft);color:#3f4c7d;font-weight:650;white-space:nowrap}
+.md tbody tr:nth-child(even){background:#fafaf2}
 .md hr{margin:20px 0;border:0;border-top:1px solid var(--line)}
 
 /* ---------- type badges ---------- */
@@ -174,16 +176,6 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
   padding:14px 20px;border-top:1px solid var(--line-soft);background:linear-gradient(#faf9f3,#f7f7f0)}
 #simulate button{padding:10px 20px;border-radius:9px;background:var(--green)}
 
-/* ---------- landing workspace list ---------- */
-#recent{margin-top:24px;border-top:1px solid var(--line-soft);padding-top:16px}
-.recent-head h3{margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.4px;color:#7c8474}
-.workspace-row{display:grid;grid-template-columns:minmax(0,1.4fr) auto auto;gap:14px;align-items:center;width:100%;
-  padding:10px 14px;margin-top:6px;border:1px solid var(--line-soft);border-radius:10px;
-  background:#fcfcf7;text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
-.workspace-row:hover{border-color:#d8dcc9;background:#fafaf2}
-.workspace-row-title{font-size:13px;font-weight:550;color:#39422f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.workspace-row-meta{font-size:11px;color:#8d9581;white-space:nowrap}
-.workspace-row-id{font-size:10px;color:#a8ad9a;font-variant-numeric:tabular-nums}
 .task-cancel{margin-top:10px;padding:5px 12px;border-radius:7px;font-size:11.5px}
 
 /* ---------- task / artifact lists ---------- */
@@ -196,8 +188,9 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
   background:#eff1e8;color:#77806a;font-size:10.5px;letter-spacing:.2px;overflow-wrap:anywhere}
 .task button{margin-top:10px;padding:6px 13px;border-radius:8px;font-size:11.5px;
   background:var(--plum-soft);color:var(--plum);border-color:var(--plum-line)}
-.card-meta{display:flex;align-items:center;gap:8px;margin-top:9px}
-.card-meta small{margin-top:0;background:none;padding:0;color:#9b8d95;font-variant-numeric:tabular-nums}
+.card-meta{display:flex;align-items:flex-start;gap:8px;margin-top:9px}
+.card-meta small{margin-top:0;background:none;padding:0;color:#9b8d95;line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
 /* task status ramp: queued amber · running blue (pulsing) · completed green · failed red */
 .task[data-status="queued"]{border-left-color:var(--amber);background:linear-gradient(90deg,#fdf8ec,#fcfcf7 62%)}
@@ -250,10 +243,8 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
 }
 @media(max-width:750px){
   .app{padding:0 18px 40px}
-  .connect{grid-template-columns:1fr 1fr}
-  .connect button{grid-column:1/-1}
-  .session{padding:22px 20px}
-  .session h1{font-size:23px}
+  .join-bar{order:3;flex-basis:100%;max-width:none}
+  header.topbar{flex-wrap:wrap}
   #simulate{grid-template-columns:1fr}
   .ws-chip{display:none}
   .stage-media iframe,.stage-media-tall iframe{height:58vh}

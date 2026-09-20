@@ -1,5 +1,16 @@
 """Local Zoom output policy. No SDK, provider calls, timers, or input gating."""
-from .wake import ADDRESS, CANCEL, addressed_request
+import re
+from .wake import ADDRESS, addressed_request
+
+# Only explicit sentence boundaries, never commas or arbitrary name mentions.
+SENTENCE_END = re.compile(r'[。！？!?]+|[.]+(?=\s|$)')
+# Observed zh-CN rendering. Preserve the existing exact name/end boundary rules.
+COMPACT_HELLO = re.compile(r'^hello(?=spark(?:ie|y)(?=$|[\s,，:：.!?。！？]|[\u4e00-\u9fff]))', re.I)
+# Stop speaking is an output command; "stop the server" / "cancel the task"
+# are addressed requests for the agent, not reasons to silently discard a turn.
+DISMISSAL = re.compile(
+    r"^(?:stop(?:[ ,]+(?:talking|speaking|please|for now))?|please\s+stop(?:\s+(?:talking|speaking))?|"
+    r"never\s*mind|cancel|be\s+quiet|没事|不用了|取消|算了)(?=$|[.!?。！？])", re.I)
 
 
 class ZoomOutputPolicy:
@@ -22,13 +33,34 @@ class ZoomOutputPolicy:
         self.emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
 
     def decision(self, text):
-        match = ADDRESS.match(text)
-        rest = text[match.end():].strip(' ,，:：.!?。！？') if match else text.strip()
-        if CANCEL.search(rest):
-            return 'mute'
-        if addressed_request(text) is not None or self.manual_next:
-            return 'wake'
-        return 'ignore'
+        return self.evaluate(text)[0]
+
+    def evaluate(self, text, *, emit_decision=True):
+        decision, selected, index, normalized = 'ignore', text, None, False
+        starts = [0] + [m.end() for m in SENTENCE_END.finditer(text)]
+        for number, start in enumerate(starts):
+            candidate = text[start:].strip()
+            if not candidate:
+                continue
+            candidate, changed = COMPACT_HELLO.subn('hello ', candidate, count=1)
+            match = ADDRESS.match(candidate)
+            rest = candidate[match.end():].strip(' ,，:：.!?。！？') if match else candidate
+            # Bare dismissal is accepted only at the original segment start.
+            if DISMISSAL.search(rest) and (match or number == 0):
+                decision = 'mute'
+            elif match is not None or addressed_request(candidate) is not None:
+                decision = 'wake'
+            else:
+                continue
+            selected, index, normalized = candidate, number, bool(changed)
+        reason = {'ignore': 'no_sentence_start_address', 'wake': 'addressed_sentence',
+                  'mute': 'explicit_cancel'}[decision]
+        if decision == 'ignore' and self.manual_next:
+            decision, reason = 'wake', 'manual_next_turn'
+        if emit_decision:
+            self.emit('zoom_wake_decision', decision=decision, reason=reason,
+                      sentence_index=index, compact_greeting_normalized=normalized)
+        return decision, selected
 
     def open(self, reason):
         self.epoch += 1

@@ -120,7 +120,7 @@ async def deepgram_check(args):
             yield AudioFrame(sequence, padded[offset:offset + 1280])
             await asyncio.sleep(.02)
     ears = DeepgramEars(os.environ["DEEPGRAM_API_KEY"], "deepgram-check",
-                        model=os.getenv("DEEPGRAM_MODEL") or "nova-3", language="en")
+                        model=os.getenv("DEEPGRAM_MODEL") or "nova-3", language="en-US")
     events = []
     async with asyncio.timeout(30):
         async for event in ears.transcribe(frames()):
@@ -129,7 +129,7 @@ async def deepgram_check(args):
     from .wake import addressed_request
     passed = addressed_request(transcript) is not None
     report = {"mode": "live-deepgram-check", "tts_model": configured_mouth().model,
-              "stt_model": ears.model, "stt_language": "en", "transcript": transcript,
+              "stt_model": ears.model, "stt_language": "en-US", "transcript": transcript,
               "wake_detected": passed, "audio_seconds": len(pcm) / 64000,
               "zoom_tested": False}
     (args.output / "check.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
@@ -169,14 +169,14 @@ def main():
     local = sub.add_parser("local", help="Live microphone → Deepgram STT → fixed TTS → speaker (uses API quota)")
     local.add_argument("--input-device", default=os.getenv("SPARKIE_INPUT_DEVICE"))
     local.add_argument("--output-device", default=os.getenv("SPARKIE_OUTPUT_DEVICE"))
-    local.add_argument("--language", help="Override STT language, e.g. en or zh-CN")
+    local.add_argument("--language", help="Override STT language (default: en-US)")
     local.add_argument("--seconds", type=int, default=60, help="Session duration, 1–3600 seconds")
     local.add_argument("--echo-mode", choices=["speaker", "headphones"], default="speaker")
     local.add_argument("--response-mode", choices=["wake", "qa"], default="wake",
                        help="qa enables real contextual answers using the configured reasoning backend")
     local.add_argument("--output", type=Path, default=Path("output/local"))
     zoom = sub.add_parser("zoom", help="Join real Zoom and answer through the meeting SDK virtual microphone")
-    zoom.add_argument("--language", default="en")
+    zoom.add_argument("--language", default="en-US")
     zoom.add_argument("--seconds", type=int, default=600)
     zoom.add_argument("--response-mode", choices=["realtime", "wake", "qa"], default="realtime",
                       help="realtime: GPT voice + Codex tasks; wake/qa: legacy Deepgram pipeline")
@@ -185,8 +185,9 @@ def main():
     workspace.add_argument("--host", default="127.0.0.1")
     workspace.add_argument("--port", type=int, default=8790)
     workspace.add_argument("--db", type=Path, default=Path("output/workspace.db"))
-    workspace.add_argument("--worker", choices=["codex", "demo"], default="codex",
-                           help="demo marks every artifact as simulated; codex runs real background tasks")
+    workspace.add_argument("--worker", choices=["codex", "devin", "demo"],
+                           default=os.getenv('SPARKIE_TASK_BACKEND') or 'codex',
+                           help="defaults to SPARKIE_TASK_BACKEND; demo produces simulated artifacts")
     args = parser.parse_args()
     if args.command == "doctor":
         raise SystemExit(doctor())

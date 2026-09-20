@@ -76,12 +76,12 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 
 ## 旧固定回复诊断入口（非完整 agent 验收）
 
-完整 agent 使用 `ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600`，验收见 [Realtime](realtime.md#zoom-中验收完整-agent)。以下固定回复命令仅保留用于故障隔离：
+完整 agent 使用 `ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600`，验收见 [Realtime](realtime.md#zoom-中验收完整-agent)。以下固定回复命令仅保留用于故障隔离：
 
 ```bash
 # 拉取原生代码后先重新构建（本轮已在当前工作区构建）。
 uv run --frozen python scripts/zoom-sanity.py build --platform macos
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en --seconds 120 --response-mode wake
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 120 --response-mode wake
 ```
 
 先停止旧探针；主持人接纳 Sparkie 并允许录制权限。等 `listening_ready` 后从另一端说 “Sparkie”，核对对方是否听到 “I'm here.”。固定回复不调用 Codex；需要上下文问答时再把 `wake` 改成 `qa`。本入口复用 `AudioMeeting` → Deepgram → `Primitive` → Zoom 虚拟麦克风，SDK 返回成功仍不等于远端听见。

@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from .local_session import device_id
+from .contracts import SpeechActivity
 from .providers import DeepgramEars, ProviderError, failure_details
 from .realtime import RealtimeAgent
 from .realtime_audio import RealtimeLocalAudio
@@ -19,6 +20,7 @@ from .browser_audio import BrowserAudio
 from .task_center import TranscriptLedger, TaskCenter
 from .task_workers import configured_task_worker
 from .event_output import EventOutput
+from .semantic_turns import SEMANTIC_EAGERNESS, SemanticTurnEars
 
 
 async def run(args):
@@ -49,6 +51,8 @@ async def run(args):
             if event.get('text'):
                 asyncio.get_running_loop().create_task(
                     workspace.utterance(fields['text'], fields.get('source') or 'human', 'human'))
+        elif kind == 'background_task':
+            asyncio.get_running_loop().create_task(workspace.task_update(fields))
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')
@@ -74,32 +78,51 @@ async def run(args):
                                   echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit)
     worker = configured_task_worker()
     center = TaskCenter(ledger, worker, emit)
-    # Mirror the session into a meeting workspace when the server is reachable;
-    # every client failure degrades to a no-op so the meeting is unaffected.
-    from .workspace_client import WorkspaceClient
-    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     output_policy = None
+    wake_router = None
     if transport_name == 'zoom':
         from .zoom_output import ZoomOutputPolicy
         # EventOutput is initialized below before any asynchronous session work.
         output_policy = ZoomOutputPolicy(audio, lambda *a, **k: None)
+        router_mode = os.getenv('SPARKIE_WAKE_ROUTER') or 'rules'
+        if router_mode == 'devin':
+            from .wake_router import DevinWakeRouter
+            wake_router = DevinWakeRouter(model=os.getenv('SPARKIE_WAKE_MODEL') or 'gemini-3-5-flash-minimal')
+        elif router_mode != 'rules':
+            raise ValueError('SPARKIE_WAKE_ROUTER must be rules or devin')
+    # Mirror the session into a meeting workspace when the server is reachable;
+    # every client failure degrades to a no-op so the meeting is unaffected.
+    from .workspace_client import WorkspaceClient
+    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
-                          output_policy=output_policy)
+                          output_policy=output_policy, wake_router=wake_router)
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
                         language=args.language, on_ready=dg_ready.set,
                         on_partial=lambda text: emit('transcript_partial', text=text))
     participant_stt = getattr(audio, 'participant_transcription', False)
+    turn_detection = 'deepgram'
     if participant_stt:
         from .participant_stt import ParticipantEars
         model = os.getenv('DEEPGRAM_MODEL') or 'nova-3'
+        turn_detection = os.getenv('SPARKIE_TURN_DETECTION') or 'semantic_vad'
+        if turn_detection not in ('semantic_vad', 'deepgram'):
+            raise ValueError('SPARKIE_TURN_DETECTION must be semantic_vad or deepgram')
+        semantic = turn_detection == 'semantic_vad'
+        def participant_ears():
+            if semantic:
+                return SemanticTurnEars(os.environ['DEEPGRAM_API_KEY'], os.environ['OPENAI_API_KEY'],
+                                        session_id, model=agent.model, stt_model=model,
+                                        language=args.language, on_event=emit)
+            return DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
+                                model=model, language=args.language)
         ears = ParticipantEars(
-            lambda: DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
-                                model=model, language=args.language),
+            participant_ears,
             speaker_name=audio.meeting.speaker_name, is_self=audio.meeting.is_self,
-            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit)
+            max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit,
+            speech_events=True, continuous_silence=semantic, idle_seconds=15 if semantic else 1.5)
         ears.on_ready = dg_ready.set  # Router readiness; connections open when a participant speaks.
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
@@ -119,23 +142,38 @@ async def run(args):
         try:
             source = audio.participant_audio() if participant_stt else frames(queues[1])
             async for record in ears.transcribe(source):
+                if isinstance(record, SpeechActivity):
+                    handling_transcript = True
+                    await agent.participant_speech(record)
+                    handling_transcript = False
+                    continue
                 ledger.append(record)
                 emit('transcript', **asdict(record))
-                if record.is_final:
-                    await workspace.utterance(record.text, record.speaker, 'human')
                 if output_policy is not None:
                     handling_transcript = True
                     await agent.human_transcript(asdict(record))
                     handling_transcript = False
+                if record.is_final:
+                    await workspace.utterance(record.text, record.speaker, 'human')
         except Exception as exc:
             if handling_transcript:
                 stop.set()
                 raise  # Agent/native failures are not degraded Deepgram coverage.
             dg_active = False
-            record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
+            if participant_stt:
+                try:
+                    await agent.participant_input_failed()
+                except Exception:
+                    stop.set()
+                    raise
+            record = {'type': 'coverage_gap',
+                      'reason': 'semantic_turn_unavailable' if turn_detection == 'semantic_vad' else 'deepgram_unavailable',
                       'timestamp_ms': round(audio.captured_samples / 24)}
             ledger.append(record)
-            emit('transcript_degraded', **{**failure_details(exc), 'provider': 'deepgram'}, record=record)
+            details = failure_details(exc)
+            if details['provider'] == 'unknown':
+                details['provider'] = 'semantic_turn' if turn_detection == 'semantic_vad' else 'deepgram'
+            emit('transcript_degraded', **details, record=record)
             dg_ready.set()
         finally:
             if participant_stt:
@@ -206,18 +244,31 @@ async def run(args):
     if output_policy is not None:
         output_policy.emit = emit
         emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
+        emit('zoom_wake_router_config', mode='devin' if wake_router else 'rules',
+             model=wake_router.model if wake_router else None,
+             timeout_seconds=wake_router.timeout if wake_router else None)
     try:
         external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
         kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')
-        if await workspace.open(kind, external or session_id,
+        # A reused meeting number reopens the same workspace; reset gives each
+        # join a fresh canvas instead of appending to the previous session.
+        if await workspace.open(kind, external or session_id, reset=True,
                                 title=f'Zoom {external}' if transport_name == 'zoom' else f'{transport_name} session'):
+            # A cancel pressed in the workspace UI lands here as a broadcast.
+            workspace.on_message = lambda message: (
+                center.cancel(message['task_id'])
+                if message.get('type') == 'task.cancelled' and message.get('task_id')
+                else None)
             emit('workspace_linked', workspace_id=workspace.workspace_id, external_id=external)
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('task_backend_config', backend=worker.backend, model=worker.model)
         center.start()
         emit('transcription_config', provider='deepgram', model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
              language=args.language, sample_rate=32000 if participant_stt else 24000,
-             input_mode='per_participant' if participant_stt else 'mixed')
+             input_mode='per_participant' if participant_stt else 'mixed',
+             foreground_input='participant_final_text' if participant_stt else 'mixed_audio',
+             turn_detection=turn_detection, semantic_eagerness=SEMANTIC_EAGERNESS if turn_detection == 'semantic_vad' else None,
+             barge_in='participant_interim_text' if participant_stt else 'mixed_input')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())
         running.extend([rt, dg])
@@ -276,6 +327,8 @@ async def run(args):
             reason = 'duration_elapsed'
             emit('session_duration_elapsed', configured_duration_seconds=args.seconds,
                  message='Configured session duration reached; ending the session cleanly.')
+        if reason == 'completed' and getattr(audio, 'meeting_ended', False):
+            reason = 'meeting_ended'
         try:
             await asyncio.wait_for(asyncio.gather(dg, return_exceptions=True), 10 if participant_stt else 2)
         except TimeoutError:
@@ -326,7 +379,7 @@ def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument('--transport', choices=['local', 'browser', 'zoom'], default='local')
-    parser.add_argument('--language', choices=['en', 'zh-CN'], default='en')
+    parser.add_argument('--language', choices=['en-US', 'en', 'zh-CN'], default='en-US')
     parser.add_argument('--seconds', type=int, default=120)
     parser.add_argument('--echo-mode', choices=['speaker', 'headphones'], default='speaker')
     parser.add_argument('--input-device')

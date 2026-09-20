@@ -12,15 +12,15 @@ import unittest
 from unittest.mock import patch
 
 from sparkie import realtime_session
-from sparkie.contracts import TranscriptEvent
+from sparkie.contracts import TranscriptEvent, SpeechActivity
 from sparkie.zoom_audio import ZoomMacAudioMeeting
 from sparkie.providers import ProviderError
 from test_zoom_audio import packet
 
 
 class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self, provider_failure=False):
-        sessions, received, snapshots, human_turns = [], [], [], []
+    async def exercise(self, provider_failure=False, turn_detection='semantic_vad'):
+        sessions, received, snapshots, human_turns, activity, degraded = [], [], [], [], [], []
         class Meeting(ZoomMacAudioMeeting):
             async def join(self):
                 self.reader = asyncio.StreamReader()
@@ -44,17 +44,23 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             async def notify_tasks(self): await asyncio.Event().wait()
             async def append(self, frame): received.append(frame)
             async def human_transcript(self, record): human_turns.append(record)
+            async def participant_speech(self, event): activity.append(event)
+            async def participant_input_failed(self): degraded.append(True)
         class Ears:
             def __init__(self, *a, **kw):
                 self.rate = kw['rate']; self.model = kw['model']; self.language = kw['language']
             async def transcribe(self, frames):
                 self.on_ready()
                 if provider_failure: raise ProviderError('synthetic STT failure')
+                yield SpeechActivity('started')
                 packets = []
                 sessions.append((self.rate, packets))
                 async for frame in frames: packets.append(frame.pcm)
                 value = struct.unpack('<h', packets[0][:2])[0]
                 yield TranscriptEvent('test', 'dg-1', 20, f'words from {value}')
+        class SemanticEars(Ears):
+            def __init__(self, *a, **kw):
+                super().__init__(rate=32000, model=kw['stt_model'], language=kw['language'])
         class Worker:
             backend, model = 'fake', 'fake'
         with tempfile.TemporaryDirectory() as directory:
@@ -63,10 +69,12 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             stream = os.fdopen(read_fd)
             previous = os.umask(0o077)
             try:
-                with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos'}), \
+                with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos',
+                                             'SPARKIE_TURN_DETECTION': turn_detection}), \
                      patch('sparkie.zoom_audio.ZoomMacAudioMeeting', Meeting), \
                      patch.object(realtime_session, 'RealtimeAgent', Agent), \
                      patch.object(realtime_session, 'DeepgramEars', Ears), \
+                     patch.object(realtime_session, 'SemanticTurnEars', SemanticEars), \
                      patch.object(realtime_session, 'configured_task_worker', return_value=Worker()), \
                      patch('sys.stdin', stream), redirect_stdout(io.StringIO()):
                     result = await realtime_session.run(args)
@@ -81,12 +89,17 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
         config = next(e for e in events if e['type']=='transcription_config')
         self.assertEqual(config['input_mode'], 'per_participant')
         self.assertEqual(config['sample_rate'], 32000)
+        self.assertEqual(config['turn_detection'], turn_detection)
         if provider_failure:
+            self.assertEqual(degraded, [True])
             self.assertTrue(any(e['type']=='transcript_degraded' for e in events))
-            self.assertTrue(any(r.get('reason')=='deepgram_unavailable' for r in snapshots[0].records))
+            expected_reason = 'semantic_turn_unavailable' if turn_detection == 'semantic_vad' else 'deepgram_unavailable'
+            self.assertTrue(any(r.get('reason') == expected_reason for r in snapshots[0].records))
         else:
             self.assertEqual({r['speaker_id'] for r in human_turns}, {'zoom:10', 'zoom:20'})
             self.assertEqual(len(sessions), 2)
+            self.assertEqual([(e.speaker_id, e.phase) for e in activity].count(('zoom:10', 'started')), 1)
+            self.assertEqual([(e.speaker_id, e.phase) for e in activity].count(('zoom:20', 'stopped')), 1)
             self.assertEqual({rate for rate, _ in sessions}, {32000})
             records = report['transcript']
             self.assertEqual({r['speaker_id'] for r in records}, {'zoom:10','zoom:20'})
@@ -101,3 +114,6 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stt_failure_preserves_foreground_and_records_coverage_gap(self):
         await self.exercise(provider_failure=True)
+
+    async def test_legacy_deepgram_turn_detection_remains_selectable(self):
+        await self.exercise(turn_detection='deepgram')

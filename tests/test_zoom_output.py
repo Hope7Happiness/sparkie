@@ -79,6 +79,49 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(m['type'] == 'conversation.item.truncate' and m['audio_end_ms'] == 0 for m in self.sent))
         self.assertEqual(self.agent.recovery['muted']['delivery_confirmed'], False)
 
+    async def test_live_zh_final_groups_prior_sentence_and_compact_greeting(self):
+        # 211322 live failure: unrelated sentence + full stop + hellosparkie。
+        # Preserve only the observed wake spelling/boundary, not meeting content.
+        await self.agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'human'})
+        await self.transcript('讨论结束。hellosparkie。', ident='live-equivalent')
+        self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
+        request = next(m['item']['content'][0]['text'] for m in self.sent
+                       if m['type'] == 'conversation.item.create' and m['item']['role'] == 'user')
+        self.assertEqual(request, 'hello sparkie。')
+        await self.created('answer')
+        self.bridge.release.set()
+        await self.delta('answer', 'spoken')
+        await self.finish('answer', 'spoken')
+        await self.done('answer')
+        await self.drain('spoken')
+        self.assertTrue(self.bridge.packets)
+        self.assertIsNone(self.policy.chain)
+        self.assertTrue(any(k == 'zoom_response_requested' for k, _ in self.events))
+        self.assertTrue(any(k == 'zoom_wake_decision' and v['compact_greeting_normalized']
+                            and v['sentence_index'] == 1 for k, v in self.events))
+
+    async def test_sentence_wake_is_exact_and_diagnostics_do_not_copy_text(self):
+        for text in ('能听到我吗？', '我们在讨论hellosparkie。', '讨论，Sparkie很好',
+                     'hellosparkieish', '斯帕奇你好', 'private-secret。ordinary discussion'):
+            self.assertEqual(self.policy.decision(text), 'ignore')
+        for text in ('HelloSparkie。', '讨论结束。 Hello Sparkie，回答问题。',
+                     'Finished. HEY SPARKY，回答问题', 'Hi, it is Sparky'):
+            self.assertEqual(self.policy.decision(text), 'wake')
+        self.assertEqual(self.policy.decision('讨论结束。hellosparkie，stop'), 'mute')
+        self.assertEqual(self.policy.decision('Sparkie，回答。Sparkie，stop'), 'mute')
+        await self.transcript('private-secret unrelated discussion')
+        self.assertTrue(any(k == 'zoom_response_not_requested' and v['reason'] == 'wake_rejected'
+                            for k, v in self.events))
+        self.assertNotIn('private-secret', json.dumps(self.events))
+        self.assertFalse(any(m['type'] == 'response.create' for m in self.sent))
+
+    async def test_grouped_wake_duplicate_and_late_commit_do_not_request_twice(self):
+        await self.transcript('讨论结束。hellosparkie。', ident='same')
+        await self.transcript('讨论结束。hellosparkie。', ident='same')
+        await self.agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'late'})
+        self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
+        self.assertEqual(sum(k == 'zoom_wake_decision' for k, _ in self.events), 1)
+
     async def test_delegated_actions_keep_provenance_and_pending_delivery(self):
         await self.transcript('Hey Sparkie, create a file and open the requested page')
         await self.created('actions')
@@ -243,3 +286,110 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         await self.center.runners[task_id]
         self.assertEqual(self.center.status(task_id)['status'], 'completed')
         self.assertEqual(self.agent.pending_announcements(), [])
+
+    async def test_stop_and_cancel_task_requests_are_not_silence_commands(self):
+        for text in ('Hey Sparky, cancel the task', 'Sparkie, stop the server',
+                     'Sparkie, stop talking and summarize the result'):
+            self.assertEqual(self.policy.decision(text), 'wake')
+        for text in ('Hey Sparky, stop', 'Sparkie, stop talking.',
+                     'Please stop speaking.', 'never mind', 'cancel'):
+            self.assertEqual(self.policy.decision(text), 'mute')
+
+    def completed_job(self):
+        job = {'task_id': 'eligible', 'status': 'completed', 'result': 'Verified result'}
+        self.center.jobs['eligible'] = job
+        self.center._save(job)
+        self.policy.task_ids.add('eligible')
+        return job
+
+    async def test_explicit_report_can_reopen_after_manual_mute(self):
+        job = self.completed_job()
+        await self.agent.control({'action': 'mute'})
+        self.assertFalse(self.agent.notification_ready())
+        await self.agent.report_task('eligible')
+        self.assertEqual(job['announcement']['state'], 'offered')
+        self.assertTrue(self.agent.response_pending)
+        self.assertFalse(self.policy.notifications_paused)
+
+    async def test_manual_interrupt_without_a_human_turn_allows_explicit_report(self):
+        job = self.completed_job()
+        await self.agent.control({'action': 'interrupt'})
+        self.assertFalse(self.agent.awaiting_turn)
+        self.assertFalse(self.agent.notification_ready())
+        await self.agent.report_task('eligible')
+        self.assertEqual(job['announcement']['state'], 'offered')
+        self.assertTrue(self.agent.response_pending)
+
+    async def test_manual_interrupt_does_not_release_an_actual_human_turn(self):
+        self.completed_job()
+        self.agent.user_speaking = True
+        await self.agent.control({'action': 'interrupt'})
+        self.assertTrue(self.agent.awaiting_turn)
+        await self.agent.report_task('eligible')
+        self.assertFalse(self.agent.response_pending)
+        self.agent.user_speaking = False
+        self.agent.external_turn = 'active'
+        await self.agent.control({'action': 'interrupt'})
+        self.assertTrue(self.agent.awaiting_turn)
+
+    async def test_muted_notice_waits_and_unmute_remains_reserved_for_next_turn(self):
+        job = self.completed_job()
+        await self.agent.control({'action': 'mute'})
+        self.agent.ready.set()
+        notifier = asyncio.create_task(self.agent.notify_tasks())
+        try:
+            await asyncio.sleep(.15)
+            self.assertFalse(self.agent.response_pending)
+            self.assertTrue(self.center.notifications.empty())
+            await self.agent.control({'action': 'unmute'})
+            await asyncio.sleep(.15)
+            self.assertFalse(self.agent.response_pending)
+            self.assertTrue(self.policy.manual_next)
+            await self.transcript('Tell me the result', 'next')
+            self.assertTrue(self.agent.response_pending)
+            self.assertEqual(job['announcement']['state'], 'offered')
+            await self.created('notice')
+            await self.done('notice')
+            self.agent.last_user_stop = 0
+            await asyncio.sleep(.15)
+            self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
+        finally:
+            notifier.cancel()
+            await asyncio.gather(notifier, return_exceptions=True)
+
+    async def test_unsolicited_provider_cancel_releases_pending_task_notification(self):
+        job = self.completed_job()
+        self.agent.ready.set()
+        notifier = asyncio.create_task(self.agent.notify_tasks())
+        try:
+            async with asyncio.timeout(1):
+                while not self.agent.response_pending: await asyncio.sleep(.01)
+            await self.created('notice')
+            await self.agent.handle({'type': 'response.done',
+                'response': {'id': 'notice', 'status': 'cancelled'}})
+            self.assertFalse(self.agent.awaiting_turn)
+            async with asyncio.timeout(1):
+                while job['announcement']['attempt'] < 2: await asyncio.sleep(.01)
+            self.assertTrue(self.agent.response_pending)
+        finally:
+            notifier.cancel()
+            await asyncio.gather(notifier, return_exceptions=True)
+
+    async def test_late_tool_call_after_chain_closed_cannot_execute(self):
+        await self.transcript('Hey Sparky, hello')
+        await self.created('finished')
+        await self.done('finished')
+        await self.agent.handle({'type': 'response.function_call_arguments.done',
+            'response_id': 'finished', 'call_id': 'late', 'name': 'delegate_task',
+            'arguments': '{"request":"Create a file"}'})
+        self.assertFalse(self.center.jobs)
+        self.assertEqual(json.loads(self.sent[-1]['item']['output'])['error'], 'interrupted_before_execution')
+
+    async def test_external_ordinary_commit_releases_wait_and_cancel_pauses_notices(self):
+        for turn, text in [('ordinary', 'We are talking amongst ourselves.'), ('cancel', 'stop')]:
+            await self.agent.control({'action': 'human_turn', 'source': 'human',
+                                      'turn_id': turn, 'phase': 'start'})
+            await self.agent.control({'action': 'human_turn', 'source': 'human',
+                                      'turn_id': turn, 'phase': 'commit', 'text': text})
+            self.assertFalse(self.agent.awaiting_turn)
+            self.assertEqual(self.policy.notifications_paused, turn == 'cancel')
