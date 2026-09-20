@@ -91,7 +91,6 @@ Realtime 不等待 Deepgram 的断句，也不等待 Codex 结果。Deepgram 网
 
 `delegate_task(request)` 立即返回 task_id、queued、awaiting_background 和上下文记录数；`task_status(task_id)` 返回状态和已完成结果；`cancel_task(task_id)` 取消任务。
 `update_task(task_id, request)` 接收完整修订请求并刷新快照，保持任务 ID。queued 任务保留队列位置；running 的 Devin 任务通过队列传递修订，ACP 中断当前轮后在同一会话继续。返回 update_delivery=pending 不能宣称已执行；applied_revision 和 delivered 表示已送入后台连接。request_history 保存历史请求，连续修订以最新完整请求为准。其他 running 后端及 completed 任务拒绝更新，已发生的操作不会回滚。
-`create_desktop_file(filename, content)` 和 `open_website(url)` 使用同一任务状态/通知协议，但直接执行本机操作，不占 Codex 串行队列。文件使用独占创建并读回核验；地址允许 HTTP(S) 或本机已存在的 HTML 文件 URI（file:///…，扩展名 .html/.htm）；拒绝远程 file 主机、相对路径和其他本地文件类型，URL 编码的路径先解码核验再规范化。结果只确认系统启动请求，不保证页面加载完成；无效地址或本地文件缺失通过 error_message 返回可显示的原因。
 worker 异步排队执行，提交立即返回；无每会话任务数量上限，也无单任务超时。取消 Codex 任务会终止对应进程；取消 Devin 当前轮保留常驻会话，结束语音会话会终止进程组。
 `task_workers.py` 选择独立 Codex / Devin 适配器，Devin 协议实现位于 `devin_acp.py`。共用 `run(request, transcript)` / `run_with_progress(request, transcript, progress)`；持久 worker 另提供 start / close，支持运行中修订时通过 updates 队列接收 `(request, snapshot, revision)`，initial_revision 表示开始运行时的修订号。`SPARKIE_TASK_BACKEND=codex|devin` 仅选择 Realtime 后台，默认 codex；DEVIN_MODEL 默认 swe-1-6-fast。前台语音及旧 Q&A SPARKIE_BACKEND 不变。
 
@@ -112,7 +111,7 @@ Devin 每次语音会话启动一个 `devin acp --model ...` 进程，经 initia
 
 WebSocket `/audio?session=<id>` 仅接受通过本机网络接口地址的同源 Origin、当前会话和一个连接，PCM 不进入状态轮询或磁盘日志。browser→Python：audio_settings、连续 sequence 的 audio_input、带 generation 的 audio_progress。Python→browser：audio_ready、audio_output、audio_clear。只有 provider ready 后才发输入；24 kHz PCM16 mono、20 ms 包；队列/管道溢出明确失败。清空播放递增 generation，旧音频/播放进度不能复活。AudioWorklet 每 20 ms 报告渲染进度供截断使用，不宣称是准确 DAC 时间。密钥仍仅保存在 Python。浏览器断开关闭会话并释放麦克风。
 
-Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页检索、复杂文件/代码和外部工具请求应直接委派；简单桌面文件创建与打开指定网址优先使用上述本机工具。
+Realtime 工具回调立即回传 queued，后台不阻塞音频事件循环；工具续答使用 response_pending 避免重复 response.create，用户发言期间不抢建回复。前台对外部信息、网页检索、文件/代码和外部工具请求统一委派，包括创建桌面文件和打开网页或本地报告。前台仅保留 delegate_task、task_status、update_task、cancel_task 和 remain_silent 五个工具，本机快捷执行分支已移除。
 
 浏览器 `seconds=0` 表示手动结束；限时模式支持 1–3600 秒。浏览器输入包续期页面及音频心跳，输入停顿只提示恢复麦克风，不取消后台任务；关闭页面、断开音频 WebSocket 或显式结束仍终止会话。`browser_audio_settings` 包含 AudioContext 和 track 状态，供排查暂停/设备中断。
 

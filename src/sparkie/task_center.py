@@ -7,7 +7,6 @@ import time
 from uuid import uuid4
 
 from .task_workers import CodexTaskWorker, DevinTaskWorker, configured_task_worker
-from .local_actions import run_local_action
 
 
 class TranscriptLedger:
@@ -65,7 +64,7 @@ class TaskCenter:
             self.notified.add(job['task_id'])
             self.notifications.put_nowait(self.status(job['task_id']))
 
-    def submit(self, request, *, action=None, arguments=None):
+    def submit(self, request):
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:
             return {'error': 'invalid_request'}
         task_id = uuid4().hex[:12]
@@ -74,10 +73,6 @@ class TaskCenter:
                'transcript_records': len(snapshot), 'snapshot': snapshot,
                'context_note': 'All finalized transcript available at delegation; newer speech is not included. '
                                'The request also carries speech heard directly by Realtime.'}
-        if action is not None:
-            if action not in ('create_desktop_file', 'open_website') or not isinstance(arguments, dict):
-                return {'error': 'invalid_local_action'}
-            job.update(action=action, arguments=dict(arguments))
         self.jobs[task_id] = job
         self.updates[task_id] = asyncio.Queue()
         self._save(job)
@@ -87,24 +82,11 @@ class TaskCenter:
 
     async def _run(self, job):
         try:
-            if job.get('action'):
-                job.update(status='running', started_at=time.time(), progress='正在执行本机操作')
-                self._save(job)
-                job['result'] = await run_local_action(job['action'], job['arguments'])
-                job['status'] = 'completed'
-            else:
-                await self._run_worker(job)
+            await self._run_worker(job)
         except asyncio.CancelledError:
             job['status'] = 'cancelled'
         except Exception as exc:
             job.update(status='failed', error_type=type(exc).__name__)
-            if isinstance(exc, FileExistsError):
-                job['error_message'] = '同名文件已存在，未覆盖。请指定另一个文件名。'
-            elif job.get('action') == 'open_website':
-                if isinstance(exc, FileNotFoundError):
-                    job['error_message'] = '本地 HTML 文件不存在或不是普通文件，请确认文件路径。'
-                elif isinstance(exc, ValueError):
-                    job['error_message'] = '仅支持 HTTP/HTTPS 网址或本机已存在的 HTML 文件地址（file:///…html）。'
         finally:
             job['finished_at'] = time.time()
             self._save(job)
@@ -135,14 +117,11 @@ class TaskCenter:
         job = self.jobs.get(task_id)
         if not job:
             return {'error': 'unknown_task'}
-        running_update = (job['status'] == 'running' and not job.get('action')
+        running_update = (job['status'] == 'running'
                           and getattr(self.worker, 'supports_updates', False))
         if job['status'] != 'queued' and not running_update:
             return {'error': 'task_already_started', 'status': job['status'],
                     'note': 'This request was not changed. Do not claim the running action was redirected.'}
-        if job.get('action'):
-            return {'error': 'local_action_not_editable',
-                    'note': 'The action was not changed. Check its result before requesting a new action.'}
         if not isinstance(request, str) or not request.strip() or len(request) > 8000:
             return {'error': 'invalid_request'}
         job.setdefault('request_history', []).append({'request': job['request'],
