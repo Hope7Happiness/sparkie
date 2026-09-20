@@ -79,6 +79,49 @@ class ZoomOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(m['type'] == 'conversation.item.truncate' and m['audio_end_ms'] == 0 for m in self.sent))
         self.assertEqual(self.agent.recovery['muted']['delivery_confirmed'], False)
 
+    async def test_live_zh_final_groups_prior_sentence_and_compact_greeting(self):
+        # 211322 live failure: unrelated sentence + full stop + hellosparkie。
+        # Preserve only the observed wake spelling/boundary, not meeting content.
+        await self.agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'human'})
+        await self.transcript('讨论结束。hellosparkie。', ident='live-equivalent')
+        self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
+        request = next(m['item']['content'][0]['text'] for m in self.sent
+                       if m['type'] == 'conversation.item.create' and m['item']['role'] == 'user')
+        self.assertEqual(request, 'hello sparkie。')
+        await self.created('answer')
+        self.bridge.release.set()
+        await self.delta('answer', 'spoken')
+        await self.finish('answer', 'spoken')
+        await self.done('answer')
+        await self.drain('spoken')
+        self.assertTrue(self.bridge.packets)
+        self.assertIsNone(self.policy.chain)
+        self.assertTrue(any(k == 'zoom_response_requested' for k, _ in self.events))
+        self.assertTrue(any(k == 'zoom_wake_decision' and v['compact_greeting_normalized']
+                            and v['sentence_index'] == 1 for k, v in self.events))
+
+    async def test_sentence_wake_is_exact_and_diagnostics_do_not_copy_text(self):
+        for text in ('能听到我吗？', '我们在讨论hellosparkie。', '讨论，Sparkie很好',
+                     'hellosparkieish', '斯帕奇你好', 'private-secret。ordinary discussion'):
+            self.assertEqual(self.policy.decision(text), 'ignore')
+        for text in ('HelloSparkie。', '讨论结束。 Hello Sparkie，回答问题。',
+                     'Finished. HEY SPARKY，回答问题', 'Hi, it is Sparky'):
+            self.assertEqual(self.policy.decision(text), 'wake')
+        self.assertEqual(self.policy.decision('讨论结束。hellosparkie，stop'), 'mute')
+        self.assertEqual(self.policy.decision('Sparkie，回答。Sparkie，stop'), 'mute')
+        await self.transcript('private-secret unrelated discussion')
+        self.assertTrue(any(k == 'zoom_response_not_requested' and v['reason'] == 'wake_rejected'
+                            for k, v in self.events))
+        self.assertNotIn('private-secret', json.dumps(self.events))
+        self.assertFalse(any(m['type'] == 'response.create' for m in self.sent))
+
+    async def test_grouped_wake_duplicate_and_late_commit_do_not_request_twice(self):
+        await self.transcript('讨论结束。hellosparkie。', ident='same')
+        await self.transcript('讨论结束。hellosparkie。', ident='same')
+        await self.agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'late'})
+        self.assertEqual(sum(m['type'] == 'response.create' for m in self.sent), 1)
+        self.assertEqual(sum(k == 'zoom_wake_decision' for k, _ in self.events), 1)
+
     async def test_direct_local_tasks_keep_provenance_and_pending_delivery(self):
         await self.transcript('Hey Sparkie, create a file and open the requested page')
         await self.created('actions')

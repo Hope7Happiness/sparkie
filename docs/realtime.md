@@ -125,6 +125,8 @@ Focused offline validation: uv run --frozen python -m unittest discover -s tests
 
 ### Zoom 默认输出静音（当前 MVP）
 
+2026-09-19 的 211322 会话已正常收音，但最终转写把称呼连写为 hellosparkie，并聚合在前一段讨论后的第二句，旧规则因此未创建回复。现在 Zoom 按明确句末标点检查后续句首，并只补全该精确 hello+名字连写的空格；不做模糊匹配。最小复测说“Hello Sparkie”，查看 zoom_wake_decision(decision=wake) → zoom_output_state(muted=false) → zoom_response_requested → realtime_response_started → zoom_playback_submitted；回答生成完成且队列排空后应出现 zoom_output_state(reason=chain_drained, muted=true)。SDK 提交仍不等于远端听到，必须由另一参会端确认。
+
 以上 Zoom 普通问答步骤现在需要句首点名，例如 “Hey Sparkie, explain the architecture in detail”。只关闭 Sparkie 的 Zoom 输出；Realtime 会话/输入上下文、Deepgram 和 Codex 后台任务持续运行。未点名的普通会议发言进入现有 Realtime 上下文，但不会触发无必要的助手生成。浏览器/local 模式不变。
 
 使用原有 Sparkie/Sparky（可带 Hi/Hey/Hello）最终转写唤醒；完整回答和所属工具续答结束、队列排空后自动静音。没有 12 秒或其他产品发言时长截断；保留有界音频积压保护及会话总时长。授权请求产生的后台任务，其结果通知可以单独唤醒输出；其他任务不能。

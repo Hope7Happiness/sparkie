@@ -152,12 +152,14 @@ class RealtimeAgent:
 
     async def _zoom_transcript(self, text):
         policy = self.output_policy
-        decision = policy.decision(text)
+        decision, text = policy.evaluate(text)
         if decision == 'ignore':
+            self.emit('zoom_response_not_requested', reason='wake_rejected')
             return
         await self._interrupt()
         if decision == 'mute':
             self.awaiting_turn = False
+            self.emit('zoom_response_not_requested', reason='explicit_mute')
             return
         policy.open('addressed_turn')
         # Keep the live input stream/context. Deepgram and Realtime lack a shared
@@ -210,8 +212,13 @@ class RealtimeAgent:
 
     async def _request_response(self):
         if self.output_policy is not None and self.output_policy.chain is None:
+            self.emit('zoom_response_not_requested', reason='output_muted')
             return
         if self.response_id or self.response_pending or self.user_speaking or self.awaiting_turn:
+            if self.output_policy is not None:
+                self.emit('zoom_response_not_requested', reason='waiting_for_turn_or_response',
+                          response_active=bool(self.response_id), response_pending=self.response_pending,
+                          user_speaking=self.user_speaking, awaiting_turn=self.awaiting_turn)
             return
         self.response_pending = True
         self.turn_response_due = False
@@ -220,6 +227,8 @@ class RealtimeAgent:
         try:
             await self.supply_semantics()
             await self.send({'type': 'response.create'})
+            if self.output_policy is not None:
+                self.emit('zoom_response_requested', chain=self.output_policy.chain)
         except BaseException:
             self.defer_announcements(self.pending_offers)
             self.pending_offers = []
