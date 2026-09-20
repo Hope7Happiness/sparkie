@@ -1,5 +1,9 @@
 # Phase 0 接口约定
 
+## Realtime 身份与会话模式
+
+浏览器、本地与 Zoom 共用 Sparkie 的 AI 会议助手身份及自我报告委派规则。Realtime 的 session instructions 根据是否配置 Zoom output policy 区分会议参与和直接对话，避免 Zoom 会话被描述为无需唤醒词的测试，也避免浏览器会话声称已加入 Zoom。简单自我介绍由前台直接回答；自我报告仍走原有 delegate_task(request, artifact_title)，request 必须显式传入 Sparkie 的公开身份、能力与限制，因为后台不接收 Realtime 系统提示词。工具协议与 artifact 格式不变，生成与展示职责不变。
+
 ## macOS Zoom 分轨语音打断（当前行为）
 
 本节覆盖下文旧混音前台的打断限制，仅适用于支持 dual-input-v1 的 macOS Realtime 会话。Linux、browser/local 和 legacy wake/qa 保留既有输入路径。

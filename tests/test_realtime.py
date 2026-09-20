@@ -162,6 +162,37 @@ class RealtimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config['audio']['input']['format']['rate'], 24000)
         self.assertTrue(config['audio']['input']['turn_detection']['interrupt_response'])
 
+    async def test_connection_selects_meeting_context_only_with_output_policy(self):
+        from contextlib import asynccontextmanager
+        from sparkie.providers import ProviderError
+
+        class WS:
+            async def send(inner, event):
+                self.sent.append(json.loads(event))
+
+            async def __aiter__(inner):
+                for event in ():
+                    yield event
+
+        @asynccontextmanager
+        async def connector(*args, **kwargs):
+            yield WS()
+
+        self.agent.connector = connector
+        for meeting in (False, True):
+            with self.subTest(meeting=meeting):
+                self.sent.clear()
+                self.agent.output_policy = object() if meeting else None
+                with self.assertRaises(ProviderError):
+                    await self.agent._run()
+                config = self.sent[0]['session']
+                self.assertEqual(config['instructions'], session_config(
+                    self.agent.model, meeting_mode=meeting)['session']['instructions'])
+                self.assertEqual(config['audio']['input']['turn_detection']['interrupt_response'],
+                                 not meeting)
+        self.assertNotEqual(session_config(self.agent.model),
+                            session_config(self.agent.model, meeting_mode=True))
+
     async def test_next_output_does_not_overwrite_unplayed_previous_audio(self):
         self.audio.append_output('first', b'\1\0' * 2)
         self.audio.finish_output('first')
