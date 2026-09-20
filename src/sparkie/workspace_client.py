@@ -15,6 +15,7 @@ class WorkspaceClient:
         self.server, self.timeout = server, timeout
         self.socket = None
         self.workspace_id = None
+        self.generation = None
         self.enabled = True
         self.on_message = None
         self._drain = None
@@ -29,8 +30,9 @@ class WorkspaceClient:
                                           params=params)
                 response.raise_for_status()
             self.workspace_id = response.json()["workspace_id"]
+            self.generation = response.json()['generation']
             self.socket = await connect(
-                f"ws://{self.server}/workspaces/{self.workspace_id}/events",
+                f"ws://{self.server}/workspaces/{self.workspace_id}/events?generation={self.generation}",
                 open_timeout=self.timeout, close_timeout=1)
             # Broadcasts (e.g. a browser cancel) are delivered to the optional
             # on_message hook; draining also keeps the socket from stalling.
@@ -42,10 +44,14 @@ class WorkspaceClient:
     async def _listen(self):
         try:
             async for raw in self.socket:
+                message = json.loads(raw)
+                if message.get('type') == 'workspace.reset' and message.get('generation') != self.generation:
+                    self.enabled = False
+                    return
                 if self.on_message is None:
                     continue
                 try:
-                    self.on_message(json.loads(raw))
+                    self.on_message(message)
                 except Exception:
                     pass
         except Exception:
@@ -55,7 +61,7 @@ class WorkspaceClient:
         if not self.enabled or self.socket is None:
             return
         try:
-            await self.socket.send(json.dumps(message))
+            await self.socket.send(json.dumps({**message, 'generation': self.generation}))
         except Exception:
             self.enabled = False
 

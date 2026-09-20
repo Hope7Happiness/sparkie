@@ -5,6 +5,7 @@ const $ = id => document.getElementById(id);
 const state = {
   socket: null, server: null, workspaceId: null, activeArtifact: null,
   artifacts: new Map(), tasks: new Map(), hydrated: new Set(), utterances: 0,
+  generation: null, viewVersion: 0, snapshotEvents: null,
 };
 
 const setState = text => { $('state').textContent = text; };
@@ -520,10 +521,12 @@ async function hydrateArtifact(id) {
   const known = state.artifacts.get(id);
   if (!known || known.content !== undefined || !state.server || state.hydrated.has(id)) return;
   state.hydrated.add(id);
+  const version = state.viewVersion;
   try {
     const response = await fetch(`${state.server}/api/artifacts/${id}`);
     if (!response.ok) return;
     const full = await response.json();
+    if (version !== state.viewVersion) return;
     const merged = { ...state.artifacts.get(id), ...full, artifact_id: id };
     state.artifacts.set(id, merged);
     paintArtifactCard(merged);
@@ -539,11 +542,13 @@ async function hydrateArtifact(id) {
 // artifact.ready only carries metadata, so hydrate first: presenting an empty
 // shell mid-generation looks like a broken artifact.
 async function presentArtifact(id, { overlay = false } = {}) {
+  const version = state.viewVersion;
   state.activeArtifact = id;
   document.querySelectorAll('.artifact').forEach(el =>
     el.classList.toggle('active', el.dataset.artifact === id));
   if (!state.artifacts.get(id)) return;
   if (state.artifacts.get(id).content === undefined) await hydrateArtifact(id);
+  if (version !== state.viewVersion || state.activeArtifact !== id) return;
   const artifact = state.artifacts.get(id);
   renderStage(artifact);
   if (overlay || overlayOpen()) openOverlay(artifact);
@@ -634,7 +639,7 @@ function upsertTask(event) {
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'task-cancel quiet'; button.textContent = 'Cancel';
     button.onclick = () => state.socket?.readyState === WebSocket.OPEN &&
-      state.socket.send(JSON.stringify({ type: 'cancel_task', task_id: id }));
+      state.socket.send(JSON.stringify({ type: 'cancel_task', task_id: id, generation: state.generation }));
     card.append(button);
   } else if (status !== 'running' && status !== 'queued' && cancel) cancel.remove();
 }
@@ -642,6 +647,7 @@ function upsertTask(event) {
 /* ------------------------------------------------------------------ session */
 
 function loadSnapshot(snapshot) {
+  state.generation = snapshot.workspace?.generation ?? null;
   for (const row of snapshot.transcript || []) {
     entry('transcript', row.speaker || row.source, row.text);
     state.utterances += 1;
@@ -659,6 +665,8 @@ function loadSnapshot(snapshot) {
 }
 
 function onEvent(event) {
+  if (event.type === 'workspace.reset') { reloadSnapshot(); return; }
+  if (state.snapshotEvents !== null) { state.snapshotEvents.push(event); return; }
   switch (event.type) {
     case 'utterance':
       entry('transcript', event.speaker || event.source, event.text);
@@ -680,16 +688,18 @@ function onEvent(event) {
     case 'meeting.ended':
       setState(`Ended · ${state.workspaceId || ''}`);
       break;
-    case 'workspace.reset':
-      reloadSnapshot();
-      break;
   }
 }
 
 function clearWorkspaceUI() {
+  state.viewVersion += 1;
+  state.generation = null;
+  state.snapshotEvents = null;
+  state.activeArtifact = null;
+  state.hydrated.clear();
   for (const id of ['transcript', 'tasks', 'artifacts', 'stage']) {
     const node = $(id);
-    if (node) node.innerHTML = '';
+    if (node) node.textContent = '';
   }
   state.tasks.clear();
   state.artifacts.clear();
@@ -705,12 +715,22 @@ function clearWorkspaceUI() {
 async function reloadSnapshot() {
   if (!state.server || !state.workspaceId) return;
   clearWorkspaceUI();
+  const version = state.viewVersion;
+  state.snapshotEvents = [];
   try {
     const snapshot = await (await fetch(
       `${state.server}/api/workspaces/${state.workspaceId}`)).json();
+    if (version !== state.viewVersion) return;
     loadSnapshot(snapshot);
+    const pending = state.snapshotEvents;
+    state.snapshotEvents = null;
+    for (const event of pending) {
+      if (event.seq > snapshot.seq) onEvent(event);
+    }
     setState(`Connected · ${state.workspaceId} · new session`);
   } catch (error) {
+    if (version !== state.viewVersion) return;
+    state.snapshotEvents = null;
     fail(`Failed to refresh workspace: ${error.message}`);
   }
 }
@@ -731,26 +751,31 @@ $('join').onsubmit = async event => {
   const kind = 'zoom_uuid', external = form.get('external_id'),
         title = form.get('title') || '';
   state.socket?.close();
+  state.socket = null;
   clearWorkspaceUI();
+  const version = state.viewVersion;
   try {
     const response = await fetch(`${base.http}/api/meetings/resolve?` +
       new URLSearchParams({ kind, external_id: external, title }));
     if (!response.ok) throw new Error(`resolve ${response.status}`);
     const workspace = await response.json();
+    if (version !== state.viewVersion) return;
     state.server = base.http;
     state.workspaceId = workspace.workspace_id;
     $('ws-id').textContent = workspace.workspace_id;
     const snapshot = await (await fetch(`${base.http}/api/workspaces/${workspace.workspace_id}`)).json();
+    if (version !== state.viewVersion) return;
     loadSnapshot(snapshot);
-    const socket = new WebSocket(`${base.ws}/workspaces/${workspace.workspace_id}/events`);
-    socket.onmessage = ({ data }) => onEvent(JSON.parse(data));
+    const socket = new WebSocket(`${base.ws}/workspaces/${workspace.workspace_id}/events?generation=${state.generation}`);
+    socket.onmessage = ({ data }) => { if (state.socket === socket) onEvent(JSON.parse(data)); };
     socket.onopen = () => setState(`Connected · ${workspace.workspace_id}`);
-    socket.onclose = () => setState('Disconnected');
+    socket.onclose = () => { if (state.socket === socket) setState('Disconnected'); };
     socket.onerror = () => fail('Event stream connection failed — is sparkie workspace running?');
     state.socket = socket;
     $('workspace').hidden = false;
     setState('Connecting…');
   } catch (error) {
+    if (version !== state.viewVersion) return;
     fail(`Cannot reach backend: ${error.message}. Run sparkie workspace first`);
   }
 };
@@ -759,7 +784,8 @@ $('simulate').onsubmit = event => {
   event.preventDefault();
   const form = new FormData(event.target);
   if (state.socket?.readyState === WebSocket.OPEN) {
-    state.socket.send(JSON.stringify({ type: 'utterance', speaker: form.get('speaker'), text: form.get('text') }));
+    state.socket.send(JSON.stringify({ type: 'utterance', speaker: form.get('speaker'), text: form.get('text'),
+                                      generation: state.generation }));
     event.target.text.value = '';
   }
 };

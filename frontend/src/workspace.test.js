@@ -53,7 +53,7 @@ class Element {
   get tags() { return [...this.walk()].map(el => el.tag); }
 }
 
-function harness() {
+function harness({ fetch = async () => { throw new Error('offline'); } } = {}) {
   const root = new Element('body');
   const byId = new Map();
   const document = {
@@ -67,9 +67,9 @@ function harness() {
   };
   const source = readFileSync(new URL('./workspace.js', import.meta.url), 'utf8')
     .replace(/^import '\.\/[\w-]+\.css';$/gm, '')
-    + '\nglobalThis.api={renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
+    + '\nglobalThis.api={state,onEvent,hydrateArtifact,clearWorkspaceUI,reloadSnapshot,renderMarkdown,renderStage,upsertTask,upsertArtifact,safeUrl,artifactKind,openOverlay,closeOverlay};';
   const context = vm.createContext({
-    document, WebSocket: { OPEN: 1 }, fetch: async () => { throw new Error('offline'); },
+    document, WebSocket: { OPEN: 1 }, fetch,
     URL, Blob, FormData, console,
   });
   vm.runInContext(source, context);
@@ -77,6 +77,41 @@ function harness() {
 }
 
 const stage = document => document.getElementById('stage');
+
+test('reset discards in-flight artifact hydration from the previous session', async () => {
+  let resolve;
+  const response = new Promise(done => { resolve = done; });
+  const { api, document } = harness({ fetch: () => response });
+  api.state.server = 'http://localhost';
+  api.state.artifacts.set('old', { artifact_id: 'old', title: 'Old meeting' });
+  api.state.activeArtifact = 'old';
+  const pending = api.hydrateArtifact('old');
+  api.clearWorkspaceUI();
+  resolve({ ok: true, json: async () => ({ content: { markdown: 'Old content' } }) });
+  await pending;
+  assert.equal(api.state.artifacts.size, 0);
+  assert.equal(api.state.hydrated.size, 0);
+  assert.equal(api.state.activeArtifact, null);
+  assert.equal(stage(document).textContent, '');
+});
+
+test('reset snapshot adopts generation and replays only newer buffered events', async () => {
+  let resolve;
+  const response = new Promise(done => { resolve = done; });
+  const { api, document } = harness({ fetch: () => response });
+  api.state.server = 'http://localhost';
+  api.state.workspaceId = 'ws_test';
+  const pending = api.reloadSnapshot();
+  api.onEvent({ type: 'utterance', seq: 5, text: 'already in snapshot' });
+  api.onEvent({ type: 'utterance', seq: 6, text: 'newer than snapshot' });
+  resolve({ json: async () => ({ workspace: { generation: 2 }, seq: 5,
+    transcript: [{ text: 'already in snapshot' }], tasks: [], artifacts: [] }) });
+  await pending;
+  assert.equal(api.state.generation, 2);
+  assert.equal(document.getElementById('transcript').children.length, 2);
+  assert.equal(document.getElementById('utterance-count').textContent, '2');
+  assert.equal(api.state.snapshotEvents, null);
+});
 
 test('markdown renders headings, emphasis, lists, code and links as real nodes', () => {
   const { api } = harness();

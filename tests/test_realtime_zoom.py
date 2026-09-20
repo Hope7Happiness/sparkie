@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import numpy as np
 from sparkie.audio import AudioFrame
 from sparkie.providers import ProviderError
+from sparkie.zoom_errors import ZoomMicrophoneMuted
 from sparkie.realtime_zoom_audio import PCMResampler, RealtimeZoomAudio
 from sparkie.realtime import RealtimeAgent
 
@@ -57,7 +58,7 @@ class Meeting:
         if self.mute_playbacks:
             self.mute_playbacks -= 1
             self.mic_ready.clear()
-            raise RuntimeError('Zoom microphone was muted during playback')
+            raise ZoomMicrophoneMuted('Zoom microphone was muted during playback')
         if self.block:
             await self.release.wait()
         await asyncio.sleep(.001)
@@ -255,6 +256,38 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.meeting.mic_ready.set()
         await self.wait_drained('item')
         self.assertGreater(self.audio.outputs['item'].played_ms(), 0)
+        # The unacknowledged packet must be retried, not silently discarded.
+        self.assertEqual(self.audio.outputs['item'].submitted, 64000)
+        self.assertEqual(self.meeting.packets[0], self.meeting.packets[1])
+
+    async def test_playback_timeout_is_not_misreported_as_mute_or_played_audio(self):
+        self.meeting.play_audio = AsyncMock(side_effect=TimeoutError('missing acknowledgement'))
+        self.audio.append_output('timeout', bytes(4800))
+        self.audio.finish_output('timeout')
+        async with asyncio.timeout(1):
+            while self.audio.failure is None and not self.audio.outputs['timeout'].drained:
+                await asyncio.sleep(.001)
+        self.assertIsInstance(self.audio.failure, TimeoutError)
+        self.assertFalse(self.audio.outputs['timeout'].drained)
+        self.assertEqual(self.audio.outputs['timeout'].played_ms(), 0)
+        self.assertNotIn('zoom_playback_muted', [k for k, _ in self.events])
+
+    async def test_cancel_while_waiting_for_unmute_never_replays_old_packet(self):
+        self.meeting.mute_playbacks = 1
+        self.audio.append_output('old', bytes(4800))
+        self.audio.finish_output('old')
+        async with asyncio.timeout(1):
+            while not any(k == 'zoom_playback_muted' for k, _ in self.events):
+                await asyncio.sleep(.001)
+        await self.audio.stop_speaking()
+        self.meeting.mic_ready.set()
+        self.audio.append_output('new', b'\x01\0' * 2400)
+        self.audio.finish_output('new')
+        await self.wait_drained('new')
+        self.assertTrue(self.audio.outputs['old'].cancelled.is_set())
+        self.assertEqual(self.audio.outputs['old'].submitted, 0)
+        self.assertEqual(len(self.meeting.packets), 2)
+        self.assertEqual(self.audio.outputs['new'].submitted, 6400)
 
     async def test_sdk_failure_stops_input_and_propagates(self):
         self.meeting.fail = True
