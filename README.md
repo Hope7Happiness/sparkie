@@ -1,60 +1,117 @@
+<p align="center"><img src="docs/assets/sparkie-icon.png" alt="Three people and an AI secretary in a meeting" width="180"></p>
+
 # Sparkie
 
-以独立参与者身份加入线上会议的实时 AI agent：安静监听，被唤醒后参与讨论、执行后台任务，并在会后整理纪要。
+**An AI secretary that joins your Zoom meeting, follows the conversation, and gets things done.**
 
-技术栈：**GPT Realtime = 前台语音 · Deepgram = 并行转写 · Codex / Devin CLI = 后台任务 · Zoom = 会议接入**。**wake/qa 是 legacy 诊断/问答路径，使用 Deepgram STT/TTS，不是当前产品测试入口。**
+Sparkie joins as a participant. It listens while your team talks, responds when addressed, and hands work to a background agent so the meeting can keep moving. Ask it to research a question, write a document, edit a file, or carry out a task in the project. When the work is ready, it reports back by voice.
 
-提供无 key 模拟 primitive；Deepgram 真实语音合成→流式转录检查已通过，本机 Codex CLI 的上下文回答也已通过实测。**旧 Zoom 问答链路已有一次真实会议收听实测；新 Realtime + Codex 链路已接入代码，真人验收待完成。**
+> “Sparkie, turn that into a short video outline and save it in the project.”
+>
+> Keep discussing the recording plan. Then ask it to add the roles you just agreed on to the same file.
 
-Legacy 本地语音诊断入口：`bash scripts/local.sh --language en-US --seconds 60`。等待 `listening_ready` 后叫 “Sparkie”，应播放 “I'm here.”；按 Ctrl+C 停止。需要 Deepgram key 与麦克风权限。
+## What works today
+
+The current macOS Zoom path connects real meeting audio, participant transcripts, context-aware voice responses, and background execution. Recent local Zoom sessions include discussing competing demo ideas, creating an outline, and delegating follow-up edits. The team has also reported good results with the current semantic turn-completion setting.
+
+- **Listen in context.** Human speech is transcribed per Zoom participant and retained for later questions.
+- **Speak when addressed.** Call “Sparkie” to ask a question or delegate work. Ordinary team discussion stays in context without requiring a reply.
+- **Handle pauses and interruptions.** Semantic turn detection groups speech before wake routing; text-confirmed human speech can interrupt an ongoing reply.
+- **Work during the meeting.** A selectable Devin or Codex CLI worker can search, use tools, read and write files, and execute commands while the foreground stays available.
+- **Continue the work.** Ask for progress, cancel a task, or request another edit to an existing result. Running Devin tasks also accept request updates.
+
+This is a hackathon prototype with working real-session evidence, not a claim of universal latency or long-session reliability. See [current speech handling and validation](docs/semantic-turn-detection.md).
+
+## How it works
+
+```text
+Zoom Meeting SDK — per-participant human audio
+    ├── Deepgram — words, transcripts, speech activity
+    └── Realtime semantic VAD — completed speech turns
+                  ↓
+         Wake routing — was Sparkie addressed?
+                  ↓
+         GPT Realtime — contextual voice conversation
+                  ├── audio reply → Zoom microphone
+                  └── delegated task → Devin / Codex CLI
+                                           ↓
+                                  tools, files, commands
+                                           ↓
+                                  result → voice report
+```
+
+The current example configuration uses **gpt-realtime-2.1** for voice and semantic turn detection, **Deepgram nova-3** for transcription, **Gemini via a separate Devin process** for semantic wake routing, and **Devin SWE 1.6 Fast** for background tasks. Codex remains selectable through `SPARKIE_TASK_BACKEND=codex`. Provider adapters are separate from shared meeting contracts.
+
+The background worker receives finalized transcript context available when the task is delegated. Later decisions should be sent as an explicit update or follow-up request. A task acknowledgement means work was queued; completion must be checked against the actual result.
+
+## Run a real Zoom session on macOS
+
+Prerequisites: Python 3.11+, `uv`, a macOS build environment, the supported Zoom Meeting SDK (the native bridge targets 7.1.5), Deepgram and OpenAI API access, and a logged-in Devin or Codex CLI. The meeting host must admit Sparkie and grant the recording/raw-audio permission required by the SDK. External meetings may require additional Zoom authorization; see the setup guide.
 
 ```bash
 uv sync --frozen
-bash scripts/primitive.sh
-uv run --frozen python -m unittest discover -s tests -v
+cp .env.example .env
 ```
 
-需要 Python 3.11+ 和 uv。首次安装依赖后，模拟模式不需要网络、SDK、Docker 或账号。生成的 `output/primitive/run.json` 与静音 WAV 均明确标为模拟产物。
+Fill in `.env` locally. It is ignored by Git. Set the Zoom SDK credentials, meeting details, `ZOOM_MACOS_SDK_PATH`, `OPENAI_API_KEY`, and `DEEPGRAM_API_KEY`. The template selects macOS, English transcription, semantic turn detection, Devin tasks, and semantic wake routing. Authenticate the selected CLI separately; semantic wake routing also requires Devin when enabled.
 
-- [协作方式：一人编码，两人测试反馈](docs/team-first-steps.md)
-- [Zoom Linux Docker 探针：已有真实入会与音频接收记录](docs/zoom-sanity.md)
-- [Zoom macOS 原生探针：配置、构建与验收](docs/zoom-macos.md)
-- [人工配置清单](docs/manual-setup.md)
-- [primitive 运行方式、接口和限制](docs/primitive.md)
-- [技术验证记录](docs/platform-validation.md)
-- [Zoom 参会与双向音频方案、联调接口](docs/zoom-agent-integration.md)
-- [Zoom SDK 配置状态与本地工具](docs/zoom-setup.md)
-- [完整产品计划](prompt)
+```bash
+uv run --frozen python scripts/zoom-sanity.py build --platform macos
+uv run --frozen python scripts/zoom-sanity.py check --platform macos
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
+```
 
-协作方式：先由 [@Hope7Happiness](https://github.com/Hope7Happiness) 与 Codex 搭建 primitive，再由 [@YIFANK](https://github.com/YIFANK) 和 [@bowenyu066](https://github.com/bowenyu066) 测试；后续三人轮换一人编码、两人测试反馈，不设固定模块负责人。
+Wait for `listening_ready`, then speak normally:
 
-最高优先级：先证明 Sparkie 可以加入真实会议，在被叫到时迅速播放“我在”。
+> “Sparkie, what were the two options we just discussed?”
+>
+> “Sparkie, write a short outline from that and save it as demo-outline.md in this project.”
+>
+> “Sparkie, add the roles we just agreed on to the end of that file.”
 
-本机网页测试台：运行 bash scripts/web.sh，打开 http://127.0.0.1:5178，使用浏览器麦克风进行 Realtime 对话与后台任务测试。详见 [Realtime](docs/realtime.md)。
+Use distinct Zoom display names and headphones. A teammate can open the resulting file in an editor and manually share that window. Finish pending work before stopping the session.
 
-Zoom 接入支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker 配置；设为 `macos` 可使用官方 macOS SDK，无需 Docker，探针与语音桥复用同一原生二进制。两者共用 `.env` 的 Zoom 凭证。macOS 探针已通过编译与 SDK 初始化检查；macOS 语音桥已实现，真实会议收发仍待验收。
+For exact SDK installation, authorization, and troubleshooting: [macOS setup](docs/zoom-macos.md), [manual configuration](docs/manual-setup.md), and [Realtime operation](docs/realtime.md).
 
-## Zoom Realtime（当前主路径）
+### Execution and credentials
 
-macOS Meeting SDK 7.1.5 提供每位参会者的独立音轨给 Deepgram；分轨语音开始事件触发打断，最终文本交给 Realtime 前台回应。转写保留 Zoom 用户 ID、显示名和会议时间；多个同时发言者的音轨不会串接到前台。
+The Realtime task worker runs in the project workspace with filesystem, shell, network, and configured tool access, without an approval gate or per-task timeout. Delegate tasks accordingly. Both CLI backends reuse their CLI login; the voice OpenAI API key is not used for Codex CLI billing. Voice and per-participant semantic detectors make their own API calls.
 
-配置 .env 中的 Zoom 凭据、ZOOM_MACOS_SDK_PATH、OPENAI_API_KEY、DEEPGRAM_API_KEY，以及所选后台 CLI 的登录，然后运行：
+Session records are written under `output/zoom/<session>/`, including `transcript.jsonl`, `events.jsonl`, `run.json`, and `tasks.json` when tasks exist. These local outputs may contain meeting content and are ignored by Git. Generated assistant text is not proof that every word was heard remotely, especially after an interruption.
 
-    uv sync --frozen
-    uv run --frozen python scripts/zoom-sanity.py build --platform macos
-    uv run --frozen python scripts/zoom-sanity.py check --platform macos
-    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
+## Offline smoke checks
 
-本轮原生协议已更新，必须重建接收器。主持人接纳 Sparkie 并允许读取原始音频所需的录制权限。默认模式就是 realtime。输出位于 output/zoom/<session>/：transcript.jsonl 保存含 speaker_id / speaker 的逐条转写，tasks.json 保存后台任务，run.json 的 transcript 按会议时间排序。
+After dependency installation, these simulations require no API keys, SDK downloads, Docker, or network calls:
 
-多人测试包括轮流和重叠发言、同名用户、停顿后继续、改名/进出、后台任务期间继续对话。详见 [Realtime Zoom 验收](docs/realtime.md#zoom-中验收完整-agent)。离线与合成输入测试不代表真实 Zoom 多人验收；真人重叠发言、回声和长时间稳定性仍待验证。
+```bash
+uv run --frozen python -m unittest discover -s tests -v
+bash scripts/primitive.sh
+bash scripts/demo.sh
+```
 
-分轨转写过滤 Sparkie 自身用户 ID，播放期间仍记录其他用户；检测到真人开始说话后停止播放，最终文本叫到 Sparkie 才重新回应，普通讨论保持静音。Realtime 在此模式使用分轨最终文本，混音只保留静音时钟，避免重复输入和自触发。远端声学回声仍可能进入分轨转写；共用同一 Zoom 麦克风的多人仍不能分人。Linux 保留混音转写。
+Simulation results are labeled as simulated. They test the software flow; they do not establish real Zoom or remote audio behavior. Legacy `wake` / `qa` modes use the older Deepgram STT/TTS path and remain available for diagnostics. The default legacy TTS is Aura-2 English; transcription language support does not imply matching TTS support.
 
-## Legacy：wake / qa
+## Demo film
 
-**wake 和 qa 是 legacy，不是当前 Zoom Realtime 产品或本轮测试入口。** wake 播放固定回复，qa 在旧 Deepgram STT/TTS 链路中加入上下文问答。scripts/local.sh 和 primitive 的历史语音闭环用于底层诊断。保留 [legacy Zoom 历史验证记录](docs/zoom-voice.md)，不能用旧链路的成功证明当前 Realtime 已通过会议验收。
+Three teammates meet to plan Sparkie’s demo video. Sparkie is the fourth participant: it weighs in on the opening, writes the outline while the team discusses filming, then adds their agreed roles. The meeting they are recording becomes the demo itself.
 
-仅需复查旧固定回复时，可显式运行：
+Open [the shooting script](docs/sparkie-demo-script.html) in a browser for English dialogue, Chinese rehearsal notes, shot directions, response-dependent branches, and recording checks. Suggested runtime is 2–3 minutes after editing; actual interactions determine the pace. Open the local HTML file directly to use the rehearsal controls.
 
-    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 60 --response-mode wake
+The [square icon](docs/assets/sparkie-icon.png) shows an AI secretary as an equal participant in the call. [Asset generation notes](docs/assets/icon-generation.md) record the prompt and tool provenance.
+
+## Current boundaries
+
+- The main demo path is macOS Zoom and English. Linux and legacy modes have different input behavior.
+- Sparkie does not inspect video or shared-screen content. File access comes from the delegated worker’s tools.
+- Per-participant tracks distinguish Zoom connections, not multiple people sharing one microphone. Human microphone echo can still re-enter the transcript.
+- Speech completion and wake decisions are probabilistic. Response timing varies with turn detection, providers, task complexity, and playback.
+- If participant input fails, the system records a coverage gap and stops automatic output rather than silently accepting incomplete input. Realtime does not automatically reconnect.
+- Email delivery and proactive unsolicited participation are outside this demo. Tool actions require the relevant integration and a user-delegated request.
+
+## Team and development
+
+[@Hope7Happiness](https://github.com/Hope7Happiness), [@YIFANK](https://github.com/YIFANK), and [@bowenyu066](https://github.com/bowenyu066) rotate one coding/integration lead with two teammates testing runnable builds. There is no permanent module ownership. See [team workflow](docs/team-first-steps.md).
+
+Before core changes, read `prompt`, [interface contracts](docs/interfaces.md), and [team workflow](docs/team-first-steps.md). Run the checks above and hand off the commit, run command, tested scope, and known limitations. Reproduce, fix, and verify a reported scenario before closing its bug. Completed verified changes are committed locally; pushing or opening a PR requires an explicit request.
+
+The original [product plan](prompt) contains future scope as well as implemented work. This README describes the current demo path.
