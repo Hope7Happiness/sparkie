@@ -97,7 +97,7 @@ Three teammates meet to plan Sparkie’s demo video. Sparkie is the fourth parti
 
 Open [the shooting script](docs/sparkie-demo-script.html) in a browser for English dialogue, Chinese rehearsal notes, shot directions, response-dependent branches, and recording checks. Suggested runtime is 2–3 minutes after editing; actual interactions determine the pace. Open the local HTML file directly to use the rehearsal controls.
 
-The [square icon](docs/assets/sparkie-icon.png) shows an AI secretary as an equal participant in the call. [Asset generation notes](docs/assets/icon-generation.md) record the prompt and tool provenance.
+The [square icon](docs/assets/sparkie-icon.png) shows an AI secretary as an equal participant in the call.
 
 ## Current boundaries
 
