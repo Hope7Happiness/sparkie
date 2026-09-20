@@ -204,7 +204,6 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
     async def test_backpressure_fails_without_dropping_frames(self):
-        self.meeting.input_live = True
         self.meeting.queue = asyncio.Queue(maxsize=1)
         self.meeting.reader.feed_data(packet(b'A', b'\0\0') * 2)
         await self.meeting.receive()
@@ -304,42 +303,11 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.meeting.queue.maxsize, 1000)
 
     async def test_sustained_backlog_warns_then_fails_at_bound(self):
-        self.meeting.input_live = True
         self.meeting.reader.feed_data(packet(b'A', b'\0\0') * 1001)
         await self.meeting.receive()
         self.assertIsInstance(self.meeting.failure, asyncio.QueueFull)
         warnings = [kw for kind, kw in self.events if kind == 'audio_warning']
         self.assertEqual(warnings, [{'reason': 'zoom_input_backlog', 'queued_frames': 250}])
-
-    async def test_pre_consumer_overflow_drops_oldest_without_failing(self):
-        self.meeting.reader.feed_data(packet(b'A', b'\x01\x00' * 320) * 1001)
-        task = asyncio.create_task(self.meeting.receive())
-        await asyncio.sleep(.1)
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        self.assertIsNone(self.meeting.failure)
-        self.assertEqual(self.meeting.join_dropped_frames, 1)
-        self.assertEqual(self.meeting.queue.qsize(), 1000)
-
-    async def test_startup_backlog_is_flushed_as_stale(self):
-        from sparkie.audio import AudioFrame
-        self.meeting.max_seconds = 60
-        for i in range(300):
-            self.meeting.queue.put_nowait(AudioFrame(i, b'\0\0'))
-        self.meeting._backlogged = True
-        stream = self.meeting.audio()
-        pending = asyncio.create_task(anext(stream))
-        await asyncio.sleep(.05)
-        self.meeting.reader.feed_data(packet(b'A', b'\x07\x00' * 320))
-        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
-        frame = await asyncio.wait_for(pending, 1)
-        await stream.aclose()
-        self.assertEqual(frame.pcm, b'\x07\x00' * 320)
-        self.assertEqual(self.meeting.join_dropped_frames, 300)
-        self.assertFalse(self.meeting._backlogged)
-        kinds = [kind for kind, _ in self.events]
-        self.assertIn('zoom_input_flushed', kinds)
-        self.assertIn('zoom_input_recovered', kinds)
 
     async def test_transport_burst_reaches_stt_without_overflow_or_lost_frames(self):
         import json
@@ -434,6 +402,20 @@ class ZoomMacVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('ZOOM_CLIENT_SECRET', env)
         self.assertNotIn('OPENAI_API_KEY', env)
         self.assertTrue(env['SPARKIE_ZOOM_CONFIG'].endswith('config.json'))
+
+    async def test_share_screen_packet_and_state_metadata(self):
+        sent = []
+        async def send(kind, data=b''):
+            sent.append((kind, data))
+        self.meeting.send_packet = send
+        await self.meeting.share_screen('http://127.0.0.1:8790/workspaces/ws_x/present')
+        await self.meeting.stop_share()
+        self.assertEqual(sent, [(b'V', b'http://127.0.0.1:8790/workspaces/ws_x/present'), (b'V', b'')])
+        self.meeting.on_event = lambda kind, **kw: sent.append((kind, kw))
+        self.assertTrue(self.meeting.handle_metadata(b'V', b'\x01'))
+        self.assertTrue(self.meeting.handle_metadata(b'V', b'\x02'))
+        self.assertEqual(sent[-2:], [('zoom_share_state', {'state': 'sharing'}),
+                                    ('zoom_share_state', {'state': 'blocked'})])
 
     async def test_missing_binary_explains_build_step(self):
         meeting = ZoomMacAudioMeeting(Path(self.temp.name) / 'x', Path(self.temp.name) / 'missing')

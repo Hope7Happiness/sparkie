@@ -498,6 +498,11 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         if kind == b'R' and not data:
             self.audio_ready.set()
             return True
+        if kind == b'V' and len(data) == 1:
+            states = {0: 'stopped', 1: 'sharing', 2: 'blocked',
+                      3: 'window_invalid', 4: 'share_failed'}
+            self.on_event('zoom_share_state', state=states.get(data[0], data[0]))
+            return True
         if kind != b'J':
             return False
         users = json.loads(data)
@@ -514,6 +519,13 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         self.participant_names.update({ident: user['name'] for ident, user in participants.items() if user['name']})
         self.on_event('zoom_participants', participants=participants)
         return True
+
+    async def share_screen(self, url):
+        """Present URL in the receiver's share window and start app share."""
+        await self.send_packet(b'V', url.encode()[:2048])
+
+    async def stop_share(self):
+        await self.send_packet(b'V', b'')
 
     def speaker_name(self, speaker_id):
         return self.participant_names.get(speaker_id) or speaker_id
