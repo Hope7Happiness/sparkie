@@ -17,12 +17,14 @@ from .contracts import SpeechActivity, TranscriptEvent
 from .providers import ProviderError, deepgram_connect
 from .realtime_zoom_audio import PCMResampler
 
+SEMANTIC_EAGERNESS = 'medium'
+
 
 def semantic_session_config(model):
     return {'type': 'session.update', 'session': {
         'type': 'realtime', 'model': model, 'output_modalities': ['text'],
         'audio': {'input': {'format': {'type': 'audio/pcm', 'rate': 24000},
-                            'turn_detection': {'type': 'semantic_vad', 'eagerness': 'low',
+                            'turn_detection': {'type': 'semantic_vad', 'eagerness': SEMANTIC_EAGERNESS,
                                                'create_response': False, 'interrupt_response': False}}},
         'tools': []}}
 
@@ -233,12 +235,12 @@ class SemanticTurnEars:
                             raise ProviderError('semantic_realtime_error')
                         if kind == 'session.updated':
                             detection = message.get('session', {}).get('audio', {}).get('input', {}).get('turn_detection', {})
-                            if (detection.get('type') != 'semantic_vad' or detection.get('eagerness') != 'low' or
+                            if (detection.get('type') != 'semantic_vad' or detection.get('eagerness') != SEMANTIC_EAGERNESS or
                                     detection.get('create_response') is not False or
                                     detection.get('interrupt_response') is not False):
                                 raise ProviderError('semantic_configuration_not_applied')
                             ready.set()
-                            self.on_event('semantic_turn_ready', model=self.model, eagerness='low')
+                            self.on_event('semantic_turn_ready', model=self.model, eagerness=SEMANTIC_EAGERNESS)
                         elif kind == 'input_audio_buffer.speech_stopped':
                             end = message['audio_end_ms']
                             before = len(buffer.ends)

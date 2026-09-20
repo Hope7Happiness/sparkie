@@ -20,7 +20,7 @@ from .browser_audio import BrowserAudio
 from .task_center import TranscriptLedger, TaskCenter
 from .task_workers import configured_task_worker
 from .event_output import EventOutput
-from .semantic_turns import SemanticTurnEars
+from .semantic_turns import SEMANTIC_EAGERNESS, SemanticTurnEars
 
 
 async def run(args):
@@ -267,7 +267,7 @@ async def run(args):
              language=args.language, sample_rate=32000 if participant_stt else 24000,
              input_mode='per_participant' if participant_stt else 'mixed',
              foreground_input='participant_final_text' if participant_stt else 'mixed_audio',
-             turn_detection=turn_detection, semantic_eagerness='low' if turn_detection == 'semantic_vad' else None,
+             turn_detection=turn_detection, semantic_eagerness=SEMANTIC_EAGERNESS if turn_detection == 'semantic_vad' else None,
              barge_in='participant_interim_text' if participant_stt else 'mixed_input')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())

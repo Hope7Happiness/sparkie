@@ -152,6 +152,7 @@ class SemanticAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_audio_reaches_detector_and_late_words_are_finalized_before_release(self):
         config = json.loads(self.rt.sent[0])
         self.assertEqual(config, semantic_session_config('gpt-realtime-2.1'))
+        self.assertEqual(config['session']['audio']['input']['turn_detection']['eagerness'], 'medium')
         self.assertTrue(any(json.loads(x)['type'] == 'input_audio_buffer.append' for x in self.rt.sent))
         await self.dg.incoming.put(result('Hey Sparkie', duration=.4))
         await self.rt.incoming.put({'type': 'input_audio_buffer.speech_stopped', 'audio_end_ms': 900})

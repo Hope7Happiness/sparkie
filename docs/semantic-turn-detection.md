@@ -9,7 +9,7 @@ this mode. Run from the main workspace:
 Each active human participant has a separate Deepgram connection and a separate
 Realtime detector using the foreground model (currently gpt-realtime-2.1).
 The detector receives real audio resampled from 32kHz to 24kHz. Its configuration
-is semantic_vad, eagerness=low, create_response=false, interrupt_response=false,
+is semantic_vad, eagerness=medium, create_response=false, interrupt_response=false,
 with no tools. It never generates replies. These extra Realtime connections incur
 audio API usage; they do not use the Devin CLI subscription. The existing
 SPARKIE_ZOOM_MAX_STT_STREAMS limit also bounds the paired detector streams.
@@ -41,7 +41,7 @@ this does not eliminate physical speaker echo picked up by a human microphone.
 Zoom can stop issuing callbacks during silence. The participant adapter feeds
 paced silence to both providers and keeps an inactive stream open for 15 seconds,
 rather than closing it after the legacy 1.5 seconds. Both providers see the same
-padded media timeline. Diagnostics include semantic_turn_ready (confirmed low
+padded media timeline. Diagnostics include semantic_turn_ready (confirmed medium
 eagerness), semantic_turn_boundary and semantic_turn_discarded, scoped to speaker
 and stream. Provider errors are reported as fixed local reason codes.
 
@@ -50,6 +50,13 @@ path. This option applies to Zoom per-participant input; local microphone,
 browser and legacy fixed-reply paths retain their previous behavior.
 
 ## Validation
+
+The current medium setting replaces low after user feedback that completion felt
+slow, especially after longer speech. The user tested medium, reported that it
+worked very well, and approved committing it. This is qualitative user acceptance;
+no measured medium latency or detailed per-scenario results were supplied. All
+297 Python tests and the primitive/demo simulations passed with medium. The live
+API measurements below were collected with low and are retained as historical evidence.
 
 On 2026-09-20, the production adapter was exercised through real Deepgram and
 Realtime APIs with locally synthesized en-US speech (macOS Samantha, PCM16 mono
@@ -67,7 +74,7 @@ Measured events relative to test startup: ready at 918ms; semantic boundary at
 4860ms on the media clock). The 56ms boundary-to-text gap demonstrates that the
 adapter waited for final transcription. These are synthetic-audio API results,
 not Zoom audible latency, a universal turn-completion delay, or human acceptance.
-No Zoom meeting was joined for this change; the user is doing the live test.
+No Zoom meeting was joined for this synthetic API test.
 
 Offline tests cover short-pause aggregation, late finals, interim revisions,
 cross-boundary words, same-speaker overlap, provider failure, timeout, shutdown,
@@ -78,7 +85,7 @@ All 297 Python tests passed, as did scripts/primitive.sh and scripts/demo.sh
 Suggested Zoom check: pause briefly after "Hey Sparkie, could you", then finish
 the request. The wake log should contain one semantic decision for the complete
 request. Also test immediate speech interruption, brief-noise recovery and a
-completed background task announcement. Low eagerness still makes a probabilistic
+completed background task announcement. Semantic VAD still makes a probabilistic
 decision; it cannot guarantee every human hesitation is interpreted correctly.
 
 Official API configuration reference:

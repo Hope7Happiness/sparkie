@@ -287,7 +287,7 @@ and the remaining user-run Zoom validation.
 
 Zoom per-participant sessions default to SPARKIE_TURN_DETECTION=semantic_vad
 (legacy deepgram is explicitly selectable). SemanticTurnEars pairs Deepgram
-finalized word timestamps with a separate Realtime semantic_vad/low detector for
+finalized word timestamps with a separate Realtime semantic_vad/medium detector for
 each non-self participant. Both receive the same padded audio timeline. Only an
 aligned complete turn becomes TranscriptEvent; Deepgram speech_final fragments
 no longer call human_transcript individually in this mode. Fast text-confirmed
