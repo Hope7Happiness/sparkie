@@ -20,9 +20,17 @@ from test_zoom_audio import packet
 
 
 class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self, provider_failure=False, turn_detection='semantic_vad', workspace_server=None):
+    async def exercise(self, provider_failure=False, turn_detection='semantic_vad', workspace_server=None,
+                       auto_workspace=False, service_ready=True):
         sessions, received, snapshots, human_turns, activity, degraded = [], [], [], [], [], []
         shared_urls = []
+        prepared = []
+        class Services:
+            def __init__(self, root, server, port, emit): self.emit = emit
+            async def ensure(self):
+                prepared.append(True)
+                self.emit('workspace_service_ready', service='frontend', reused=True)
+                return service_ready
         class Meeting(ZoomMacAudioMeeting):
             async def share_screen(self, url): shared_urls.append(url)
             async def join(self):
@@ -74,8 +82,10 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             try:
                 with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos',
                                              'SPARKIE_TURN_DETECTION': turn_detection, 'SPARKIE_WEB_PORT': '5178',
+                                             'SPARKIE_ZOOM_AUTO_WORKSPACE': '1' if auto_workspace else '0',
                                              'SPARKIE_WORKSPACE_SERVER': workspace_server or '127.0.0.1:1'}), \
                      patch('sparkie.zoom_audio.ZoomMacAudioMeeting', Meeting), \
+                     patch.object(realtime_session, 'WorkspaceServices', Services), \
                      patch.object(realtime_session, 'RealtimeAgent', Agent), \
                      patch.object(realtime_session, 'DeepgramEars', Ears), \
                      patch.object(realtime_session, 'SemanticTurnEars', SemanticEars), \
@@ -88,13 +98,20 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             events = [json.loads(x) for x in (root/'events.jsonl').read_text().splitlines()]
             report = json.loads((root/'run.json').read_text())
         self.assertEqual(result, 0)
-        if workspace_server:
+        self.assertEqual(prepared, [True] if auto_workspace else [])
+        if workspace_server and (not auto_workspace or service_ready):
             linked = next(e for e in events if e['type'] == 'workspace_linked')
             query = urlencode({'workspace_id': linked['workspace_id'], 'server': workspace_server})
             self.assertEqual(shared_urls, [f'http://127.0.0.1:5178/workspace.html?{query}'])
             self.assertTrue(any(e['type'] == 'zoom_share_requested' for e in events))
+            if auto_workspace:
+                kinds = [e['type'] for e in events]
+                self.assertLess(kinds.index('workspace_service_ready'), kinds.index('workspace_linked'))
+                self.assertLess(kinds.index('workspace_linked'), kinds.index('zoom_share_requested'))
         else:
             self.assertEqual(shared_urls, [])
+            if auto_workspace and not service_ready:
+                self.assertTrue(any(e.get('reason') == 'workspace_services_unavailable' for e in events))
         self.assertEqual(sum(len(f.pcm) for f in received), 48000)  # One second, not one per speaker.
         self.assertTrue(all(f.sample_rate == 24000 and f.speaker_id is None for f in received))
         config = next(e for e in events if e['type']=='transcription_config')
@@ -139,7 +156,10 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
         runtime = AgentRuntime(store, bus)
         server = await serve_workspace(store, bus, runtime, '127.0.0.1', 0)
         try:
-            await self.exercise(workspace_server='127.0.0.1:' + str(server.sockets[0].getsockname()[1]))
+            for service_ready in (True, False):
+                with self.subTest(service_ready=service_ready):
+                    await self.exercise(workspace_server='127.0.0.1:' + str(server.sockets[0].getsockname()[1]),
+                                        auto_workspace=True, service_ready=service_ready)
         finally:
             server.close()
             await server.wait_closed()
