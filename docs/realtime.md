@@ -90,7 +90,7 @@ SPARKIE_WEB_PORT=5179 bash scripts/web.sh
 
 ```bash
 uv sync --frozen
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600
 ```
 
 需要 `OPENAI_API_KEY`（Realtime）、`DEEPGRAM_API_KEY`（并行转写）、既有 Codex CLI 登录和 Zoom 配置。默认 Realtime 模型沿用 `OPENAI_REALTIME_MODEL`，后台沿用 `CODEX_MODEL`。不会用固定 “I'm here.” 代替语音 agent，也不会调用 Deepgram TTS。`--response-mode wake` 仅用于诊断。
@@ -103,8 +103,36 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 4. 两位参会者轮流和同时发言、同名/改名、停顿后继续，核对 transcript 的 speaker_id、speaker、timestamp_ms。检查后台任务快照仍保留这些字段。
 5. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
 
-真实 Zoom 多人验收待进行。Realtime 混音前台仍沿用播放及后 350ms 门控，不支持该窗口内语音打断；macOS 分轨转写则继续记录其他用户，过滤机器人自身 ID，远端声学回声仍可能被识别。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
+真实 Zoom 多人验收待进行。macOS 分轨 VAD 已接通语音打断，前台改用分轨最终文本；Linux 混音路径仍受播放及后 350ms 门控限制。macOS 过滤机器人自身 ID，远端声学回声仍可能被识别。流式输出以 100ms 包提交（包内由 SDK 桥按 20ms 发送）；提交进度不等于另一端听到的时间，真实延迟、音质及并发体验仍需上述验收。浏览器入口保持现有 AEC 和语音打断行为。
 
+
+### 分轨打断验收
+
+启动回归修复（2026-09-19）：多音轨合并后的麦克风设置改成了非静音入会，实测出现 source 已初始化却没有 onMicStartSend；Python 等待发送就绪时，A 混音无人消费，约 10 秒堆满，U 分轨却能提前触发无法播放的回答。现恢复原先的静音入会 → 安装外部音源 → 取消静音顺序，移除自动反复取消静音，并在 join 完成前明确丢弃 A/U 音频，记录 zoom_startup_audio_discarded 和 startup_frames_discarded。请在 listening_ready 后开始唤醒测试。
+
+232 项 Python 测试及 primitive/demo 离线检查通过；新增用例重现超过 1000 帧的启动积压，并验证麦克风缺失时正确超时、延迟就绪后两路输入恢复。原生接收器重建及签名检查通过。真实会话 20260919T223648-a87f017f 已出现 zoom_microphone_ready（75941 ms）、listening_ready（78164 ms）和首次 zoom_playback_submitted（91734 ms）；随后混音持续被消费，未再出现此次启动积压。本轮用户已明确确认在 Zoom 另一端能听到回复；会话在就绪后运行满 180 秒，以 duration_elapsed 正常结束，进程退出码为 0。此确认仅覆盖实际发声及本次启动回归，远端听到的打断停止延迟仍待验收；程序内 remote_audibility_verified 不自动改为 true。
+
+本地实现与离线测试不代替真人会议验收。先重建接收器，运行：
+
+~~~bash
+uv run --frozen python scripts/zoom-sanity.py build --platform macos
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
+~~~
+
+1. 用两个独立 Zoom 端参会，先戴耳机排除远端扬声器回声。说“Sparkie, explain this proposal in detail”，在回答过程中开口“Let’s discuss this first”。预期先停播，普通讨论结束后保持安静；不要求等取消词或最终转写才停。
+2. 再唤醒，播放时说“Sparkie, just give us the conclusion”。预期停掉旧音频，完整保留新的请求，听完之后生成新回答；没有旧句子续播或两段音频重叠。
+3. 说“Sparkie, stop”或“cancel”，保持安静时不恢复。随后新的 Sparkie 唤醒可重新开口。
+4. 两位参会者重叠发言，任何一位开始都能停止 Sparkie；有效请求的回答等待所有活动音轨结束。没人说话时，Sparkie 不能仅因自身 SDK 音轨而停止。
+5. 在终端输入一行 {"action":"mute"} 检查停止；再输入 {"action":"unmute"} 后说不带唤醒词的请求，只有下一轮获准回复。打断前后的后台任务 ID/状态应保持连续。
+6. 核对 events.jsonl 的 zoom_human_speech_started → realtime_interrupted → transcript → zoom_human_speech_stopped → zoom_response_requested，以及 cancelled response 的迟到音频被丢弃。语音开始事件与模型事件可能因网络异步交错；只有远端听音/经同意的录音才能测量真实停止延迟。
+
+分轨打断初次接通的验证记录（启动回归修复前，2026-09-19）：
+
+- Python 230 项离线测试、primitive/demo 模拟通过；前端 26 项测试及三个页面生产构建通过。
+- 仓库 participant-1.wav（32 kHz 单声道测试录音）经真实 Deepgram + ParticipantEars：测试开始后 296 ms 收到 started，2903 ms 收到最终转写和 stopped。只证明提供者会先发送语音开始事件；不是 Zoom 网络或远端停止延迟。脱敏结果保存在本地 .runtime/zoom-barge-in-deepgram.json。
+- macOS receiver 重新编译、签名验证通过；独立 SDK check 停在 SDK_INIT_BEGIN 后超时，工具提示检查系统钥匙串授权。尚未证明该超时的具体原因，未据此声称真人 Zoom 打断成功。
+
+当前限制：Deepgram 首次分轨连接和 VAD 网络延迟会影响停止速度；最终文本延迟决定重新回答的时机。过滤 SDK 自身 ID 不等于声学回声消除；共用同一 Zoom 端也不能分人。分轨服务失败会停播并记录 zoom_barge_in_unavailable，后台继续，自动语音需重启恢复。真人远端停止延迟仍待验收。
 
 ### 终端输出背压修复
 
@@ -127,6 +155,8 @@ Task results whose announcements are cut off remain pending for fresh generation
 Focused offline validation: uv run --frozen python -m unittest discover -s tests -p test_semantic_interruption.py -v. These tests use a fake audio bridge and WebSocket and provide no live audibility evidence. Native cancellation protocol is unchanged; no SDK rebuild is required for this feature.
 
 ### Zoom 默认输出静音（当前 MVP）
+
+2026-09-19 的 211322 会话已正常收音，但最终转写把称呼连写为 hellosparkie，并聚合在前一段讨论后的第二句，旧规则因此未创建回复。现在 Zoom 按明确句末标点检查后续句首，并只补全该精确 hello+名字连写的空格；不做模糊匹配。最小复测说“Hello Sparkie”，查看 zoom_wake_decision(decision=wake) → zoom_output_state(muted=false) → zoom_response_requested → realtime_response_started → zoom_playback_submitted；回答生成完成且队列排空后应出现 zoom_output_state(reason=chain_drained, muted=true)。SDK 提交仍不等于远端听到，必须由另一参会端确认。
 
 以上 Zoom 普通问答步骤现在需要句首点名，例如 “Hey Sparkie, explain the architecture in detail”。只关闭 Sparkie 的 Zoom 输出；Realtime 会话/输入上下文、Deepgram 和 Codex 后台任务持续运行。未点名的普通会议发言进入现有 Realtime 上下文，但不会触发无必要的助手生成。浏览器/local 模式不变。
 

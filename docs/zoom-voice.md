@@ -33,7 +33,7 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform linux
 旧探针未运行时跳过这一步。然后启动语音版：
 
 ```bash
-bash scripts/zoom.sh --language en --seconds 600 --response-mode qa
+bash scripts/zoom.sh --language en-US --seconds 600 --response-mode qa
 ```
 
 1. 主持人接纳新的 **Sparkie**，并允许其录制权限。这是读取会议原始音频的 SDK 权限；本程序不保存会议 PCM 录音。

@@ -4,18 +4,20 @@ from contextlib import aclosing
 from dataclasses import replace
 
 from .audio import AudioFrame
+from .contracts import SpeechActivity
 from .providers import ProviderError
 
 
 class ParticipantEars:
     def __init__(self, factory, *, speaker_name=lambda ident: ident, is_self=lambda ident: False,
-                 idle_seconds=1.5, max_streams=32, queue_frames=500, on_event=None):
+                 idle_seconds=1.5, max_streams=32, queue_frames=500, on_event=None, speech_events=False):
         if not 1 <= max_streams <= 64 or idle_seconds <= 0:
             raise ValueError('Invalid participant STT limits')
         self.factory, self.speaker_name, self.is_self = factory, speaker_name, is_self
         self.idle_seconds, self.max_streams, self.queue_frames = idle_seconds, max_streams, queue_frames
         self.on_event = on_event or (lambda *a, **kw: None)
         self.on_ready = None
+        self.speech_events = speech_events
 
     async def transcribe(self, frames):
         output = asyncio.Queue(maxsize=256)
@@ -51,15 +53,25 @@ class ParticipantEars:
             yield AudioFrame(0, b'\0\0' * 16000)
 
         async def recognize(ident, state):
+            speaking = False
+            stream_id = f"{ident}:{state['serial']}"
             try:
                 ears = self.factory()
+                ears.speech_events = self.speech_events
                 ears.on_ready = lambda: self.on_event('participant_stt_ready', speaker_id=ident)
                 async with aclosing(ears.transcribe(padded_audio(state))) as stream:
                     async for event in stream:
+                        if isinstance(event, SpeechActivity):
+                            speaking = event.phase == 'started'
+                            await output.put(replace(event, speaker_id=ident, stream_id=stream_id,
+                                                     timestamp_ms=state['origin'] + event.timestamp_ms))
+                            continue
                         await output.put(replace(event, speaker_id=ident,
                             speaker=self.speaker_name(ident),
                             timestamp_ms=state['origin'] + event.timestamp_ms,
                             event_id=f"{ident}:{state['serial']}:{event.event_id}"))
+                if speaking:
+                    await output.put(SpeechActivity('stopped', round(state['last_ms']), ident, stream_id))
             except Exception as exc:
                 await output.put(exc)
             finally:
