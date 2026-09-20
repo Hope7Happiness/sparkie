@@ -181,6 +181,12 @@ def main():
     zoom.add_argument("--response-mode", choices=["realtime", "wake", "qa"], default="realtime",
                       help="realtime: GPT voice + Codex tasks; wake/qa: legacy Deepgram pipeline")
     zoom.add_argument("--output", type=Path, default=Path("output/zoom"))
+    workspace = sub.add_parser("workspace", help="Serve meeting workspaces: resolve + snapshot HTTP, WS event bus")
+    workspace.add_argument("--host", default="127.0.0.1")
+    workspace.add_argument("--port", type=int, default=8790)
+    workspace.add_argument("--db", type=Path, default=Path("output/workspace.db"))
+    workspace.add_argument("--worker", choices=["codex", "demo"], default="codex",
+                           help="demo marks every artifact as simulated; codex runs real background tasks")
     args = parser.parse_args()
     if args.command == "doctor":
         raise SystemExit(doctor())
@@ -197,7 +203,9 @@ def main():
         else:
             from .zoom_session import zoom_session as command
     else:
-        command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check, "local": local_session}[args.command]
+        from .workspace_server import workspace_session
+        command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check,
+                   "local": local_session, "workspace": workspace_session}[args.command]
     if args.command in {"local", "zoom"} and not 1 <= args.seconds <= 3600:
         parser.error("--seconds must be between 1 and 3600")
     try:

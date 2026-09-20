@@ -41,6 +41,9 @@ async def run(args):
         event = {'type': kind, 'elapsed_ms': round((time.monotonic() - started) * 1000), **fields}
         if kind in ('assistant_transcript', 'realtime_interrupted'):
             ledger.append({**event, 'source': 'bot', 'note': 'Generated reply text; interruption events mark unplayed content.'})
+            if kind == 'assistant_transcript' and event.get('text'):
+                asyncio.get_running_loop().create_task(
+                    workspace.utterance(event['text'], 'sparkie', 'bot'))
         line = json.dumps(event, ensure_ascii=False)
         if kind not in ('audio_level', 'audio_output', 'audio_clear', 'transcript_partial'):
             log.write(line + '\n')
@@ -66,6 +69,10 @@ async def run(args):
                                   echo_mode=args.echo_mode, max_seconds=args.seconds, on_event=emit)
     worker = configured_task_worker()
     center = TaskCenter(ledger, worker, emit)
+    # Mirror the session into a meeting workspace when the server is reachable;
+    # every client failure degrades to a no-op so the meeting is unaffected.
+    from .workspace_client import WorkspaceClient
+    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1')
     dg_ready = asyncio.Event()
@@ -91,6 +98,8 @@ async def run(args):
             async for record in ears.transcribe(frames(queues[1])):
                 ledger.append(record)
                 emit('transcript', **asdict(record))
+                if record.is_final:
+                    await workspace.utterance(record.text, record.speaker, 'human')
         except Exception as exc:
             dg_active = False
             record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
@@ -157,6 +166,11 @@ async def run(args):
     # Browser output is a media protocol; CLI output is only a view of events.jsonl.
     console = EventOutput(sys.stdout, required=browser_transport)
     try:
+        external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
+        kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')
+        if await workspace.open(kind, external or session_id,
+                                title=f'Zoom {external}' if transport_name == 'zoom' else f'{transport_name} session'):
+            emit('workspace_linked', workspace_id=workspace.workspace_id, external_id=external)
         emit('session_created', session_id=session_id, output=str(directory), model=agent.model, transport=transport_name)
         emit('task_backend_config', backend=worker.backend, model=worker.model)
         center.start()
@@ -249,7 +263,9 @@ async def run(args):
             report['failure'] = failure
         try:
             emit('session_stopped', **report)
+            await workspace.end_meeting()
         finally:
+            await workspace.close()
             await console.close()
             report['event_output'] = console.diagnostics()
             if console.required and (console.failure or console.dropped):

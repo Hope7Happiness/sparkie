@@ -11,6 +11,7 @@ from .engine import Primitive
 from .providers import DeepgramEars, DeepgramMouth, ProviderError
 from .zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
 from .zoom_config import selected_platform
+from .workspace_client import WorkspaceClient
 
 
 async def zoom_session(args):
@@ -38,11 +39,16 @@ async def zoom_session(args):
             speaker_name=meeting.speaker_name, is_self=meeting.is_self,
             max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'))
     mouth = DeepgramMouth(key, os.getenv('DEEPGRAM_TTS_MODEL') or 'aura-2-thalia-en')
+    workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     with (output / 'events.jsonl').open('x') as log:
         def sink(event):
             line = json.dumps(event, ensure_ascii=False)
             log.write(line+'\n'); log.flush()
             print(line, flush=True)
+            if event.get('type') == 'transcript' and event.get('is_final') and workspace.enabled:
+                asyncio.get_running_loop().create_task(workspace.utterance(
+                    event.get('text', ''), event.get('speaker'),
+                    'bot' if event.get('source') == 'bot' else 'human'))
         engine = Primitive(meeting, ears, mouth, reply=os.getenv('SPARKIE_REPLY') or "I'm here.",
                            brain=brain, mode='zoom-audio', event_sink=sink,
                            question_reply=os.getenv('SPARKIE_QUESTION_REPLY') or 'Let me think for a moment.')
@@ -65,6 +71,9 @@ async def zoom_session(args):
             loop.add_signal_handler(sig, stop)
         reason = 'completed'
         try:
+            meeting_id = os.getenv('ZOOM_MEETING_ID') or session_id
+            if await workspace.open('zoom_uuid', meeting_id, title=f'Zoom {meeting_id}'):
+                engine.log('workspace_linked', workspace_id=workspace.workspace_id, external_id=meeting_id)
             async with asyncio.timeout(args.seconds + 165):
                 await engine.run()
         except asyncio.CancelledError:
@@ -76,6 +85,8 @@ async def zoom_session(args):
             engine.log('session_failed', error_type=type(exc).__name__)
             raise ProviderError('Zoom voice session failed (' + type(exc).__name__ + '); inspect events.jsonl and host admission/audio permissions') from None
         finally:
+            await workspace.end_meeting()
+            await workspace.close()
             try:
                 await meeting.leave()
             except Exception as cleanup_error:

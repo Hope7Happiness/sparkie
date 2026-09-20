@@ -22,6 +22,8 @@ uv run --frozen python -m unittest discover -s tests -v
 - [人工配置清单](docs/manual-setup.md)
 - [primitive 运行方式、接口和限制](docs/primitive.md)
 - [技术验证记录](docs/platform-validation.md)
+- [Zoom 参会与双向音频方案、联调接口](docs/zoom-agent-integration.md)
+- [Zoom SDK 配置状态与本地工具](docs/zoom-setup.md)
 - [完整产品计划](prompt)
 
 协作方式：先由 [@Hope7Happiness](https://github.com/Hope7Happiness) 与 Codex 搭建 primitive，再由 [@YIFANK](https://github.com/YIFANK) 和 [@bowenyu066](https://github.com/bowenyu066) 测试；后续三人轮换一人编码、两人测试反馈，不设固定模块负责人。
@@ -30,7 +32,7 @@ uv run --frozen python -m unittest discover -s tests -v
 
 本机网页测试台：`bash scripts/web.sh`，打开 http://127.0.0.1:5178；默认真实问答（Terra Medium）；叫出 Sparkie 后紧接问题，可查看转录、答案和分别计时的确认/回答延迟。详见 [primitive](docs/primitive.md#网页语音测试台)。
 
-Zoom 接收探针支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker 配置；设为 `macos` 可使用官方 macOS SDK，无需 Docker。两者共用 `.env` 的 Zoom 凭证，新 macOS 探针已验证编译，首次 SDK 初始化通过；重建后的钥匙串授权与真实会议音频仍待验收。
+Zoom 接入支持两条路径：默认 `ZOOM_PLATFORM=linux` 保留现有 Docker 配置；设为 `macos` 可使用官方 macOS SDK，无需 Docker，探针与语音桥复用同一原生二进制。两者共用 `.env` 的 Zoom 凭证。macOS 探针已通过编译与 SDK 初始化检查；macOS 语音桥已实现，真实会议收发仍待验收。
 
 ## Zoom 会议内问答
 

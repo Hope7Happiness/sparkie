@@ -13,3 +13,5 @@ dist/
 *.egg-info/
 node_modules/
 **/.frontend-helper/traces/
+config/zoom.local.json
+deepgram_api.txt
