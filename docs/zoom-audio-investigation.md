@@ -1,5 +1,21 @@
 # 音频开头失真与接收积压调查（2026-09-19）
 
+## 2026-09-20：入会 connecting 卡住的独立问题
+
+用户报告会话 20260920T100219-3aebb78b：SDK 初始化与认证成功，入会一直为 connecting，120 秒后 connecting_timeout，正常退出再等 10 秒仍未完成。会议确实在进行，用户确认当时无权限弹窗。09:26 的成功会话使用同一个昨晚构建的原生程序；本机 .env 也早于成功会话且未更改。不能仅凭发生在 git pull 后就归因于新共享代码。
+
+以同一已安装程序做仅入会/音频诊断，在 .runtime/zoom-join-diagnostic/20260920T140602Z 复现。3 秒线程采样中，主线程持续位于 Zoom viper → AudioDeviceStart_mac_imp → HALC_ProxyIOContext::_StartIO → HALB_IOThread::_WaitForState → mutex wait。与 Zoom 服务端的 TCP/UDP 连接已经存在，但不能据此宣称所有网络路径正常。已证实的阻塞位置是 CoreAudio 设备启动，不是 Gemini 唤醒、转写或成果共享。原有主线程退出处理也因这一阻塞不能及时运行。为何此次设备启动阻塞、此前却正常，触发条件尚未查明。
+
+语音模式现在关闭 enableAutoJoinVoip，并以 isNoAudio=YES 请求入会；在 InMeeting 回调中先安装虚拟麦克风，再显式 JoinVoip / UnMuteAudio。接收探针保留原设置，不更改系统默认设备、不重启 coreaudiod。编译后的原生程序已安装到本机现有 app 路径。
+
+重建后首次启动另遇钥匙串授权：线程位于 SecItemCopyMatching，属于 SDK_INIT 阶段，和原始 CoreAudio 阻塞不同。用户处理后，诊断 20260920T140810Z 到达等候室；用户接纳后依次出现 InMeeting、AUDIO_SOURCE_SET result=0、JOIN_VOIP result=0、ZOOM_MIC_READY、START_RAW_RECORDING result=0、AUDIO_SUBSCRIBE result=0，Python join() 成功，最后 RECEIVER_STOPPED exit=0。该次真实复测证明调整后的程序完成入会和双向音频通道就绪；没有启动 Realtime/Deepgram/后台任务，没有保存原始音频，也没有验证远端听到回复或共享画面。单次恢复不能证明系统音频死锁已永久消除。
+
+新阶段诊断能区分 SDK 初始化未返回、音频连接调用未返回，以及音频设置失败；不会把上一条成功的 sdk_result 误挂在未返回的调用上。回归测试编译并执行真实原生认证回调（SDK 为替身），验证语音模式延后音频、接收探针兼容性和设置失败时不继续入会；Python 测试验证对应超时阶段与固定错误码。
+
+本轮 331 项 Python 测试、scripts/primitive.sh、scripts/demo.sh 与 macOS 原生构建通过。其他机器需先用 scripts/zoom-sanity.py build --platform macos 重建；本机已完成。完整语音启动沿用 ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime；这次仅入会诊断不替代完整语音验收。
+
+## 以下为 2026-09-19 音频调查记录
+
 本次修正基于 `f7bcd24`，包含突发输入调度、输出补帧节奏及诊断日志改进。首段及后续卡顿的主观音质问题仍未关闭；实测媒体链路丢包尚未解决。
 
 ## 已复现的两个代码问题

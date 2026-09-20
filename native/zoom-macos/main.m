@@ -429,7 +429,11 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     ZoomSDKError mute = [settings enableMuteMicJoinVoip:YES];
     printf("MUTE_ON_JOIN result=%d\n", mute);
     if (!settings || mute != ZoomSDKError_Success) { self.exitCode = 1; [self shutdown]; return; }
-    [settings enableAutoJoinVoip:YES];
+    // Admit the participant before connecting voice. Otherwise the SDK can
+    // start CoreAudio on its main thread before our external microphone exists.
+    ZoomSDKError autoAudio = [settings enableAutoJoinVoip:!self.voice];
+    printf("AUTO_JOIN_VOIP result=%d enabled=%d\n", autoAudio, !self.voice);
+    if (autoAudio != ZoomSDKError_Success) { self.exitCode = 1; [self shutdown]; return; }
     ZoomSDKMeetingService *meeting = [[ZoomSDK sharedSDK] getMeetingService];
     meeting.delegate = self;
     meeting.getRecordController.delegate = self;
@@ -439,7 +443,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     join.password = self.config[@"meeting_password"];
     join.displayName = self.config[@"display_name"];
     join.isNoVideo = YES;
-    join.isNoAudio = NO;
+    join.isNoAudio = self.voice;
     ZoomSDKError joined = [meeting joinMeeting:join];
     printf("JOIN_REQUEST result=%d\n", joined);
     self.config = @{};
@@ -470,6 +474,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
                 self.exitCode = 1; [self shutdown]; return;
             }
         }
+        printf("JOIN_VOIP_BEGIN\n");
         printf("JOIN_VOIP result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_JoinVoip userID:0 onScreen:0]);
         if (self.voice) {
             printf("UNMUTE_REQUEST result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_UnMuteAudio userID:0 onScreen:0]);
