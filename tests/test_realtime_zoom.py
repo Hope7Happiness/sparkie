@@ -206,7 +206,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                               lambda kind, **kw: events.append((kind, kw)))
         agent.ws = SimpleNamespace(send=AsyncMock())
         await agent.handle({'type': 'response.created', 'response': {'id': 'burst'}})
-        # Explicit hard response duration limit remains recoverable.
+        # An undrained burst exceeding the bounded backlog remains recoverable.
         await agent.handle({'type': 'response.output_audio.delta', 'response_id': 'burst',
                             'item_id': 'long', 'delta': base64.b64encode(bytes(48000 * 121)).decode()})
         self.assertEqual(self.audio.buffered, 0)
@@ -221,6 +221,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.audio.buffered, 0)
         await agent.handle({'type': 'response.done', 'response': {'id': 'burst', 'status': 'cancelled'}})
         self.meeting.block = False
+        # Recovery waits for the next committed user turn before fresh generation.
+        await agent.handle({'type': 'input_audio_buffer.committed', 'item_id': 'new-human-turn'})
         await agent.handle({'type': 'response.created', 'response': {'id': 'next'}})
         await agent.handle({'type': 'response.output_audio.delta', 'response_id': 'next',
                             'item_id': 'next', 'delta': base64.b64encode(bytes(4800)).decode()})
@@ -340,6 +342,8 @@ class SessionIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 captured_centers.append(center)
             async def run(self): self.ready.set(); await asyncio.Event().wait()
             async def append(self, frame): received.append(frame)
+            async def human_transcript(self, record):
+                self.final_human_record = record
             async def notify_tasks(self): await asyncio.Event().wait()
         class Ears:
             def __init__(self, *args, **kw):

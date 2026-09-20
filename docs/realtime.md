@@ -95,7 +95,7 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 
 主持人接纳 Sparkie、允许录制权限，看到 `listening_ready` 后：
 
-1. 从另一台参会设备问一个普通问题，确认听到与问题相关的自然语音回答。
+1. 从另一台参会设备说“Hey Sparkie”并提出问题，确认听到与问题相关的自然语音回答；未称呼时应持续监听但不播放。
 2. 请它调研一个需要外部信息的问题，检查出现 `background_task`，状态由 queued/running 进入 completed 或 failed。
 3. 后台进行中继续提出普通问题，确认前台可以响应；等后台完成后，检查结果通知及语音汇报。以来源/实际产物核对结果，不只看“完成”文本。
 4. Ctrl+C 结束，确认 Sparkie 离会、后台任务停止；检查 `output/zoom/<session>/` 中的 transcript.jsonl、tasks.json、events.jsonl 和 run.json。
@@ -112,3 +112,23 @@ ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600
 已做真实伪终端/管道的离线回归；仍需真人重跑原场景确认，不将离线复现等同于整场会议稳定性验收。本修复不改变模型、音频采样率或 Zoom SDK 配置，无需重建原生程序。
 
 Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。
+
+### Interrupting without losing task results
+
+The terminal still accepts one JSON command per line: {"action":"interrupt"} stops all queued output and waits for the next user turn. In Zoom speaker mode, the mixed microphone remains echo-gated while Sparkie speaks; interruption during that window requires this control or a trusted separated-human producer.
+
+A separated-human producer can send human_turn/start immediately and human_turn/commit with final text after the user finishes. This selects external-text input for the session; all later turns must use those controls. See [the control contract](interfaces.md#semantic-interruption-and-trusted-human-controls) for examples, delivery acknowledgements and integration boundaries. Speaker separation itself is not implemented here.
+
+Task results whose announcements are cut off remain pending for fresh generation after the user's turn. Generated or SDK-submitted speech is never marked heard automatically. Fully submitted, uninterrupted announcements remain unconfirmed without repeatedly waking the agent; explicit human confirmation prevents later automatic reannouncement.
+
+Focused offline validation: uv run --frozen python -m unittest discover -s tests -p test_semantic_interruption.py -v. These tests use a fake audio bridge and WebSocket and provide no live audibility evidence. Native cancellation protocol is unchanged; no SDK rebuild is required for this feature.
+
+### Zoom 默认输出静音（当前 MVP）
+
+以上 Zoom 普通问答步骤现在需要句首点名，例如 “Hey Sparkie, explain the architecture in detail”。只关闭 Sparkie 的 Zoom 输出；Realtime 会话/输入上下文、Deepgram 和 Codex 后台任务持续运行。未点名的普通会议发言进入现有 Realtime 上下文，但不会触发无必要的助手生成。浏览器/local 模式不变。
+
+使用原有 Sparkie/Sparky（可带 Hi/Hey/Hello）最终转写唤醒；完整回答和所属工具续答结束、队列排空后自动静音。没有 12 秒或其他产品发言时长截断；保留有界音频积压保护及会话总时长。授权请求产生的后台任务，其结果通知可以单独唤醒输出；其他任务不能。
+
+终端每行一个 JSON：{"action":"mute"} 停止并清空全部播放，不取消后台任务；{"action":"unmute"} 仅允许下一条最终人类转写触发一条回答链，不恢复旧音频。也可说 “Sparkie, stop” / “不用了”等既有取消词；播放期间 Zoom 混合输入仍受回声门控，需终端或可信分离人声控制实现该窗口内取消。普通混合 VAD 不再自行打断 Zoom 回答，最终文本负责 wake/cancel。
+
+测试时分别核对：未点名讨论零输出；长回答完整；自动重新静音；后台任务归属；mute/unmute 不复活旧音频。使用同一会话观察输入/转写持续。SDK 提交不代表远端听到；需另行真人验证最终转写延迟、音质、停播残留和误唤醒。完整契约见 interfaces.md 的 Zoom output mute MVP。
