@@ -28,17 +28,17 @@ export function allowedRequest(req, port, requireOrigin = false) {
 export function validateOptions(value) {
   if (!value || !['en-US', 'en', 'zh-CN'].includes(value.language) ||
       !['speaker', 'headphones'].includes(value.echoMode) ||
-      !['wake', 'qa', 'realtime'].includes(value.responseMode) ||
+      value.responseMode !== 'realtime' ||
       !Number.isInteger(value.seconds) ||
       !((value.seconds >= 10 && value.seconds <= 300) ||
         (value.seconds === 0 && value.transport === 'browser' && value.responseMode === 'realtime'))) {
-    throw new Error('请选择问答模式、语言、播放方式和 10–300 秒的时长。');
+    throw new Error('Select Realtime, a language, an audio mode and a duration of 10–300 seconds, or manual stop for browser sessions.');
   }
   if (value.transport !== undefined && !['browser', 'local'].includes(value.transport)) throw new Error('Invalid transport');
   if (value.transport === 'browser' && value.responseMode !== 'realtime') throw new Error('Invalid transport');
   for (const key of ['inputDevice', 'outputDevice']) {
     if (value[key] !== '' && (!Number.isInteger(value[key]) || value[key] < 0 || value[key] > 1024)) {
-      throw new Error('设备编号无效，请刷新设备列表。');
+      throw new Error('Device index is invalid. Refresh the device list.');
     }
   }
   return value;
@@ -58,12 +58,11 @@ export class SessionController {
   }
   start(options) {
     validateOptions(options);
-    if (this.child) throw new Error('测试正在运行，请先停止当前测试。');
-    const args = ['-m', ...(options.responseMode === 'realtime' ? ['sparkie.realtime_session'] : ['sparkie.primitive', 'local']), '--language', options.language,
+    if (this.child) throw new Error('A session is already running. Stop it before starting another.');
+    const args = ['-m', 'sparkie.realtime_session', '--language', options.language,
       '--seconds', String(options.seconds), '--echo-mode', options.echoMode,
       ];
     if (options.transport === 'browser') args.push('--transport', 'browser');
-    if (options.responseMode !== 'realtime') args.push('--response-mode', options.responseMode);
     for (const [key, flag] of [['inputDevice', '--input-device'], ['outputDevice', '--output-device']]) {
       if (options[key] !== '') args.push(flag, String(options[key]));
     }
@@ -75,9 +74,9 @@ export class SessionController {
     this.lastAudioAt = null;
     this.captureActive = false;
     this.recentCancellations = [];
-    const child = this.spawnChild(python, args, { cwd: root, stdio: [options.responseMode === 'realtime' ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    const child = this.spawnChild(python, args, { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
-    child.stdin?.on('error', () => { this.state.warning = '控制连接已结束。'; });
+    child.stdin?.on('error', () => { this.state.warning = 'The control connection has closed.'; });
     const lines = createInterface({ input: child.stdout });
     lines.on('line', line => {
       try {
@@ -92,8 +91,8 @@ export class SessionController {
         }
         if (event.type === 'audio_level') {
           this.lastAudioAt = this.clock();
-          if (this.state.warning === '麦克风输入已停滞，正在检查音频连接。') {
-            this.state.warning = event.timing_reliable ? undefined : '音频已恢复，但本轮延迟计时无效。';
+          if (this.state.warning === 'Microphone input stalled. Checking the audio connection.') {
+            this.state.warning = event.timing_reliable ? undefined : 'Audio recovered, but latency measurements for this session are invalid.';
           }
           this.state.level = event.peak;
           this.state.gated = event.gated;
@@ -115,7 +114,7 @@ export class SessionController {
           this.recentCancellations = this.recentCancellations.filter(t => this.clock() - t < 15000);
           this.recentCancellations.push(this.clock());
           if (this.recentCancellations.length >= 2) {
-            this.state.voiceHint = '回复连续被新的声音打断；说完后稍停一下，或试用耳机。';
+            this.state.voiceHint = 'Replies are repeatedly interrupted by new sounds. Pause after speaking or try headphones.';
             this.voiceHintUntil = this.clock() + 15000;
           }
         }
@@ -123,8 +122,8 @@ export class SessionController {
           this.state.voiceHint = undefined;
           this.recentCancellations = [];
         }
-        if (event.type === 'configuration_error') this.state.error = `缺少配置：${event.missing.join(', ')}`;
-        if (event.type === 'session_failed') this.state.error = `实时会话失败（${event.error_type}），请检查连接与配置。`;
+        if (event.type === 'configuration_error') this.state.error = `Missing configuration: ${event.missing.join(', ')}`;
+        if (event.type === 'session_failed') this.state.error = `Realtime session failed (${event.error_type}). Check the connection and configuration.`;
         if (event.type === 'session_created') this.outputDirectory = event.output;
         if (event.type === 'workspace_linked') this.state.workspaceId = event.workspace_id;
         event.sequence = ++this.eventSequence;
@@ -137,9 +136,9 @@ export class SessionController {
           this.lastAudioAt = this.clock();
         }
         if (event.type === 'audio_input_ended') this.captureActive = false;
-        if (event.type === 'audio_warning') this.state.warning = '麦克风音频出现丢帧，本轮延迟计时无效；若转录不再更新，请停止后重新开始。';
+        if (event.type === 'audio_warning') this.state.warning = 'Microphone frames were dropped; latency measurements are invalid. Restart if transcription stops updating.';
         if (event.type === 'audio_failed' || event.type === 'audio_cleanup_failed') {
-          this.state.error = '音频采集已中断，当前会话无法继续聆听。请重新开始；如果反复发生，请切换音频设备。';
+          this.state.error = 'Audio capture stopped. Start a new session; switch audio devices if this recurs.';
           this.stop('audio-failed');
         }
         if (event.type === 'audio_warning' || event.type === 'playback_timing_unavailable') this.state.timingReliable = false;
@@ -147,7 +146,7 @@ export class SessionController {
     });
     // Don't forward stderr/provider messages or environment values to the client.
     child.stderr.resume();
-    child.on('error', () => { this.state.error = '音频服务启动失败。请先运行 uv sync --frozen。'; });
+    child.on('error', () => { this.state.error = 'Audio service failed to start. Run uv sync --frozen first.'; });
     child.on('close', (code, signal) => {
       clearTimeout(this.killTimer);
       clearTimeout(this.deadlineTimer);
@@ -160,9 +159,9 @@ export class SessionController {
       this.state.partialTranscript = '';
       this.state.speechActive = false;
       this.state.voiceHint = undefined;
-      if (signal === 'SIGKILL') this.state.error ||= '音频进程卡住，已强制停止。请重新开始测试；本轮未正常结束。';
+      if (signal === 'SIGKILL') this.state.error ||= 'The audio process was unresponsive and was forcibly stopped. Start again; the session did not end normally.';
       this.state.status = code === 0 && !this.state.error ? 'ended' : 'failed';
-      if (this.state.status === 'failed') this.state.error ||= '测试失败：请检查 Deepgram 配置、网络、音频设备和麦克风权限；问答模式还需有效的 Codex 登录及模型配置。详细错误类型见事件记录。';
+      if (this.state.status === 'failed') this.state.error ||= 'Session failed. Check provider configuration, network, audio devices, microphone permissions and CLI login. See the event log for details.';
       this.state.exitCode = code;
       this.state.exitSignal = signal || null;
     });
@@ -215,11 +214,11 @@ export class SessionController {
         this.state.level = 0;
         this.state.audioStalled = true;
         this.state.warning = this.state.options.transport === 'browser'
-          ? '麦克风输入暂时中断，后台任务仍在继续。请点“恢复麦克风”。'
-          : '麦克风输入已停滞，正在检查音频连接。';
+          ? 'Microphone input paused; background tasks are still running. Click Recover microphone.'
+          : 'Microphone input stalled. Checking the audio connection.';
       }
       if (gap > 6000 && this.state.options.transport !== 'browser') {
-        this.state.error = '连续 6 秒没有收到麦克风音频，已停止本轮。请重新开始或切换音频设备。';
+        this.state.error = 'No microphone audio was received for 6 seconds. The session stopped; restart or switch audio devices.';
         this.stop('audio-stalled');
       }
     }
@@ -266,7 +265,7 @@ export function localApi(port = 5178) {
           res.end(JSON.stringify(data));
         };
         if (!allowedRequest(req, port)) {
-          return send(403, { error: '仅允许通过本机地址同源访问。' });
+          return send(403, { error: 'Only same-origin requests to a local address are allowed.' });
         }
         try {
           if (req.method === 'GET' && req.url === '/status') return send(200, controller.snapshot());
@@ -300,8 +299,8 @@ export function localApi(port = 5178) {
           }
           send(404, { error: 'Not found' });
         } catch (error) {
-          send(400, { error: error.message?.startsWith('请选择') || error.message?.startsWith('设备编号') || error.message?.startsWith('测试正在')
-            ? error.message : '无法完成操作，请检查本地 Python 环境和音频设备后重试。' });
+          send(400, { error: error.message?.startsWith('Select') || error.message?.startsWith('Device index') || error.message?.startsWith('A session is')
+            ? error.message : 'Cannot complete the action. Check the local Python environment and audio devices, then try again.' });
         }
       });
     },

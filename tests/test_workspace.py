@@ -33,11 +33,11 @@ async def fake_worker(instruction, transcript):
 
 class WorkspaceConfigurationTests(unittest.TestCase):
     def test_worker_uses_environment_unless_explicitly_overridden(self):
-        from sparkie.primitive import main
+        from sparkie.cli import main
         for options, expected in [([], 'devin'), (['--worker', 'codex'], 'codex')]:
             with self.subTest(options=options), \
                     patch.dict('os.environ', {'SPARKIE_TASK_BACKEND': 'devin'}), \
-                    patch('sparkie.primitive.load_dotenv'), \
+                    patch('sparkie.cli.load_dotenv'), \
                     patch('sys.argv', ['sparkie', 'workspace', *options]), \
                     patch('sparkie.workspace_server.workspace_session', new_callable=AsyncMock) as run:
                 run.return_value = None
@@ -351,27 +351,6 @@ class WorkspaceServerTests(unittest.IsolatedAsyncioTestCase):
         listing = await self.get("/api/workspaces")
         assert any(w["workspace_id"] == ws and w["transcript_count"] >= 1
                    for w in listing["workspaces"])
-
-    async def test_present_page_serves_self_contained_stage(self):
-        workspace = await self.get("/api/meetings/resolve?kind=zoom_uuid&external_id=mtg1")
-        ws = workspace["workspace_id"]
-        def fetch():
-            with urllib.request.urlopen(f"{self.base}/workspaces/{ws}/present") as response:
-                return response.headers.get_content_type(), response.read().decode()
-        content_type, body = await asyncio.to_thread(fetch)
-        assert content_type == "text/html"
-        assert ws in body and "/events" in body
-        assert "artifact.present" in body and "markdown" in body
-        assert self.store.get_workspace("ws_deadbeef") is None
-        status = None
-        def missing():
-            nonlocal status
-            try:
-                urllib.request.urlopen(f"{self.base}/workspaces/ws_deadbeef/present")
-            except urllib.error.HTTPError as exc:
-                status = exc.code
-        await asyncio.to_thread(missing)
-        assert status == 404
 
     async def test_ws_end_meeting_triggers_report_flow(self):
         workspace = await self.get("/api/meetings/resolve?kind=zoom_uuid&external_id=mtg2")

@@ -12,7 +12,7 @@ from uuid import uuid4
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from .local_session import device_id
+from .local_audio import device_id
 from .contracts import SpeechActivity
 from .providers import DeepgramEars, ProviderError, failure_details
 from .realtime import RealtimeAgent

@@ -67,7 +67,7 @@ class EventOutputTests(unittest.IsolatedAsyncioTestCase):
         reader, writer = os.pipe()
         stream = os.fdopen(os.dup(writer), 'wb', buffering=0)
         output = EventOutput(stream, required=True)
-        expected = [json.dumps({'seq': i, 'text': '中文' * 1000}) for i in range(60)]
+        expected = [json.dumps({'seq': i, 'text': 'λé' * 1000}) for i in range(60)]
         try:
             for line in expected:
                 output.publish(line)

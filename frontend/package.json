@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test server.test.mjs src/voice-worklet.test.js src/multitrack-worklet.test.js src/workspace.test.js"
+    "test": "node --test server.test.mjs demo-script-server.test.mjs src/voice-worklet.test.js src/multitrack-worklet.test.js src/workspace.test.js"
   },
   "devDependencies": {
     "vite": "^8.3.0"

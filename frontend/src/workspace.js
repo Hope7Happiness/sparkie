@@ -651,10 +651,10 @@ function renderGeneration() {
     const body = document.createElement('div');
     const label = document.createElement('strong');
     label.textContent = task.status === 'running'
-      ? (embedded ? '正在生成' : 'Generating')
-      : (embedded ? '等待生成' : 'Queued');
+      ? 'Generating'
+      : 'Queued';
     const title = document.createElement('p');
-    title.textContent = task.artifact_title || (embedded ? '任务成果' : 'Task output');
+    title.textContent = task.artifact_title || 'Task output';
     const lines = document.createElement('div');
     lines.className = 'generation-lines';
     lines.setAttribute('aria-hidden', 'true');
@@ -691,7 +691,7 @@ function upsertTask(event) {
   }
   card.dataset.status = status;
   card.className = `task status-${status}`;
-  card.querySelector('h3').textContent = task.artifact_title || task.title || (embedded ? '任务成果' : 'Task output');
+  card.querySelector('h3').textContent = task.artifact_title || task.title || 'Task output';
   const reason = task.error_type || task.error;
   card.querySelector('small').textContent =
     status === 'failed' ? `${STATUS_LABEL.failed} · ${reason || 'unknown error'}`
@@ -778,7 +778,7 @@ function clearWorkspaceUI() {
   if (embedded) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = '告诉 Sparkie 想展示哪份成果，也可以从列表中选择。';
+    empty.textContent = 'Tell Sparkie which artifact to show, or choose one from the list.';
     $('stage').append(empty);
   }
   state.tasks.clear();

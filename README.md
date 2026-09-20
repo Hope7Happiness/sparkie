@@ -98,7 +98,7 @@ uv run --frozen python scripts/zoom-sanity.py build --platform macos
 Start Sparkie:
 
 ```bash
-ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600
 ```
 
 Admit Sparkie from the waiting room, handle any macOS permission prompts, and grant the SDK’s required recording/raw-audio permission. Wait for `listening_ready`, then try:
@@ -176,7 +176,7 @@ Meeting audio is processed by the configured speech providers. Local transcripts
 
 Real Zoom sessions have demonstrated audible replies, human interruption, false-interruption recovery, and background result reporting. The project remains a prototype; this is not a claim of universal latency or long-session reliability. See [speech handling](docs/semantic-turn-detection.md) and [session evidence](docs/realtime.md).
 
-- **Primary path:** macOS Zoom in English. Linux and legacy modes have different behavior.
+- **Primary path:** macOS Zoom in English. Linux has different input and sharing behavior.
 - **Audio in, artifacts out:** Sparkie can share its workspace; it does not inspect other participants’ video or shared screens.
 - **Speech remains probabilistic:** semantic completion and wake routing can misjudge a turn. Separate Zoom tracks exclude Sparkie’s own SDK track, but speakers can feed acoustic echo back through a human microphone.
 - **Recovery is limited:** participant-input failures stop automatic speech and record a coverage gap; Realtime does not automatically reconnect.
@@ -189,8 +189,8 @@ Real Zoom sessions have demonstrated audible replies, human interruption, false-
 | Credentials and native setup | [Configuration](docs/manual-setup.md) · [macOS SDK](docs/zoom-macos.md) |
 | Voice operation and debugging | [Realtime guide](docs/realtime.md) · [Semantic turns](docs/semantic-turn-detection.md) |
 | Architecture and contracts | [Interfaces](docs/interfaces.md) |
-| Presentation and demo rehearsal | [Presentation](presentation/README.md) · [Demo script](docs/sparkie-demo-script.html) |
-| Product direction and team workflow | [Product plan](prompt) · [Team guide](docs/team-first-steps.md) |
+| Presentation and demo rehearsal | [Presentation](presentation/README.md) · [Demo script](presentation/sparkie-demo-script.html) |
+| Demo rehearsal and collaboration | [Shared script](presentation/demo-script.html) · [Live editing](presentation/demo-script-sharing.md) |
 
 <details>
 <summary><strong>Offline development checks</strong></summary>
@@ -198,12 +198,12 @@ Real Zoom sessions have demonstrated audible replies, human interruption, false-
 After installing dependencies, these run without API keys, Docker, SDK downloads, or network calls:
 
 ```bash
-uv run --frozen python -m unittest discover -s tests -v
-bash scripts/primitive.sh
-bash scripts/demo.sh
+SPARKIE_WORKSPACE_SERVER=127.0.0.1:1 uv run --frozen python -m unittest discover -s tests -v
+npm --prefix frontend test
+npm --prefix frontend run build
 ```
 
-Simulations verify software flow, not real Zoom behavior. Before core changes, read `prompt`, [interface contracts](docs/interfaces.md), and [team workflow](docs/team-first-steps.md). Hand off the commit, run command, tested scope, and known limitations.
+Synthetic tests verify software flow, not real Zoom behavior. The workspace override isolates voice test fixtures from a running meeting. Before core changes, read the [interface contracts](docs/interfaces.md). Hand off the commit, run command, tested scope, and known limitations.
 
 </details>
 

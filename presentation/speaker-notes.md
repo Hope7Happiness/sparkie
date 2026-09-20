@@ -25,14 +25,16 @@ Do not read all visible dialogue verbatim. Give the scene its premise, let the n
 
 ## Demo preparation
 
-Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. The longer session follows the [continuous three-person rehearsal script](../frontend/public/demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
+Insert a real 60-second Zoom excerpt and an actual artifact screenshot using media-config.js. The longer session follows the [continuous three-person rehearsal script](demo-script.html): discussion → delegation → real Tasks activity while people agree roles → present the outline → review roles → update the same document → present the latest artifact.
 
 - Rehearse the same Zoom session and workspace. Keep the actual Tasks panel visible during role discussion. Status and tool-action text are event-driven; do not add a fictional percentage, ETA, or streaming document preview.
 - Ask the worker to save demo-outline.md **and return the complete Markdown body**. Ask for the full body again after the role update. The live artifact contains the task result; a file path or “saved” message does not display the document.
 - After a ready result, say “Sparkie, show us the outline.” After the follow-up completes, say “Sparkie, show us the updated outline.” Verify that the selected artifact is the intended result; presentation selects the latest ready artifact. If the embedded board already shows it, skip the redundant request. If voice presentation fails, use Present on the correct card and describe the fallback accurately.
 - Browser artifact presentation and sharing that browser window into Zoom are distinct steps. Rehearse the actual sharing path and confirm that another participant sees the intended content. Do not infer remote visibility from the local panel.
 - Select the key moments for the 60-second excerpt; this is a playback budget, not an end-to-end performance claim. Label shortened waits and retain the actual agent voice. Until media is supplied, identify the slot as planned and keep the placeholder label.
-- The light “we’ve been recording” ending in the rehearsal script only applies when recording has actually been running. Otherwise use the ordinary “Great. Let’s record it.” ending.
+- Begin with human greetings and an audio check. Admit Sparkie from the real Zoom waiting room before discussing the features. Do not attribute pre-admission speech to its context.
+- Discuss name-based response, interruption, prior context, participation when invited, and background file work before requesting the outline. Keep turns short. An optional interruption is only a demonstration when the original reply is still audible and actually yields.
+- The closing reveal and punchline are undecided. The rehearsal currently stops after checking the updated plan; do not give away a self-referential reveal in dialogue or ask the agent to invent the ending.
 
 ## 01 — Meet your fourth teammate. (20s)
 
@@ -60,9 +62,9 @@ Here is a product review. One person favors guided onboarding, another a simpler
 
 ## 05 — Watch the work happen. (60s)
 
-The team is planning the film you are watching. Sparkie takes the outline task; while it works, the team agrees who will narrate, record, and edit. Watch the real task status and tool activity beside the conversation. When the outline is ready, they ask Sparkie to show it, review the roles against it, and request a follow-up update. The final artifact brings the outline and agreed roles together. Listen for the acknowledgement, but inspect the actual content for completion.
+The team is preparing a demo video. They greet each other, admit Sparkie from the Zoom waiting room, then discuss what to demonstrate: responding when called, yielding to interruptions, using prior context, joining the discussion, and working on files while people talk. Sparkie drafts the outline while the team agrees roles. They inspect the artifact, confirm the division of work, and request the update. Watch the real task events and inspect the actual result.
 
-**On stage:** Use a real 60-second excerpt: delegation → Tasks activity during role discussion → show us the outline → confirmed roles → update activity → latest artifact. These are selected moments from a longer session, not a 60-second latency claim. Label shortened waits. Verify the right workspace and artifact version. If voice presentation fails, click Present; describe a manual fallback honestly. Keep placeholders labelled until real media is supplied.
+**On stage:** Select real moments from the longer rehearsal: waiting-room admission, feature discussion, addressed response, task activity, artifact review, and updated roles. The 60-second slot is an edited excerpt, not an execution-time promise. Show an interruption only if it actually occurs while the agent is speaking and succeeds. Label shortened waits and manual fallbacks. The final reveal is undecided; do not introduce it during the discussion or the clip setup.
 
 ## 06 — Two rhythms. One teammate. (35s)
 

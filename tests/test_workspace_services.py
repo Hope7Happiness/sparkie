@@ -71,7 +71,7 @@ class WorkspaceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(child.poll() is None for child in self.children))
         readiness = [fields for kind, fields in self.events if kind == 'workspace_service_ready']
         self.assertEqual([event['reused'] for event in readiness], [False, False, True, True])
-        self.assertIn('sparkie.primitive', self.commands[0][0])
+        self.assertIn('sparkie.cli', self.commands[0][0])
         for _, kwargs in self.commands:
             self.assertEqual(kwargs['env']['SPARKIE_WEB_PORT'], str(self.frontend))
             self.assertEqual(kwargs['env']['SPARKIE_WORKSPACE_SERVER'], self.manager.server)

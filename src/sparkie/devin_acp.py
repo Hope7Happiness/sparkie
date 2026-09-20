@@ -152,9 +152,9 @@ class DevinTaskWorker:
             self._text.append(text)
         elif kind in ('tool_call', 'tool_call_update'):
             action = update.get('kind')
-            label = {'read': '读取文件', 'edit': '修改文件', 'execute': '执行命令',
-                     'search': '检索', 'fetch': '获取网页'}.get(action, '调用工具')
-            self._progress(progress='Devin 正在' + label, last_action=action or 'tool',
+            label = {'read': 'reading files', 'edit': 'editing files', 'execute': 'running commands',
+                     'search': 'searching', 'fetch': 'fetching a page'}.get(action, 'using a tool')
+            self._progress(progress='Devin is ' + label, last_action=action or 'tool',
                            last_action_status=update.get('status', 'in_progress'))
 
     def _prompt_text(self, request, transcript, revised=False):
@@ -202,7 +202,7 @@ class DevinTaskWorker:
 
     async def run_with_progress(self, request, transcript, progress, *, updates=None, initial_revision=0):
         async with self._lock:
-            progress(progress='正在连接常驻 Devin', backend=self.backend, model=self.model)
+            progress(progress='Connecting to the persistent Devin session', backend=self.backend, model=self.model)
             await self.start()
             self._progress = progress
             turn = changed = None
@@ -217,7 +217,7 @@ class DevinTaskWorker:
                     self._text, self._text_size = [], 0
                     text = self._prompt_text(request, transcript, revised)
                     def delivered():
-                        progress(progress='Devin 正在处理请求', agent_session_id=self.session_id,
+                        progress(progress='Devin is processing the request', agent_session_id=self.session_id,
                                  agent_pid=self.process.pid, applied_revision=revision, update_delivery='delivered')
                     turn = asyncio.create_task(self._rpc('session/prompt', {
                         'sessionId': self.session_id, 'prompt': [{'type': 'text', 'text': text}]}, delivered))
@@ -227,7 +227,7 @@ class DevinTaskWorker:
                         if changed.done():
                             request, transcript, revision = changed.result()
                             changed = None
-                            progress(progress='正在中断当前步骤并传达修改', update_delivery='interrupting')
+                            progress(progress='Interrupting the current step to deliver the update', update_delivery='interrupting')
                             await self._cancel_turn(turn)
                             revised = True
                             continue
@@ -245,7 +245,7 @@ class DevinTaskWorker:
                     result = ''.join(self._text).strip()
                     if not result:
                         raise ProviderError('devin_empty_result')
-                    progress(progress='Devin 已返回结果')
+                    progress(progress='Devin returned a result')
                     return result
             except asyncio.CancelledError:
                 if turn is not None:

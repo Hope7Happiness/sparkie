@@ -1,13 +1,11 @@
 """Direct documented wire APIs; all credentials remain in the Python process."""
 import asyncio
 import json
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode
 
-import httpx
 from websockets.asyncio.client import connect
 
 from .contracts import TranscriptEvent, SpeechActivity
-from .reasoning import ANSWER_INSTRUCTIONS, conversation_input
 
 
 class ProviderError(RuntimeError):
@@ -77,96 +75,6 @@ def failure_details(exc):
     return result
 
 
-class DeepgramMouth:
-    """Aura REST TTS returning headerless PCM16 mono at the engine's 32 kHz."""
-    def __init__(self, key: str, model="aura-2-thalia-en", client=None):
-        self.key, self.model, self.client = key, model, client
-
-    async def synthesize(self, text: str) -> bytes:
-        if not text.strip():
-            raise ValueError("TTS text must not be empty")
-        if not self.model.startswith("aura-"):
-            raise ValueError("This adapter uses /v1/speak and requires an Aura model")
-        if self.model.endswith("-en") and any("\u4e00" <= char <= "\u9fff" for char in text):
-            raise ValueError("The configured English Deepgram voice does not support Chinese TTS; use English reply text")
-
-        async def request(client):
-            try:
-                response = await client.post(
-                    "https://api.deepgram.com/v1/speak",
-                    params={"model": self.model, "encoding": "linear16", "container": "none", "sample_rate": 32000},
-                    headers={"Authorization": f"Token {self.key}"}, json={"text": text},
-                )
-            except httpx.RequestError:
-                raise ProviderError("Deepgram TTS network request failed") from None
-            if response.status_code != 200:
-                raise ProviderError(f"Deepgram TTS HTTP {response.status_code}; check API key, TTS permission, model and quota")
-            audio = response.content
-            content_type = response.headers.get("content-type", "").split(";", 1)[0]
-            if content_type not in {"audio/linear16", "audio/l16", "application/octet-stream"}:
-                raise ProviderError("Deepgram TTS returned an unexpected content type")
-            if not audio or len(audio) % 2 or len(audio) > 32000 * 2 * 30 or audio[:4] == b"RIFF":
-                raise ProviderError("Deepgram TTS returned invalid, containerized or >30s PCM audio")
-            return audio
-
-        if self.client:
-            return await request(self.client)
-        async with httpx.AsyncClient(timeout=30) as client:
-            return await request(client)
-
-
-class ElevenLabs:
-    def __init__(self, key: str, voice: str, model: str, client=None):
-        self.key, self.voice, self.model = key, voice, model
-        self.client = client
-
-    async def synthesize(self, text: str) -> bytes:
-        async def request(client):
-            response = await client.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{quote(self.voice, safe='')}",
-                params={"output_format": "pcm_32000"},
-                headers={"xi-api-key": self.key},
-                json={"text": text, "model_id": self.model},
-            )
-            if response.status_code != 200:
-                raise ProviderError(f"ElevenLabs HTTP {response.status_code}; check key, TTS permission, voice access and quota")
-            audio = response.content
-            if not audio or len(audio) % 2 or len(audio) > 32000 * 2 * 30:
-                raise ProviderError("ElevenLabs returned invalid or >30s PCM audio")
-            return audio
-        if self.client:
-            return await request(self.client)
-        async with httpx.AsyncClient(timeout=30) as client:
-            return await request(client)
-
-
-class OpenAIBrain:
-    def __init__(self, key: str, model: str, client=None):
-        self.key, self.model, self.client = key, model, client
-
-    async def answer(self, transcript: list[str]) -> str:
-        async def request(client):
-            response = await client.post(
-                "https://api.openai.com/v1/responses",
-                headers={"Authorization": f"Bearer {self.key}"},
-                json={"model": self.model, "store": False,
-                      "instructions": ANSWER_INSTRUCTIONS,
-                      "input": conversation_input(transcript), "max_output_tokens": 200},
-            )
-            if response.status_code != 200:
-                raise ProviderError(f"OpenAI HTTP {response.status_code}; check API key, project quota and model access")
-            result = "".join(part.get("text", "") for item in response.json().get("output", [])
-                             if item.get("type") == "message" for part in item.get("content", [])
-                             if part.get("type") == "output_text").strip()
-            if not result:
-                raise ProviderError("OpenAI returned no answer text")
-            return result[:400]
-        if self.client:
-            return await request(self.client)
-        async with httpx.AsyncClient(timeout=30) as client:
-            return await request(client)
-
-
 def deepgram_url(rate: int, model: str, language: str) -> str:
     return "wss://api.deepgram.com/v1/listen?" + urlencode({
         "model": model, "language": language, "encoding": "linear16",
@@ -211,7 +119,7 @@ class Utterances:
         if text and key not in self.seen:
             self.seen.add(key)
             if len(self.seen) > 4096:
-                raise ProviderError("Transcript segment limit reached; restart primitive")
+                raise ProviderError("Transcript segment limit reached; restart the session")
             self.parts.append(text)
             words = alternatives[0].get("words", [])
             # Last spoken word, not the result span which can include trailing silence.
@@ -227,7 +135,7 @@ class Utterances:
 
 
 class DeepgramEars:
-    """Streaming adapter for a future real AudioMeeting. No network in simulation."""
+    """Streaming Deepgram adapter with an injectable connection for tests."""
     def __init__(self, key, meeting_id, rate=32000, model="nova-3", language="en-US", connector=deepgram_connect, on_ready=None, on_partial=None, speech_events=False):
         self.key, self.meeting_id, self.rate = key, meeting_id, rate
         self.model, self.language, self.connector = model, language, connector

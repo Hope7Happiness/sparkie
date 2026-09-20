@@ -1,24 +1,24 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sparkie · 双人讨论</title></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sparkie · Two-speaker discussion</title></head>
 <body><main class="lab">
-<header><a class="brand" href="/"><span>✳</span> sparkie</a><span id="state" role="status">准备就绪</span></header>
-<section class="hero"><p class="eyebrow">LET’S THINK TOGETHER · TWO VOICES</p><h1>两个人，一起聊。</h1><p>点击一侧麦克风，以这个人的身份说话。另一侧会自动静音。</p></section>
+<header><a class="brand" href="/"><span>✳</span> sparkie</a><span id="state" role="status">Ready</span></header>
+<section class="hero"><p class="eyebrow">LET’S THINK TOGETHER · TWO VOICES</p><h1>Two voices, one conversation.</h1><p>Click a microphone to speak as that participant. The other side mutes automatically.</p></section>
 <section class="session">
 <div class="speakers">
-<section class="speaker" data-side="0"><h2 id="name-0">发言人一</h2><button id="mic-0" class="voice-orb" aria-label="启用发言人一麦克风" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/><path class="slash" d="M3 3l18 18"/></svg></button><div class="meter" aria-label="发言人一音量"><div id="level-0" class="level"></div></div><p id="mic-state-0">点击开始说话</p></section>
-<section class="speaker" data-side="1"><h2 id="name-1">发言人二</h2><button id="mic-1" class="voice-orb" aria-label="启用发言人二麦克风" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/><path class="slash" d="M3 3l18 18"/></svg></button><div class="meter" aria-label="发言人二音量"><div id="level-1" class="level"></div></div><p id="mic-state-1">点击开始说话</p></section>
+<section class="speaker" data-side="0"><h2 id="name-0">Speaker 1</h2><button id="mic-0" class="voice-orb" aria-label="Enable speaker 1 microphone" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/><path class="slash" d="M3 3l18 18"/></svg></button><div class="meter" aria-label="Speaker 1 volume"><div id="level-0" class="level"></div></div><p id="mic-state-0">Click to speak</p></section>
+<section class="speaker" data-side="1"><h2 id="name-1">Speaker 2</h2><button id="mic-1" class="voice-orb" aria-label="Enable speaker 2 microphone" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v4M8 23h8"/><path class="slash" d="M3 3l18 18"/></svg></button><div class="meter" aria-label="Speaker 2 volume"><div id="level-1" class="level"></div></div><p id="mic-state-1">Click to speak</p></section>
 </div>
-<p id="notice" role="status">选择一侧，就可以开始讨论。</p>
-<div class="actions"><button id="start">开始讨论</button><button id="stop" class="secondary" hidden>结束讨论</button><span id="timeline" hidden>00:00</span></div>
-<details class="settings-drawer"><summary>设置</summary><div class="settings">
-<label>左侧名字<input id="speaker-0" value="发言人一" maxlength="80"></label><label>右侧名字<input id="speaker-1" value="发言人二" maxlength="80"></label>
-<label>转写语言<select id="language"><option value="en-US">English (US)</option><option value="zh-CN">中文</option></select></label>
-<label>麦克风<select id="input-device"><option value="">系统默认</option></select></label>
-</div><button id="devices" class="quiet">刷新设备</button><p class="privacy">两侧共用选定的本机麦克风，按点击切换身份。音频由真实 Deepgram 转写；本页仅测试转写，不加入 Zoom，不调用 Realtime 或 Devin。转写保存在本机，不保存录音。</p><p><a href="/">返回语音对话</a></p></details>
+<p id="notice" role="status">Choose a side to start the discussion.</p>
+<div class="actions"><button id="start">Start discussion</button><button id="stop" class="secondary" hidden>End discussion</button><span id="timeline" hidden>00:00</span></div>
+<details class="settings-drawer"><summary>Settings</summary><div class="settings">
+<label>Left speaker<input id="speaker-0" value="Speaker 1" maxlength="80"></label><label>Right speaker<input id="speaker-1" value="Speaker 2" maxlength="80"></label>
+<label>Transcription language<select id="language"><option value="en-US">English (US)</option><option value="zh-CN">Chinese</option></select></label>
+<label>Microphone<select id="input-device"><option value="">System default</option></select></label>
+</div><button id="devices" class="quiet">Refresh devices</button><p class="privacy">Both sides use the selected microphone. Click to switch speakers. This page uses live Deepgram transcription only, without Zoom, Realtime or Devin. Transcripts are saved locally; recordings are not saved.</p><p><a href="/">Back to voice conversation</a></p></details>
 <p id="error" role="alert"></p>
 </section>
-<section class="panel transcripts"><div class="section-title"><h2>讨论记录</h2><button id="export" class="quiet" disabled>导出</button></div><div class="transcript-columns">
-<section><h3 id="transcript-name-0">发言人一</h3><div id="transcript-0" class="feed"><p class="empty">等待发言…</p></div></section>
-<section><h3 id="transcript-name-1">发言人二</h3><div id="transcript-1" class="feed"><p class="empty">等待发言…</p></div></section>
+<section class="panel transcripts"><div class="section-title"><h2>Discussion transcript</h2><button id="export" class="quiet" disabled>Export</button></div><div class="transcript-columns">
+<section><h3 id="transcript-name-0">Speaker 1</h3><div id="transcript-0" class="feed"><p class="empty">Waiting for speech…</p></div></section>
+<section><h3 id="transcript-name-1">Speaker 2</h3><div id="transcript-1" class="feed"><p class="empty">Waiting for speech…</p></div></section>
 </div></section>
 </main><script type="module" src="/src/multitrack.js"></script></body></html>

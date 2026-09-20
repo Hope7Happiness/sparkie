@@ -10,7 +10,7 @@ COMPACT_HELLO = re.compile(r'^hello(?=spark(?:ie|y)(?=$|[\s,，:：.!?。！？]
 # are addressed requests for the agent, not reasons to silently discard a turn.
 DISMISSAL = re.compile(
     r"^(?:stop(?:[ ,]+(?:talking|speaking|please|for now))?|please\s+stop(?:\s+(?:talking|speaking))?|"
-    r"never\s*mind|cancel|be\s+quiet|没事|不用了|取消|算了)(?=$|[.!?。！？])", re.I)
+    r"never\s*mind|cancel|be\s+quiet)(?=$|[.!?。！？])", re.I)
 
 
 class ZoomOutputPolicy:

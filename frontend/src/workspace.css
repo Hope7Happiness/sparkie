@@ -214,7 +214,7 @@ header.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:spac
 .artifact{border-left-color:var(--plum-line)}
 .artifact.active{border-color:var(--clay-line);border-left-color:var(--clay);
   background:linear-gradient(90deg,#fdf3ed,#fdfbf7 70%)}
-.artifact.active h3::after{content:'● 正在展示';display:inline-block;margin-left:8px;color:var(--clay);
+.artifact.active h3::after{content:'● Presenting';display:inline-block;margin-left:8px;color:var(--clay);
   font-size:10.5px;font-weight:600}
 .artifact.active button{background:var(--clay-soft);color:#9c4e2d;border-color:var(--clay-line)}
 

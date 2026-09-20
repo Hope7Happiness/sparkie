@@ -196,36 +196,36 @@ test('reset snapshot adopts generation and replays only newer buffered events', 
 test('markdown renders headings, emphasis, lists, code and links as real nodes', () => {
   const { api } = harness();
   const md = api.renderMarkdown([
-    '# 研究纪要',
+    '# Research notes',
     '',
-    'Sparkie **确认**了 *两个* 结论，见 `plan.md`。',
+    'Sparkie **confirmed** *two* findings; see `plan.md`。',
     '',
-    '- 第一条',
-    '  - 嵌套一条',
-    '- 第二条',
+    '- First item',
+    '  - Nested item',
+    '- Second item',
     '',
-    '1. 步骤一',
-    '2. 步骤二',
+    '1. Step one',
+    '2. Step two',
     '',
-    '> 引用一句话',
+    '> A quoted sentence',
     '',
     '```python',
     'print("hi")',
     '```',
     '',
-    '[文档](https://example.com/doc)',
+    '[Documentation](https://example.com/doc)',
   ].join('\n'));
 
-  assert.equal(md.querySelector('h1').textContent, '研究纪要');
-  assert.equal(md.querySelector('strong').textContent, '确认');
-  assert.equal(md.querySelector('em').textContent, '两个');
+  assert.equal(md.querySelector('h1').textContent, 'Research notes');
+  assert.equal(md.querySelector('strong').textContent, 'confirmed');
+  assert.equal(md.querySelector('em').textContent, 'two');
   assert.equal(md.querySelector('code').textContent, 'plan.md');
   const ul = md.querySelector('ul');
   assert.equal(ul.children.length, 2, 'two top-level items');
   // CommonMark nests the sublist inside its parent <li>, never as a <ul> sibling.
-  assert.equal(ul.children[0].querySelector('ul').querySelector('li').textContent, '嵌套一条');
+  assert.equal(ul.children[0].querySelector('ul').querySelector('li').textContent, 'Nested item');
   assert.equal(md.querySelector('ol').children.length, 2);
-  assert.equal(md.querySelector('blockquote').textContent, '引用一句话');
+  assert.equal(md.querySelector('blockquote').textContent, 'A quoted sentence');
   const pre = md.querySelector('pre');
   assert.equal(pre.dataset.lang, 'python');
   assert.equal(pre.querySelector('code').textContent, 'print("hi")');
@@ -255,7 +255,7 @@ test('markdown renders pipe tables as real tables', () => {
 
 test('markdown never injects markup and drops unsafe link schemes', () => {
   const { api } = harness();
-  const md = api.renderMarkdown('<script>alert(1)</script>\n\n[点我](javascript:alert(1))');
+  const md = api.renderMarkdown('<script>alert(1)</script>\n\n[Click me](javascript:alert(1))');
   assert.ok(!md.tags.includes('script'), 'raw html stays text');
   assert.ok(md.textContent.includes('<script>alert(1)</script>'));
   assert.equal(md.querySelector('a'), null, 'javascript: is not linkified');
@@ -306,18 +306,18 @@ test('stage renders each artifact content shape', () => {
   const { api, document } = harness();
   const body = () => stage(document);
 
-  api.renderStage({ artifact_id: 'a1', title: 'r', content: { markdown: '## 小标题' } });
-  assert.equal(body().querySelector('h2').textContent, '小标题');
+  api.renderStage({ artifact_id: 'a1', title: 'r', content: { markdown: '## Subheading' } });
+  assert.equal(body().querySelector('h2').textContent, 'Subheading');
   assert.equal(body().querySelector('.type-badge').dataset.kind, 'markdown');
-  assert.equal(body().querySelector('.stage-actions').children.length, 2, 'markdown → 全屏 + .md');
+  assert.equal(body().querySelector('.stage-actions').children.length, 2, 'markdown → Fullscreen + .md');
 
-  api.renderStage({ artifact_id: 'a2', content: { answer: '纯文本回答' } });
-  assert.ok(body().querySelector('.stage-md').textContent.includes('纯文本回答'));
+  api.renderStage({ artifact_id: 'a2', content: { answer: 'Plain text answer' } });
+  assert.ok(body().querySelector('.stage-md').textContent.includes('Plain text answer'));
 
-  api.renderStage({ artifact_id: 'a3', content: { image: 'https://example.com/x.png', caption: '图' } });
+  api.renderStage({ artifact_id: 'a3', content: { image: 'https://example.com/x.png', caption: 'Image' } });
   assert.equal(body().querySelector('img').src, 'https://example.com/x.png');
   assert.equal(body().querySelector('.type-badge').dataset.kind, 'image');
-  assert.equal(body().querySelector('.stage-actions').children.length, 3, 'non-markdown → 全屏 + .md + .json');
+  assert.equal(body().querySelector('.stage-actions').children.length, 3, 'non-markdown → Fullscreen + .md + .json');
 
   api.renderStage({ artifact_id: 'a4', content: { pdf: 'https://example.com/x.pdf' } });
   assert.equal(body().querySelector('iframe').src, 'https://example.com/x.pdf');
@@ -348,13 +348,13 @@ test('fullscreen overlay shows the artifact and offers a way back', () => {
   const overlay = document.getElementById('artifact-overlay');
   assert.ok(overlay.hidden !== false, 'overlay starts hidden in the page markup');
 
-  api.openOverlay({ artifact_id: 'a9', title: '季度报告', summary: 's',
-                    content: { markdown: '## 概览\n\n- 要点一' } });
+  api.openOverlay({ artifact_id: 'a9', title: 'Quarterly report', summary: 's',
+                    content: { markdown: '## Overview\n\n- First point' } });
   assert.equal(overlay.hidden, false);
   const card = document.getElementById('overlay-card');
-  assert.equal(card.querySelector('h2').textContent, '概览');
+  assert.equal(card.querySelector('h2').textContent, 'Overview');
   assert.equal(card.querySelector('.stage-summary'), null);
-  assert.ok(card.textContent.includes('要点一'), 'markdown rendered inside the overlay');
+  assert.ok(card.textContent.includes('First point'), 'markdown rendered inside the overlay');
 
   api.closeOverlay();
   assert.equal(overlay.hidden, true, 'return path hides the overlay');
@@ -365,11 +365,11 @@ test('fullscreen overlay shows the artifact and offers a way back', () => {
 
 test('artifact list cards get a type badge matching their content', () => {
   const { api, document } = harness();
-  api.upsertArtifact({ artifact_id: 'art_1', title: '报告', type: 'report' });
+  api.upsertArtifact({ artifact_id: 'art_1', title: 'Report', type: 'report' });
   const card = document.querySelector('[data-artifact="art_1"]');
   assert.equal(card.querySelector('.type-badge').dataset.kind, 'report');
   assert.equal(card.querySelector('small').textContent, '', 'id is not shown as a subtitle');
-  api.upsertArtifact({ artifact_id: 'art_1', title: '报告', type: 'report', summary: 'read me' });
+  api.upsertArtifact({ artifact_id: 'art_1', title: 'Report', type: 'report', summary: 'read me' });
   assert.equal(card.querySelector('small').textContent, 'read me', 'summary becomes the subtitle');
 
   api.upsertArtifact({ artifact_id: 'art_2', content: { pdf: 'https://example.com/a.pdf' } });
@@ -398,7 +398,7 @@ test('embedded voice board only changes presentation on explicit controls', asyn
   assert.equal(stage(document).textContent, '');
   assert.equal(api.state.artifacts.size, 1);
   api.clearWorkspaceUI();
-  assert.ok(stage(document).textContent.includes('告诉 Sparkie'));
+  assert.ok(stage(document).textContent.includes('Tell Sparkie'));
   assert.equal(api.state.artifacts.size, 0);
 });
 
@@ -425,11 +425,11 @@ test('generation animation tracks real task lifecycle and preserves current pres
   api.onEvent({ type: 'task.updated', task_id: 'first', status: 'queued',
                 instruction: 'Private execution prompt with detailed instructions', artifact_title: 'Weather report' });
   assert.equal(progress.hidden, false);
-  assert.ok(progress.textContent.includes('等待生成'));
+  assert.ok(progress.textContent.includes('Queued'));
   assert.ok(progress.textContent.includes('Weather report'));
   assert.ok(!progress.textContent.includes('Private execution prompt'));
   api.onEvent({ type: 'task.updated', task_id: 'first', status: 'running', instruction: 'Weather report' });
-  assert.ok(progress.textContent.includes('正在生成'));
+  assert.ok(progress.textContent.includes('Generating'));
   assert.ok(progress.querySelector('.document-loader'));
   assert.ok(progress.querySelector('.generation-lines'));
   assert.ok(stage(document).textContent.includes('Current document'));
@@ -473,6 +473,6 @@ test('refresh keeps the short output name and never exposes a legacy execution p
   ] });
   const progress = document.getElementById('artifact-generating');
   assert.ok(progress.textContent.includes('Boston chart'));
-  assert.ok(progress.textContent.includes('任务成果'));
+  assert.ok(progress.textContent.includes('Task output'));
   assert.ok(!progress.textContent.includes('execution prompt'));
 });

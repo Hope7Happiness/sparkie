@@ -18,7 +18,7 @@ The intended clip follows one request from spoken delegation to a finished docum
 <!-- TODO: Replace the next line with [Watch the walkthrough](YOUR_PUBLIC_WALKTHROUGH_URL). -->
 Recording URL: **to be added**.
 
-A longer recording slot for conversation, interruptions, background work, artifact presentation, and a follow-up edit. The [rehearsal script](sparkie-demo-script.html) is available locally.
+A longer recording slot for conversation, interruptions, background work, artifact presentation, and a follow-up edit. The [rehearsal script](../presentation/sparkie-demo-script.html) is available locally.
 
 ## Project website
 

@@ -8,20 +8,20 @@ export class BrowserVoice {
         channelCount: 1, ...(inputDevice ? { deviceId: { exact: inputDevice } } : {}),
       }, video: false });
       this.settings = this.stream.getAudioTracks()[0].getSettings();
-      if (this.settings.echoCancellation !== true) throw new Error('当前浏览器未启用回声消除，请使用 Chrome。');
+      if (this.settings.echoCancellation !== true) throw new Error('Echo cancellation is unavailable in this browser. Use Chrome.');
       this.context = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
-      if (this.context.sampleRate !== 24000) throw new Error('当前浏览器不支持语音采样率，请使用 Chrome。');
+      if (this.context.sampleRate !== 24000) throw new Error('This browser does not support the voice sample rate. Use Chrome.');
       await this.context.audioWorklet.addModule(new URL('./voice-worklet.js', import.meta.url));
       this.node = new AudioWorkletNode(this.context, 'sparkie-voice', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
       this.source = this.context.createMediaStreamSource(this.stream);
       this.source.connect(this.node); this.node.connect(this.context.destination);
       await this.context.resume();
-      this.node.onprocessorerror = () => this.fail('音频处理已中断，请重新开始对话。');
+      this.node.onprocessorerror = () => this.fail('Audio processing stopped. Start a new conversation.');
       this.context.onstatechange = () => this.reportInputState();
     } catch (error) { this.close(); throw error; }
   }
   async recoverInput() {
-    if (this.closed) throw new Error('会话已结束，请重新开始。');
+    if (this.closed) throw new Error('The session ended. Start again.');
     // A user gesture can resume a suspended AudioContext. Reacquire the input
     // without replacing the WebSocket, task queue, or worklet sequence.
     await this.context.resume();
@@ -31,7 +31,7 @@ export class BrowserVoice {
     }, video: false });
     if (this.closed || stream.getAudioTracks()[0].getSettings().echoCancellation !== true) {
       stream.getTracks().forEach(track => track.stop());
-      throw new Error('无法恢复启用回声消除的麦克风。');
+      throw new Error('Cannot recover the microphone with echo cancellation enabled.');
     }
     const source = this.context.createMediaStreamSource(stream);
     source.connect(this.node);
@@ -59,14 +59,14 @@ export class BrowserVoice {
     this.sessionId = sessionId;
     this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/audio?session=${encodeURIComponent(sessionId)}`);
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('音频连接超时。')), 5000);
+      const timer = setTimeout(() => reject(new Error('Audio connection timed out.')), 5000);
       this.socket.onopen = () => { clearTimeout(timer); resolve(); };
-      this.socket.onerror = () => { clearTimeout(timer); reject(new Error('无法连接音频服务。')); };
+      this.socket.onerror = () => { clearTimeout(timer); reject(new Error('Cannot connect to the audio service.')); };
     });
     this.socket.onclose = event => {
       if (this.closed) return;
       if (event.code === 1000) this.close();
-      else this.fail('音频连接已断开。');
+      else this.fail('Audio connection closed.');
     };
     this.socket.onmessage = ({ data }) => {
       const message = JSON.parse(data);
@@ -89,7 +89,7 @@ export class BrowserVoice {
       } else if (data.type === 'progress') {
         // Worklet reports rendered frames; this is not an independently measured DAC timestamp.
         this.send({ action: 'audio_progress', item_id: data.item_id, generation: data.generation, played_bytes: data.played_bytes });
-      } else if (data.type === 'error') this.fail('音频播放跟不上，请重新开始。');
+      } else if (data.type === 'error') this.fail('Audio playback fell behind. Start again.');
     };
   }
   setMuted(muted) {
@@ -102,7 +102,7 @@ export class BrowserVoice {
   }
   send(message) {
     if (this.closed) return;
-    if (this.socket?.readyState !== WebSocket.OPEN || this.socket.bufferedAmount > 256000) return this.fail('音频连接拥堵，请重新开始。');
+    if (this.socket?.readyState !== WebSocket.OPEN || this.socket.bufferedAmount > 256000) return this.fail('Audio connection is congested. Start again.');
     this.socket.send(JSON.stringify(message));
   }
   fail(message) { if (this.closed) return; this.close(); this.onFailure(new Error(message)); }

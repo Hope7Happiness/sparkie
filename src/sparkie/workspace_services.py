@@ -123,7 +123,7 @@ class WorkspaceServices:
                         except BlockingIOError:
                             await asyncio.sleep(.1)
                 try:
-                    backend = ([sys.executable, '-m', 'sparkie.primitive', 'workspace',
+                    backend = ([sys.executable, '-m', 'sparkie.cli', 'workspace',
                                 '--host', parsed.hostname, '--port', str(port)]
                                if self.local_host(parsed.hostname) else None)
                     await self.ensure_one('backend', f'http://{self.server}/healthz', backend)

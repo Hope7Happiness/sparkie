@@ -98,7 +98,7 @@ class DevinWorkerTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(.01)
 
     async def test_reuses_process_session_and_keeps_private_snapshots_until_close(self):
-        records = [{'text': '完整上下文' * 2000} for _ in range(80)]
+        records = [{'text': 'Complete context' * 2000} for _ in range(80)]
         progress = []
         with patch.dict(os.environ, {'OPENAI_API_KEY':'voice-secret','SPARKIE_TEST_TOOL_ENV':'preserved'}):
             await self.worker.start()
