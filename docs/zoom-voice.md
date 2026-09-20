@@ -1,4 +1,8 @@
-# Zoom 会议内语音问答
+# Zoom 会议内语音 agent
+
+默认入口现为 GPT Realtime 前台 + Deepgram 并行转写 + Codex 后台任务。完整 agent 的启动与验收见 [Realtime Zoom 验收](realtime.md#zoom-中验收完整-agent)。本轮该组合尚未真人验收。
+
+以下保留旧 `--response-mode qa` 流程及其历史 Linux 验证记录，不能据此宣称新 Realtime 链路已验证。
 
 现已接通真实闭环：Zoom 会议音频 → Deepgram STT → Sparkie 唤醒 → Codex Terra Medium → Deepgram TTS → Zoom 虚拟麦克风 → 其他参会者。沿用已验证的 Linux ARM64 Meeting SDK **7.0.5.3529**。macOS 原生路径（`ZOOM_PLATFORM=macos`）已实现同一闭环、无需 Docker，但尚未完成真实会议验收；以下步骤与记录仍对应 Linux 路径。
 
@@ -42,7 +46,7 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform linux
 旧探针未运行时跳过这一步。然后启动语音版：
 
 ```bash
-bash scripts/zoom.sh --language en --seconds 600
+bash scripts/zoom.sh --language en --seconds 600 --response-mode qa
 ```
 
 1. 主持人接纳新的 **Sparkie**，并允许其录制权限。这是读取会议原始音频的 SDK 权限；本程序不保存会议 PCM 录音。

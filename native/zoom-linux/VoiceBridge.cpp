@@ -25,6 +25,7 @@ mutex outMutex, senderMutex, playMutex;
 condition_variable outCV, playCV;
 deque<vector<char>> outgoing;
 vector<char> pending;
+vector<char> cancelId; // playMutex; acknowledged only after worker exits old generation
 IZoomSDKAudioRawDataSender* sender = nullptr;
 long long millis() { return chrono::duration_cast<chrono::milliseconds>(Clock::now().time_since_epoch()).count(); }
 void fail() { int fd=client.load(); if(fd>=0) shutdown(fd, SHUT_RDWR); ++generation; }
@@ -39,6 +40,12 @@ void emit(char type, const char* data=nullptr, unsigned size=0) {
     outCV.notify_one();
 }
 void error(const char* message) { emit('E', message, strlen(message)); }
+void cancelPlayback(const vector<char>& identifier) {
+    lock_guard<mutex> lock(playMutex);
+    ++generation; pending.clear();
+    if(playing) cancelId=identifier;
+    else emit('K',identifier.data(),4);
+}
 bool transfer(int fd, char* data, size_t size, bool writing) {
     while(size) {
         auto n=writing ? send(fd,data,size,MSG_NOSIGNAL) : recv(fd,data,size,0);
@@ -52,9 +59,8 @@ void playback() {
         vector<char> data;
         unsigned gen;
         { unique_lock<mutex> lock(playMutex); playCV.wait(lock,[]{return !pending.empty();});
-          data.swap(pending); gen=generation.load(); }
+          data.swap(pending); playing=true; gen=generation.load(); }
         bool ok=true;
-        playing=true;
         auto next=Clock::now(), began=next, previous=next;
         double maxGap=0, minGap=1000000, earlyMaxGap=0, maxSend=0;
         unsigned frames=0, shortGaps=0, longGaps=0;
@@ -86,9 +92,11 @@ void playback() {
             <<" early_max_gap_ms="<<earlyMaxGap<<" gaps_under_5ms="<<shortGaps
             <<" gaps_over_40ms="<<longGaps<<" max_send_ms="<<maxSend<<endl;
         gateUntil=millis()+350;
+        lock_guard<mutex> lock(playMutex);
         playing=false;
-        if(ok) emit('D',data.data(),4);
-        else if(gen==generation.load()) error("Zoom virtual microphone could not send audio");
+        if(ok && gen==generation.load()) emit('D',data.data(),4);
+        else if(!ok && gen==generation.load()) error("Zoom virtual microphone could not send audio");
+        if(!cancelId.empty()) { emit('K',cancelId.data(),4); cancelId.clear(); }
     }
 }
 void serve() {
@@ -108,7 +116,7 @@ void serve() {
         timeout={0,0}; setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
         { lock_guard<mutex> lock(outMutex); outgoing.clear(); }
         client=fd;
-        emit('H'); if(sending) emit('M');
+        emit('H',"cancel-v1",9); if(sending) emit('M');
         thread writer([fd]{
             for(;;) {
                 vector<char> data;
@@ -125,8 +133,8 @@ void serve() {
             if(size>1920004) break;
             vector<char> payload(size);
             if(size && !transfer(fd,payload.data(),size,false)) break;
-            if(header[0]=='C' && size==0) {
-                ++generation; lock_guard<mutex> lock(playMutex); pending.clear();
+            if(header[0]=='C' && size==4) {
+                cancelPlayback(payload);
             } else if(header[0]=='P' && size>4 && size%2==0) {
                 lock_guard<mutex> lock(playMutex);
                 if(playing || !pending.empty()) error("Playback is already active");
@@ -135,7 +143,7 @@ void serve() {
             } else break;
         }
         fail(); client=-1; outCV.notify_all(); writer.join(); close(fd);
-        { lock_guard<mutex> lock(playMutex); pending.clear(); }
+        { lock_guard<mutex> lock(playMutex); pending.clear(); cancelId.clear(); }
     }
 }
 }

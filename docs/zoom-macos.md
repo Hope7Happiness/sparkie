@@ -73,3 +73,21 @@ uv run --frozen python scripts/zoom-sanity.py stop --platform macos
 - 用户此前已成功用官方 macOS Sample 加入会议；**这不等于本 PR 新接收器已完成真实会议与非静音音频验收**。新接收器的这些步骤仍待真人测试。
 - Linux 已有实测记录见 [原有流程](zoom-sanity.md)，本次没有重新完成 Linux 真实会议验收。
 - 当前 Zoom 文档对 Meeting SDK bot/AI 场景有限制，本地技术测试不代表生产或跨账号用途获准；见 [官方 SDK 说明](https://developers.zoom.us/docs/meeting-sdk/linux/) 与 [入会授权](https://developers.zoom.us/docs/meeting-sdk/auth/)。
+
+## 旧固定回复诊断入口（非完整 agent 验收）
+
+完整 agent 使用 `ZOOM_PLATFORM=macos bash scripts/zoom.sh --language zh-CN --seconds 3600`，验收见 [Realtime](realtime.md#zoom-中验收完整-agent)。以下固定回复命令仅保留用于故障隔离：
+
+```bash
+# 拉取原生代码后先重新构建（本轮已在当前工作区构建）。
+uv run --frozen python scripts/zoom-sanity.py build --platform macos
+ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en --seconds 120 --response-mode wake
+```
+
+先停止旧探针；主持人接纳 Sparkie 并允许录制权限。等 `listening_ready` 后从另一端说 “Sparkie”，核对对方是否听到 “I'm here.”。固定回复不调用 Codex；需要上下文问答时再把 `wake` 改成 `qa`。本入口复用 `AudioMeeting` → Deepgram → `Primitive` → Zoom 虚拟麦克风，SDK 返回成功仍不等于远端听见。
+
+本轮同步主线音频桥实现，修复停止播放报错导致跳过离会的清理路径；macOS 虚拟麦克风安装失败时立即退出，避免继续取消物理麦克风静音；退出时先停止音频发送，并保持虚拟音源直至 SDK 关闭。断开的桥连接不再因 SIGPIPE 直接终止进程。
+
+验证范围：94 项 Python/原生回归、离线 primitive/demo，以及 macOS 编译和签名检查。按本轮安排，未启动真人会议；macOS 远端收听验收仍待进行。播放与随后 350ms 内输入置为静音，无法在该窗口语音打断；整场会议稳定性和断线重连仍未验收。权限说明与网页文案本轮未改动。
+
+Zoom Realtime 的 --seconds 范围为 1–3600 秒，从 listening_ready 开始计时；建议会话使用 --seconds 3600。到期记录 session_duration_elapsed / exit_reason=duration_elapsed，正常退出（也会结束尚未播完的回复）；Ctrl+C 仍为 stopped。播放期间及尾音 350ms 人声会静音，不支持语音打断；可用终端 interrupt 控制取消。

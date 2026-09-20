@@ -56,6 +56,6 @@
 - 回复时继续说话、取消以及服务断开时的表现。
 - 记录真实首段声音延迟，不用模拟进程计时代替。
 
-未实现的能力标为“未实现”，不能作为已通过项目。固定语音闭环和本地上下文问答已有可测版本；会议内闭环已有可运行版本（见 [Zoom 语音](zoom-voice.md)）；本地 Realtime 前台与 Codex 后台分析已有可测试版本（见 [Realtime 验收](realtime.md)），尚未连接 Zoom 流式播放。
+未实现的能力标为“未实现”，不能作为已通过项目。固定语音闭环和本地上下文问答已有可测版本；会议内闭环已有可运行版本（见 [Zoom 语音](zoom-voice.md)）；本地 Realtime 前台与 Codex 后台分析已有可测试版本（见 [Realtime 验收](realtime.md)），现已增加 Zoom 流式音频适配，完整 Realtime + Codex 会议真人验收待进行。
 
-现阶段本地前端使用 Realtime 语音 + Deepgram 并行转写 + Codex 后台分析；原有 Zoom / CLI 路径继续使用 Deepgram STT/TTS。配置见 [人工配置清单](manual-setup.md)，启动与当前能力见 [primitive](primitive.md)。原始 `prompt` 中的模块分工是历史建议，以本文件的最新协作方式为准。
+现阶段本地前端使用 Realtime 语音 + Deepgram 并行转写 + Codex 后台分析；Zoom 默认同样使用 Realtime 前台与 Codex 后台；显式 wake/qa 的旧 CLI 路径仍使用 Deepgram STT/TTS。配置见 [人工配置清单](manual-setup.md)，启动与当前能力见 [primitive](primitive.md)。原始 `prompt` 中的模块分工是历史建议，以本文件的最新协作方式为准。

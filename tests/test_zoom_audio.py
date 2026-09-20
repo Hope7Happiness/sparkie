@@ -6,7 +6,7 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from sparkie.zoom_audio import ZoomAudioMeeting, ZoomMacAudioMeeting
 
@@ -16,6 +16,163 @@ def packet(kind, data=b''):
 
 
 class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handshake_requires_ack_capability(self):
+        for payload, valid in [(b'', False), (b'cancel-v1', True)]:
+            self.meeting.failure = None
+            reader = asyncio.StreamReader()
+            reader.feed_data(packet(b'H', payload))
+            writer = Mock(drain=AsyncMock())
+            self.meeting.port, self.meeting._token = 123, 'fake'
+            with patch('asyncio.open_connection', new=AsyncMock(return_value=(reader, writer))):
+                if valid:
+                    await self.meeting.connect()
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'rebuild'):
+                        await self.meeting.connect()
+            self.meeting.writer = None
+
+    async def test_cancel_ack_serializes_replacement_and_ignores_stale_ack(self):
+        self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+        self.meeting.send_packet = AsyncMock()
+        self.meeting.mic_ready.set()
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        stop = asyncio.create_task(self.meeting.stop_speaking())
+        await asyncio.sleep(0)
+        replacement = asyncio.create_task(self.meeting.play_audio(bytes(640), 32000))
+        self.meeting.reader.feed_data(packet(b'K', struct.pack('!I', 999)))
+        await asyncio.sleep(.01)
+        self.assertFalse(stop.done())
+        self.assertEqual([c.args[0] for c in self.meeting.send_packet.await_args_list], [b'C'])
+        self.meeting.reader.feed_data(packet(b'K', struct.pack('!I', 1)))
+        await asyncio.wait_for(stop, 1)
+        await asyncio.sleep(0)
+        self.assertEqual([c.args[0] for c in self.meeting.send_packet.await_args_list], [b'C', b'P'])
+        self.meeting.reader.feed_data(packet(b'D', struct.pack('!I', 1)))
+        await asyncio.wait_for(replacement, 1)
+        self.meeting.writer = None
+
+    async def test_cancel_timeout_aborts_connection_and_blocks_replacement(self):
+        self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+        self.meeting.send_packet = AsyncMock()
+        self.meeting.cancel_timeout = .01
+        with self.assertRaisesRegex(RuntimeError, 'acknowledgement timed out'):
+            await self.meeting.stop_speaking()
+        self.meeting.writer.close.assert_called_once()
+        self.assertTrue(self.meeting.stopped.is_set())
+        self.assertIsNone(self.meeting._cancel_waiter)
+        self.meeting.mic_ready.set()
+        # The real send method enforces failure before sending any new bytes.
+        del self.meeting.send_packet
+        with self.assertRaisesRegex(RuntimeError, 'acknowledgement timed out'):
+            await self.meeting.play_audio(bytes(640), 32000)
+        self.meeting.writer = None
+
+    async def test_cancel_waiter_is_failed_by_disconnect_or_native_error(self):
+        for payload in (None, b'Zoom virtual microphone could not send audio'):
+            with self.subTest(payload=payload):
+                self.meeting.failure = None
+                self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+                self.meeting.reader = asyncio.StreamReader()
+                self.meeting.send_packet = AsyncMock()
+                stop = asyncio.create_task(self.meeting.stop_speaking())
+                await asyncio.sleep(0)
+                if payload is None:
+                    self.meeting.reader.feed_eof()
+                else:
+                    self.meeting.reader.feed_data(packet(b'E', payload))
+                await self.meeting.receive()
+                with self.assertRaises(Exception):
+                    await asyncio.wait_for(stop, 1)
+                self.assertIsNone(self.meeting._cancel_waiter)
+        self.meeting.writer = None
+
+    async def test_cancelled_ack_wait_aborts_connection(self):
+        self.meeting.writer = Mock(is_closing=Mock(return_value=False))
+        self.meeting.send_packet = AsyncMock()
+        stop = asyncio.create_task(self.meeting.stop_speaking())
+        await asyncio.sleep(0)
+        stop.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await stop
+        self.assertTrue(self.meeting.stopped.is_set())
+        self.assertIsNone(self.meeting._cancel_waiter)
+        self.meeting.writer = None
+
+    async def test_receive_gate_is_frozen_before_queueing(self):
+        self.meeting.input_gate = lambda: True
+        self.meeting.reader.feed_data(packet(b'A', b'\x01\x20' * 320))
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        await asyncio.wait_for(self.meeting.audio_ready.wait(), 1)
+        self.meeting.input_gate = lambda: False
+        frame = self.meeting.queue.get_nowait()
+        self.assertTrue(frame.gated)
+        self.assertEqual(frame.pcm, bytes(640))
+        self.meeting.reader.feed_data(packet(b'A', b'\x01\x20' * 320))
+        frame = await asyncio.wait_for(self.meeting.queue.get(), 1)
+        self.assertFalse(frame.gated)
+        self.assertEqual(frame.pcm, b'\x01\x20' * 320)
+
+    async def test_submission_events_are_throttled_without_losing_completion(self):
+        self.meeting.playback_event_interval = 5
+        future = asyncio.get_running_loop().create_future()
+        self.meeting.playbacks[1] = future
+        self.meeting.reader.feed_data(packet(b'S', struct.pack('!I', 1)) * 50 +
+                                      packet(b'D', struct.pack('!I', 1)))
+        self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
+        await asyncio.wait_for(future, 1)
+        self.assertEqual(sum(k == 'zoom_playback_submitted' for k, _ in self.events), 1)
+
+    async def test_duration_expiry_differs_from_stop_and_failure(self):
+        self.meeting.max_seconds = 0
+        self.assertEqual([f async for f in self.meeting.audio()], [])
+        self.assertTrue(self.meeting.duration_expired)
+        self.meeting.duration_expired = False
+        self.meeting.request_stop()
+        self.assertEqual([f async for f in self.meeting.audio()], [])
+        self.assertFalse(self.meeting.duration_expired)
+        self.meeting.failure = RuntimeError('test failure')
+        with self.assertRaises(RuntimeError):
+            _ = [f async for f in self.meeting.audio()]
+        self.assertFalse(self.meeting.duration_expired)
+    async def test_native_error_resolves_playback_and_preserves_safe_details(self):
+        from sparkie.providers import failure_details
+        from sparkie.zoom_errors import ZoomBridgeError
+        self.meeting.send_packet = AsyncMock()
+        self.meeting.mic_ready.set()
+        play = asyncio.create_task(self.meeting.play_audio(bytes(6400), 32000))
+        await asyncio.sleep(0)
+        detail = {'version': 1, 'reason': 'sdk_send_failed', 'sdk_result': 20,
+                  'playback_id': 1, 'frame_index': 3, 'message': 'private secret'}
+        self.meeting.reader.feed_data(packet(b'S', struct.pack('!I', 1)) +
+                                      packet(b'E', json.dumps(detail).encode()))
+        await self.meeting.receive()
+        with self.assertRaises(ZoomBridgeError) as caught:
+            await asyncio.wait_for(play, 1)
+        fields = failure_details(caught.exception)
+        self.assertEqual(fields['provider'], 'zoom')
+        self.assertEqual(fields['reason'], 'sdk_send_failed')
+        self.assertEqual(fields['sdk_result'], 20)
+        self.assertEqual(fields['frame_index'], 3)
+        self.assertTrue(self.meeting.stopped.is_set())
+        self.assertEqual(self.meeting.playbacks, {})
+        self.assertNotIn('private', json.dumps(self.events) + json.dumps(fields))
+
+    async def test_native_error_legacy_and_untrusted_payloads(self):
+        from sparkie.zoom_errors import ZoomBridgeError
+        from sparkie.providers import failure_details
+        for payload, reason in ZoomBridgeError.LEGACY.items():
+            self.assertEqual(failure_details(ZoomBridgeError(payload))['reason'], reason)
+        for payload in (b'secret', b'[]', b'null', b'\xff', b'x' * 513,
+                        b'{"version":1,"reason":["secret"]}',
+                        b'{"version":1,"reason":"secret","sdk_result":20}'):
+            fields = failure_details(ZoomBridgeError(payload))
+            self.assertEqual(fields['reason'], 'unknown_native_error')
+            self.assertNotIn('secret', json.dumps(fields))
+        fields = failure_details(ZoomBridgeError(
+            b'{"version":1,"reason":"sdk_send_failed","sdk_result":true,"frame_index":"secret"}'))
+        self.assertNotIn('sdk_result', fields)
+        self.assertNotIn('frame_index', fields)
+
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.meeting = ZoomAudioMeeting(Path(self.temp.name), max_seconds=.1)

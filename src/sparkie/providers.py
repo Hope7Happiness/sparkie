@@ -11,7 +11,61 @@ from .reasoning import ANSWER_INSTRUCTIONS, conversation_input
 
 
 class ProviderError(RuntimeError):
-    pass
+    def __init__(self, message, *, provider_code=None):
+        super().__init__(message)
+        self.provider_code = provider_code
+
+    def diagnostic_fields(self):
+        return {}
+
+
+class PlaybackLimitError(ProviderError):
+    """Bounded playback capacity exhausted; cancel the reply, not the session."""
+
+
+def failure_details(exc):
+    """Only locally defined reasons and code locations; never exception bodies."""
+    reasons = {
+        'Zoom Realtime playback queue full': ('zoom', 'playback_queue_full'),
+        'Realtime response exceeds playback limit': ('audio', 'response_duration_limit'),
+        'Invalid Realtime PCM': ('audio', 'invalid_pcm'),
+        'Invalid PCM16 length': ('audio', 'invalid_pcm_length'),
+        'Audio arrived after output completion': ('zoom', 'audio_after_completion'),
+        'Zoom bridge requires PCM16 mono 32000Hz': ('zoom', 'invalid_input_format'),
+        'realtime_disconnected': ('openai', 'realtime_disconnected'),
+        'realtime_error': ('openai', 'realtime_error'),
+        'realtime_response_failed': ('openai', 'realtime_response_failed'),
+        'audio_backpressure': ('openai', 'input_queue_full'),
+        'provider_startup_timeout': ('session', 'provider_startup_timeout'),
+        'provider_closed_before_ready': ('openai', 'closed_before_ready'),
+        'provider_closed_during_audio_join': ('openai', 'closed_during_audio_join'),
+        'provider_closed_early': ('openai', 'closed_early'),
+        'Zoom cancellation acknowledgement timed out': ('zoom', 'cancel_ack_timeout'),
+        'Zoom cancellation aborted': ('zoom', 'cancel_aborted'),
+        'Zoom bridge requires cancel-v1; rebuild the native receiver': ('zoom', 'bridge_rebuild_required'),
+    }
+    provider, reason = reasons.get(str(exc), ('unknown', 'unclassified'))
+    result = {'error_type': type(exc).__name__, 'provider': provider, 'reason': reason}
+    code = getattr(exc, 'provider_code', None)
+    if code in ('server_error', 'rate_limit_exceeded', 'insufficient_quota',
+                'invalid_api_key', 'invalid_request_error', 'model_not_found',
+                'context_length_exceeded', 'session_expired', 'unknown_provider_error'):
+        result['provider_code'] = code
+    tb = exc.__traceback__
+    while tb:
+        module = tb.tb_frame.f_globals.get('__name__', '')
+        if module.startswith('sparkie.'):
+            result['source'] = f'{module}:{tb.tb_frame.f_code.co_name}:{tb.tb_lineno}'
+            if provider == 'unknown':
+                result['provider'] = {
+                    'sparkie.realtime': 'openai',
+                    'sparkie.zoom_audio': 'zoom',
+                    'sparkie.realtime_zoom_audio': 'zoom',
+                }.get(module, 'unknown')
+        tb = tb.tb_next
+    if isinstance(exc, ProviderError):
+        result.update(exc.diagnostic_fields())
+    return result
 
 
 class DeepgramMouth:

@@ -14,6 +14,44 @@ from sparkie import realtime_session
 
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_startup_failure_details_survive_in_events_and_report(self):
+        from sparkie.providers import ProviderError
+        class Agent:
+            def __init__(self, *args, **kwargs):
+                self.ready = asyncio.Event()
+                self.model = 'test'
+            async def run(self):
+                raise ProviderError('realtime_error', provider_code='server_error')
+        class Ears:
+            model, language, rate = 'test', 'en', 24000
+            def __init__(self, *args, **kwargs): pass
+            async def transcribe(self, frames):
+                await asyncio.Event().wait()
+                yield
+        from unittest.mock import AsyncMock
+        audio = SimpleNamespace(leave=AsyncMock(), diagnostics=lambda: {})
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory), input_device=None, output_device=None,
+                                   echo_mode='headphones', seconds=10, language='en')
+            old_umask = os.umask(0o077)
+            try:
+                with patch.dict(os.environ, {'OPENAI_API_KEY': 'fake', 'DEEPGRAM_API_KEY': 'fake'}), \
+                     patch.object(realtime_session, 'RealtimeLocalAudio', return_value=audio), \
+                     patch.object(realtime_session, 'RealtimeAgent', Agent), \
+                     patch.object(realtime_session, 'DeepgramEars', Ears), redirect_stdout(io.StringIO()):
+                    self.assertEqual(await realtime_session.run(args), 1)
+            finally:
+                os.umask(old_umask)
+            session = next(Path(directory).iterdir())
+            report = json.loads((session / 'run.json').read_text())
+            events = [json.loads(line) for line in (session / 'events.jsonl').read_text().splitlines()]
+            failure = next(e for e in events if e['type'] == 'session_failed')
+            self.assertEqual(report['failure']['provider_code'], 'server_error')
+            self.assertEqual(report['failure']['provider'], 'openai')
+            for key, value in report['failure'].items():
+                self.assertEqual(failure[key], value)
+            audio.leave.assert_awaited_once()
+
     async def test_deepgram_failure_does_not_prevent_realtime_audio_and_gap_is_persisted(self):
         class Audio:
             captured_samples = 0

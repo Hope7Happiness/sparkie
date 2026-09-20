@@ -6,6 +6,7 @@
 #import <ZoomSDK/ZoomSDKRawDataAudioSourceController.h>
 #include <arpa/inet.h>
 #include <libkern/OSByteOrder.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -22,6 +23,7 @@ static _Atomic unsigned bridge_generation = 0;
 static _Atomic long long bridge_gate_until = 0;
 static char bridge_token[65];
 static int bridge_port;
+static BOOL bridge_participant_audio = YES;
 static _Atomic unsigned bridge_self_id = 0;
 static long long bridge_audio_origin;
 static long long bridge_sdk_origin = -1, bridge_sdk_offset;
@@ -30,6 +32,7 @@ static _Atomic long long bridge_last_heartbeat = 0;
 static ZoomSDKAudioRawDataSender *bridge_sender;  // sender_mutex
 static NSMutableArray<NSData *> *bridge_outgoing; // out_mutex
 static NSData *bridge_pending;                    // play_mutex; first 4 bytes are the playback id
+static NSData *bridge_cancel_id;                  // play_mutex; acknowledgement after worker quiesces
 static pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t out_cv = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t play_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -64,11 +67,28 @@ static void bridge_emit(char type, const void *data, unsigned size) {
     pthread_mutex_unlock(&out_mutex);
     pthread_cond_signal(&out_cv);
 }
-static void bridge_error(const char *message) { bridge_emit('E', message, strlen(message)); }
+// Fixed classifications and numeric values only, never SDK strings or PCM.
+static void bridge_error_detail(const char *reason, int result, unsigned playback_id, unsigned frame_index) {
+    NSDictionary *detail = @{@"version": @1, @"reason": @(reason), @"sdk_result": @(result),
+                              @"playback_id": @(playback_id), @"frame_index": @(frame_index)};
+    NSData *payload = [NSJSONSerialization dataWithJSONObject:detail options:0 error:nil];
+    printf("BRIDGE_ERROR %.*s\n", (int)payload.length, (const char *)payload.bytes);
+    bridge_emit('E', payload.bytes, (unsigned)payload.length);
+}
+static void bridge_error(const char *reason) { bridge_error_detail(reason, -1, 0, 0); }
+static void bridge_cancel(NSData *identifier) {
+    pthread_mutex_lock(&play_mutex);
+    bridge_generation++;
+    bridge_pending = nil;
+    if (bridge_playing) bridge_cancel_id = identifier;
+    else bridge_emit('K', identifier.bytes, 4);
+    pthread_mutex_unlock(&play_mutex);
+}
 static BOOL bridge_transfer(int fd, void *data, size_t size, BOOL writing) {
     char *cursor = data;
     while (size) {
         ssize_t n = writing ? send(fd, cursor, size, 0) : recv(fd, cursor, size, 0);
+        if (n < 0 && errno == EINTR) continue;
         if (n <= 0) return NO;
         cursor += n;
         size -= n;
@@ -84,10 +104,12 @@ static void *bridge_playback(void *unused) {
         while (!bridge_pending) pthread_cond_wait(&play_cv, &play_mutex);
         data = bridge_pending;
         bridge_pending = nil;
+        bridge_playing = YES; // Reserve the slot while holding play_mutex.
         gen = bridge_generation;
         pthread_mutex_unlock(&play_mutex);
         BOOL ok = YES;
-        bridge_playing = YES;
+        int sdk_result = -1;
+        const char *failure_reason = "microphone_unavailable";
         long long next = bridge_millis(), began = next, previous = next;
         double max_gap = 0, min_gap = 1000000, early_max_gap = 0, max_send = 0;
         unsigned frames = 0, short_gaps = 0, long_gaps = 0;
@@ -115,11 +137,14 @@ static void *bridge_playback(void *unused) {
             result = [bridge_sender send:chunk dataLength:1280 sampleRate:32000 channel:ZoomSDKAudioChannel_Mono];
             max_send = MAX(max_send, (double)(bridge_millis() - now));
             pthread_mutex_unlock(&sender_mutex);
-            if (result != ZoomSDKError_Success) { ok = NO; break; }
+            if (result != ZoomSDKError_Success) {
+                sdk_result = (int)result; failure_reason = "sdk_send_failed"; ok = NO; break;
+            }
             if (offset == 4) bridge_emit('S', bytes, 4);
             next += 20;
             // A missed deadline must not trigger a burst of stale PCM frames.
-            if (next < previous) next = previous + 20;
+            long long completed = bridge_millis();
+            if (next <= completed) next = completed + 20;
             long long delay = next - bridge_millis();
             if (delay > 0) usleep((useconds_t)delay * 1000);
         }
@@ -128,9 +153,16 @@ static void *bridge_playback(void *unused) {
         printf("BRIDGE_PLAYBACK id=%u frames=%u max_gap_ms=%.1f min_gap_ms=%.1f early_max_gap_ms=%.1f gaps_under_5ms=%u gaps_over_40ms=%u max_send_ms=%.1f\n",
                ntohl(playback_id), frames, max_gap, min_gap, early_max_gap, short_gaps, long_gaps, max_send);
         bridge_gate_until = bridge_millis() + 350;
+        pthread_mutex_lock(&play_mutex);
         bridge_playing = NO;
-        if (ok) bridge_emit('D', bytes, 4);
-        else if (gen == bridge_generation) bridge_error("Zoom virtual microphone could not send audio");
+        if (ok && gen == bridge_generation) bridge_emit('D', bytes, 4);
+        else if (!ok && gen == bridge_generation)
+            bridge_error_detail(failure_reason, sdk_result, ntohl(playback_id), frames);
+        if (bridge_cancel_id) {
+            bridge_emit('K', bridge_cancel_id.bytes, 4);
+            bridge_cancel_id = nil;
+        }
+        pthread_mutex_unlock(&play_mutex);
     }
     return NULL;
 }
@@ -169,6 +201,8 @@ static void *bridge_serve(void *unused) {
     for (;;) {
         int fd = accept(server, NULL, NULL);
         if (fd < 0) continue;
+        // A closed Python peer must fail I/O, not kill the SDK process with SIGPIPE.
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
         struct timeval timeout = {5, 0};
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
@@ -183,7 +217,7 @@ static void *bridge_serve(void *unused) {
         [bridge_outgoing removeAllObjects];
         pthread_mutex_unlock(&out_mutex);
         bridge_client = fd;
-        bridge_emit('H', NULL, 0);
+        bridge_emit('H', "cancel-v1", 9);
         if (bridge_sending) bridge_emit('M', NULL, 0);
         pthread_t writer;
         pthread_create(&writer, NULL, bridge_writer, (void *)(intptr_t)fd);
@@ -195,15 +229,12 @@ static void *bridge_serve(void *unused) {
             if (size > 1920004) break;
             NSMutableData *payload = [[NSMutableData alloc] initWithLength:size];
             if (size && !bridge_transfer(fd, payload.mutableBytes, size, NO)) break;
-            if (header[0] == 'C' && size == 0) {
-                bridge_generation++;
-                pthread_mutex_lock(&play_mutex);
-                bridge_pending = nil;
-                pthread_mutex_unlock(&play_mutex);
+            if (header[0] == 'C' && size == 4) {
+                bridge_cancel(payload);
             } else if (header[0] == 'P' && size > 4 && size % 2 == 0) {
                 pthread_mutex_lock(&play_mutex);
-                if (bridge_playing || bridge_pending) bridge_error("Playback is already active");
-                else if (!bridge_sending) bridge_error("Zoom virtual microphone is muted or unavailable");
+                if (bridge_playing || bridge_pending) bridge_error("playback_active");
+                else if (!bridge_sending) bridge_error("microphone_unavailable");
                 else {
                     bridge_pending = payload;
                     pthread_cond_signal(&play_cv);
@@ -218,6 +249,7 @@ static void *bridge_serve(void *unused) {
         close(fd);
         pthread_mutex_lock(&play_mutex);
         bridge_pending = nil;
+        bridge_cancel_id = nil;
         pthread_mutex_unlock(&play_mutex);
     }
     return NULL;
@@ -263,7 +295,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     const char *buffer = [data getBuffer];
     unsigned int rate = [data getSampleRate], channels = [data getChannelNum], size = [data getBufferLen];
     if (!buffer || !size || channels != 1 || rate != 32000 || size % 2 || size > 63988) {
-        bridge_error("Expected per-user mono PCM16 32000 Hz from Zoom");
+        bridge_error("invalid_input_format");
         return;
     }
     NSMutableData *packet = [[NSMutableData alloc] initWithLength:12 + size];
@@ -312,6 +344,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
             }
         }
         self.voice = [self.config[@"voice"] boolValue];
+        bridge_participant_audio = self.config[@"participant_audio"] ? [self.config[@"participant_audio"] boolValue] : YES;
         if (self.voice) {
             id port = self.config[@"bridge_port"];
             NSString *token = self.config[@"bridge_token"];
@@ -388,9 +421,14 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
             ZoomSDKRawDataAudioSourceController *source = nil;
             ZoomSDKError helper = [[[ZoomSDK sharedSDK] getRawDataController] getRawDataAudioSourceHelper:&source];
             if (helper == ZoomSDKError_Success && source) {
-                printf("AUDIO_SOURCE_SET result=%d\n", [source setExternalAudioSource:self]);
+                ZoomSDKError installed = [source setExternalAudioSource:self];
+                printf("AUDIO_SOURCE_SET result=%d\n", installed);
+                if (installed != ZoomSDKError_Success) {
+                    self.exitCode = 1; [self shutdown]; return;
+                }
             } else {
                 printf("AUDIO_SOURCE_HELPER result=%d\n", helper);
+                self.exitCode = 1; [self shutdown]; return;
             }
         }
         printf("JOIN_VOIP result=%d\n", [actions actionMeetingWithCmd:ActionMeetingCmd_JoinVoip userID:0 onScreen:0]);
@@ -493,8 +531,9 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     printf("ZOOM_MIC_READY\n");
     bridge_set_sending(YES);
 }
-- (void)onMicStopSend { bridge_set_sending(NO); }
+- (void)onMicStopSend { printf("ZOOM_MIC_STOP_SEND\n"); bridge_set_sending(NO); }
 - (void)onMicUninitialized {
+    printf("ZOOM_MIC_UNINITIALIZED\n");
     bridge_set_sending(NO);
     bridge_set_sender(nil);
 }
@@ -502,12 +541,21 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     const char *buffer = [data getBuffer];
     unsigned int size = [data getBufferLen];
     if (!buffer || !size) return;
-    // Establish the common media clock even before a participant speaks.
-    if (self.voice) (void)bridge_timestamp(data);
-    // Mixed callback is only a health heartbeat; it never enters transcription.
-    if (self.voice && bridge_millis() - bridge_last_heartbeat >= 1000) {
-        bridge_last_heartbeat = bridge_millis();
-        bridge_emit('R', NULL, 0);
+    if (self.voice && bridge_participant_audio) {
+        // Mixed callbacks only establish the clock and report health in per-user mode.
+        (void)bridge_timestamp(data);
+        if (bridge_millis() - bridge_last_heartbeat >= 1000) {
+            bridge_last_heartbeat = bridge_millis();
+            bridge_emit('R', NULL, 0);
+        }
+    } else if (self.voice && bridge_client >= 0) {
+        if ([data getChannelNum] != 1 || [data getSampleRate] != 32000 || size % 2 || size > 64000) {
+            bridge_error("invalid_input_format");
+            return;
+        }
+        NSMutableData *pcm = [[NSMutableData alloc] initWithLength:size];
+        if (!bridge_playing && bridge_millis() >= bridge_gate_until) memcpy(pcm.mutableBytes, buffer, size);
+        bridge_emit('A', pcm.bytes, size);
     }
     @synchronized (self) {
         self.frames++; self.bytes += size;
@@ -525,7 +573,7 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
 // Required deprecated method remains empty to avoid double ingestion; target SDK 7.1.5 uses userID.
 - (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data nodeID:(unsigned int)nodeID {}
 - (void)onOneWayAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {
-    if (self.voice) bridge_user_audio(data, userID);
+    if (self.voice && bridge_participant_audio) bridge_user_audio(data, userID);
 }
 - (void)onShareAudioRawDataReceived:(ZoomSDKAudioRawData *)data {}
 - (void)onShareAudioRawDataReceived:(ZoomSDKAudioRawData *)data userID:(unsigned int)userID {}
@@ -535,9 +583,10 @@ static void bridge_user_audio(ZoomSDKAudioRawData *data, unsigned userID) {
     self.stopping = YES;
     [self.participantTimer invalidate]; self.participantTimer = nil;
     if (self.voice) {
-        ZoomSDKRawDataAudioSourceController *source = nil;
-        if ([[[ZoomSDK sharedSDK] getRawDataController] getRawDataAudioSourceHelper:&source] == ZoomSDKError_Success)
-            [source setExternalAudioSource:nil];
+        // Stop the sender before tearing down SDK objects. Keep the virtual source
+        // installed until after leaving, so teardown cannot switch to a physical mic.
+        bridge_set_sending(NO);
+        bridge_set_sender(nil);
     }
     [self.audio unSubscribe]; self.audio.delegate = nil;
     ZoomSDKMeetingService *meeting = [[ZoomSDK sharedSDK] getMeetingService];

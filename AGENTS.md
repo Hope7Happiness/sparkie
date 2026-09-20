@@ -13,3 +13,5 @@ Default TTS is Aura-2 English; do not imply Chinese STT support means Chinese TT
 Default fixed-reply simulation must never call a live backend. The legacy fixed-reply/Q&A Codex backend reuses CLI login, excludes project keys, and uses a read-only temporary workspace. By explicit user request, the Realtime task worker instead loads existing Codex configuration, runs in the project workspace with full filesystem/shell/network/tool access and no approval gate, and has no per-task timeout. It keeps CLI login rather than using the voice OPENAI_API_KEY for billing.
 Simulation must remain runnable without API keys, Docker, SDK downloads, or network calls after dependency installation.
 Run `uv run --frozen python -m unittest discover -s tests -v`, `bash scripts/primitive.sh`, and `bash scripts/demo.sh` after core changes.
+
+Commit completed, verified changes locally after each task. Do not push or open a pull request unless the user explicitly requests it; local implementation, verification, and commits do not authorize remote publication.

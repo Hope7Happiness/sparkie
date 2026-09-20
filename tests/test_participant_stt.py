@@ -129,6 +129,33 @@ class ParticipantTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MacPacketTests(unittest.IsolatedAsyncioTestCase):
+    async def test_realtime_selects_mixed_input_and_preserves_capture_gating(self):
+        from sparkie.realtime_zoom_audio import RealtimeZoomAudio
+        from test_zoom_audio import packet
+        with tempfile.TemporaryDirectory() as root:
+            meeting = ZoomMacAudioMeeting(Path(root), Path(root) / 'unused')
+            audio = RealtimeZoomAudio(meeting, on_event=lambda *args, **kwargs: None)
+            self.assertFalse(meeting.participant_audio)
+            self.assertEqual(meeting.diagnostics()['input_mode'], 'mixed')
+            meeting.reader = asyncio.StreamReader()
+            meeting.reader_task = asyncio.create_task(meeting.receive())
+            pcm = b'\x01\0' * 320
+            try:
+                meeting.reader.feed_data(packet(b'A', pcm))
+                frame = await asyncio.wait_for(meeting.queue.get(), 2)
+                self.assertEqual(frame.pcm, pcm)
+                self.assertFalse(frame.gated)
+                self.assertIsNone(frame.speaker_id)
+                audio.append_output('reply', b'\x01\0' * 2400)
+                meeting.reader.feed_data(packet(b'A', pcm))
+                frame = await asyncio.wait_for(meeting.queue.get(), 2)
+                self.assertTrue(frame.gated)
+                self.assertEqual(frame.pcm, bytes(len(pcm)))
+                with self.assertRaises(RuntimeError):
+                    meeting.decode_audio(b'U', struct.pack('!IQ', 10, 1200) + pcm)
+            finally:
+                await meeting.leave()
+
     async def test_wire_demultiplexing_metadata_heartbeat_and_old_binary_rejection(self):
         import json
         from test_zoom_audio import packet

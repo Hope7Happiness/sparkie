@@ -178,7 +178,8 @@ def main():
     zoom = sub.add_parser("zoom", help="Join real Zoom and answer through the meeting SDK virtual microphone")
     zoom.add_argument("--language", default="en")
     zoom.add_argument("--seconds", type=int, default=600)
-    zoom.add_argument("--response-mode", choices=["wake", "qa"], default="qa")
+    zoom.add_argument("--response-mode", choices=["realtime", "wake", "qa"], default="realtime",
+                      help="realtime: GPT voice + Codex tasks; wake/qa: legacy Deepgram pipeline")
     zoom.add_argument("--output", type=Path, default=Path("output/zoom"))
     args = parser.parse_args()
     if args.command == "doctor":
@@ -189,8 +190,14 @@ def main():
     if args.command == "simulate" and args.interval < 0:
         parser.error("--interval must be non-negative")
     from .local_session import local_session
-    from .zoom_session import zoom_session
-    command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check, "local": local_session, "zoom": zoom_session}[args.command]
+    if args.command == "zoom":
+        if args.response_mode == "realtime":
+            from .realtime_session import run as command
+            args.transport = "zoom"
+        else:
+            from .zoom_session import zoom_session as command
+    else:
+        command = {"simulate": simulate, "tts": tts, "deepgram-check": deepgram_check, "brain-check": brain_check, "local": local_session}[args.command]
     if args.command in {"local", "zoom"} and not 1 <= args.seconds <= 3600:
         parser.error("--seconds must be between 1 and 3600")
     try:

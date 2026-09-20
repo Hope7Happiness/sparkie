@@ -10,6 +10,8 @@ import struct
 import time
 
 from .audio import AudioFrame
+from .providers import failure_details
+from .zoom_errors import ZoomBridgeError
 from .zoom_config import meeting_config, private_write
 
 
@@ -40,6 +42,14 @@ class ZoomAudioMeeting:
         self.last_playback_started_at = None  # SDK acceptance is not a DAC timestamp.
         self._owns_container = False
         self._write_lock = asyncio.Lock()
+        self.input_gate = lambda: False
+        self.duration_expired = False
+        self.playback_event_interval = 0.0
+        self._last_playback_event = float('-inf')
+        self._control_lock = asyncio.Lock()
+        self._cancel_id = 0
+        self._cancel_waiter = None
+        self.cancel_timeout = 5.0
 
     async def docker(self, *args):
         process = await asyncio.create_subprocess_exec('docker', *args, stdout=asyncio.subprocess.PIPE,
@@ -96,8 +106,9 @@ class ZoomAudioMeeting:
                 await self.writer.drain()
                 # The SDK side can accept TCP before its bridge starts listening.
                 kind, payload = await self.read_packet()
-                if kind != b'H' or payload:
-                    raise RuntimeError('Invalid Zoom bridge handshake')
+                if kind != b'H' or payload != b'cancel-v1':
+                    self.failure = RuntimeError('Zoom bridge requires cancel-v1; rebuild the native receiver')
+                    raise self.failure
                 return
             except (OSError, asyncio.IncompleteReadError):
                 if self.writer:
@@ -150,6 +161,10 @@ class ZoomAudioMeeting:
                     if self.queue.qsize() >= 250 and not self._backlogged:
                         self._backlogged = True
                         self.on_event("audio_warning", reason="zoom_input_backlog", queued_frames=self.queue.qsize())
+                    # Freeze mixed-input gating before queueing; per-user input excludes self.
+                    if kind == b'A':
+                        gated = self.input_gate()
+                        frame = AudioFrame(frame.sequence, bytes(len(data)) if gated else data, gated=gated)
                     self.queue.put_nowait(frame)
                     self.max_queued_frames = max(self.max_queued_frames, self.queue.qsize())
                     if self.frames_received % 32 == 0:
@@ -176,24 +191,34 @@ class ZoomAudioMeeting:
                     entry = self.playbacks.get(ident)
                     if entry:
                         if kind == b'S':
-                            self.on_event('zoom_playback_submitted', playback_id=ident,
-                                          note='SDK accepted first frame; remote audible latency is not measured.')
+                            now = time.monotonic()
+                            if now - self._last_playback_event >= self.playback_event_interval:
+                                self._last_playback_event = now
+                                self.on_event('zoom_playback_submitted', playback_id=ident,
+                                              note='SDK accepted first frame; remote audible latency is not measured.')
                         elif not entry.done():
                             entry.set_result(None)
+                elif kind == b'K' and len(data) == 4:
+                    ident = struct.unpack('!I', data)[0]
+                    if ident == self._cancel_id and self._cancel_waiter and not self._cancel_waiter.done():
+                        self._cancel_waiter.set_result(None)
                 elif kind == b'E':
-                    # Only fixed native error messages; never forward arbitrary provider bodies.
-                    raise RuntimeError('Zoom bridge rejected audio; inspect container state')
+                    raise ZoomBridgeError(data)
                 else:
                     raise RuntimeError('Invalid Zoom bridge event')
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.failure = exc
-            self.on_event('audio_failed', reason=type(exc).__name__)
+            # Resolve control waiters before diagnostics: a broken event sink must
+            # never hide the primary failure behind a second playback timeout.
             for future in self.playbacks.values():
                 if not future.done():
                     future.set_exception(exc)
+            if self._cancel_waiter and not self._cancel_waiter.done():
+                self._cancel_waiter.set_exception(exc)
             self.stopped.set()
+            self.on_event('audio_failed', **failure_details(exc))
 
     async def audio(self):
         started = time.monotonic()
@@ -212,6 +237,8 @@ class ZoomAudioMeeting:
             yield frame
         if self.failure:
             raise self.failure
+        if not self.stopped.is_set():
+            self.duration_expired = True
 
     async def send_packet(self, kind, data=b''):
         if self.failure:
@@ -230,25 +257,50 @@ class ZoomAudioMeeting:
         future = asyncio.get_running_loop().create_future()
         self.playbacks[ident] = future
         try:
-            await self.send_packet(b'P', struct.pack('!I', ident) + pcm)
+            async with self._control_lock:
+                await self.send_packet(b'P', struct.pack('!I', ident) + pcm)
             await asyncio.wait_for(future, len(pcm) / 64000 + 5)
         except BaseException:
-            await self.stop_speaking()
+            if not self.failure:
+                await self.stop_speaking()
             raise
         finally:
             self.playbacks.pop(ident, None)
 
     async def stop_speaking(self):
-        if self.writer and not self.writer.is_closing():
-            with contextlib.suppress(Exception):
-                await self.send_packet(b'C')
+        async with self._control_lock:
+            if self.failure:
+                raise self.failure
+            if not self.writer or self.writer.is_closing():
+                return
+            self._cancel_id += 1
+            future = self._cancel_waiter = asyncio.get_running_loop().create_future()
+            try:
+                async with asyncio.timeout(self.cancel_timeout):
+                    await self.send_packet(b'C', struct.pack('!I', self._cancel_id))
+                    await future
+            except BaseException as exc:
+                # Never reuse a connection whose cancellation boundary is unknown.
+                self.failure = (RuntimeError('Zoom cancellation acknowledgement timed out')
+                                if isinstance(exc, TimeoutError) else
+                                RuntimeError('Zoom cancellation aborted') if isinstance(exc, asyncio.CancelledError) else exc)
+                self.stopped.set()
+                self.writer.close()
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                raise self.failure from None
+            finally:
+                if not future.done():
+                    future.cancel()
+                self._cancel_waiter = None
 
     def request_stop(self):
         self.stopped.set()
 
     async def _disconnect(self):
         self.request_stop()
-        await self.stop_speaking()
+        with contextlib.suppress(Exception):
+            await self.stop_speaking()
         if self.reader_task:
             self.reader_task.cancel()
             await asyncio.gather(self.reader_task, return_exceptions=True)
@@ -291,8 +343,9 @@ class ZoomAudioMeeting:
 class ZoomMacAudioMeeting(ZoomAudioMeeting):
     """Same loopback bridge protocol without Docker; launches the signed macOS receiver app."""
 
-    def __init__(self, runtime, binary, **kwargs):
+    def __init__(self, runtime, binary, *, participant_audio=True, **kwargs):
         super().__init__(runtime, **kwargs)
+        self.participant_audio = participant_audio
         self.binary = Path(binary)
         self.name = 'sparkie-zoom-macos-' + secrets.token_hex(4)
         self.process = None
@@ -302,6 +355,8 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         self.participant_frames = {}
 
     def decode_audio(self, kind, data):
+        if not self.participant_audio:
+            return super().decode_audio(kind, data)
         if kind != b'U' or len(data) <= 12 or len(data) % 2:
             raise RuntimeError('Expected macOS per-user audio; rebuild the native receiver')
         user, timestamp = struct.unpack('!IQ', data[:12])
@@ -311,7 +366,8 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         self.participant_frames[ident] = self.participant_frames.get(ident, 0) + 1
         if self.participant_frames[ident] == 1:
             self.on_event('zoom_participant_audio', speaker_id=ident, timestamp_ms=timestamp)
-        return AudioFrame(self.frames_received + 1, data[12:], 32000, ident, timestamp)
+        return AudioFrame(self.frames_received + 1, data[12:], 32000,
+                          speaker_id=ident, timestamp_ms=timestamp)
 
     def handle_metadata(self, kind, data):
         if kind == b'R' and not data:
@@ -341,6 +397,8 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         return self.participants.get(speaker_id, {}).get('is_self', False)
 
     def diagnostics(self):
+        if not self.participant_audio:
+            return {**super().diagnostics(), 'input_mode': 'mixed'}
         return {**super().diagnostics(), 'input_mode': 'per_participant',
                 'echo_mode': 'exclude_sdk_self_track', 'participants': self.participants,
                 'timestamp_source': 'sdk_media_clock_with_callback_fallback',
@@ -357,7 +415,8 @@ class ZoomMacAudioMeeting(ZoomAudioMeeting):
         probe.bind(('127.0.0.1', 0))
         self.port = probe.getsockname()[1]
         probe.close()
-        config.update(voice=True, bridge_port=self.port, bridge_token=self._token)
+        config.update(voice=True, participant_audio=self.participant_audio,
+                      bridge_port=self.port, bridge_token=self._token)
         self.runtime.mkdir(parents=True, exist_ok=True)
         config_path = self.runtime / 'config.json'
         private_write(config_path, json.dumps(config))
