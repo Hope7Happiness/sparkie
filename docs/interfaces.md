@@ -75,6 +75,8 @@ Python 数据类型见 `src/sparkie/contracts.py`。接入 SDK 可以使用其�
 
 ## Zoom 音频桥
 
+入会总等待默认 600 秒，可通过 `SPARKIE_ZOOM_JOIN_TIMEOUT_SECONDS` 设置为正的有限秒数，覆盖 SDK 启动、等待主持人、等候室及音频就绪。入会期间的桥读取沿用此等待预算，不因提前收到音频就绪包切换到 10 秒读取超时；入会成功后仍保留 10 秒桥无响应检测。Realtime 的 `--seconds` 从入会音频就绪开始计时；legacy 外层期限也随入会预算延长。原生 SDK 的 60 秒认证回调超时独立保留，认证成功后不会触发，不是等候室期限。本次按用户要求未运行检查或真实会议复测。
+
 `ZoomAudioMeeting` 实现相同 `AudioMeeting` 协议，使用 Linux SDK 7.0.5；`ZoomMacAudioMeeting` 复用同一协议，由原生 macOS 应用承载 SDK（7.1.5 基线）。Docker 内的 C++ 桥通过只发布到 127.0.0.1 的随机 TCP 端口与宿主 Python 通信；macOS 应用直接绑定 127.0.0.1 的每轮随机端口，令牌经权限 600 的 config.json 传入。先发送 64 字节随机会话令牌，再交换 `type:1 byte + length:4 bytes big-endian + payload`；每条音频为单声道 PCM16 32 kHz。
 
 SDK → Python：`H` 握手，`M`/`N` 虚拟麦克风可发送/停止，`A` 音频，`S`/`D` 首帧提交/本次音频全部提交（4 字节播放 ID），`E` 固定诊断文本。Python → SDK：`P`（4 字节播放 ID + 最多 30 秒 PCM），`C` 取消播放。单连接、单次播放；两端都有有界队列，溢出或协议错误关闭本轮。C++ 在独立线程中按 20 ms 节奏发送 PCM，音频回调只复制数据，不执行网络 I/O。

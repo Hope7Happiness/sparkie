@@ -75,7 +75,7 @@ async def zoom_session(args):
             if await workspace.open('zoom_uuid', meeting_id, reset=True,
                                     title=f'Zoom {meeting_id}'):
                 engine.log('workspace_linked', workspace_id=workspace.workspace_id, external_id=meeting_id)
-            async with asyncio.timeout(args.seconds + 165):
+            async with asyncio.timeout(args.seconds + meeting.join_timeout + 45):
                 await engine.run()
         except asyncio.CancelledError:
             reason = 'stopped'
