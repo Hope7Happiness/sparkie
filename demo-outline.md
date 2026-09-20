@@ -56,3 +56,10 @@ Zoom meeting audio
 **Show:** Return to the meeting with Sparkie present and the final decision visible.
 
 **Say (presenter):** “Sparkie: a teammate that listens quietly, works in the background, and speaks when it helps the team decide—so meetings move work forward.”
+
+## 7. Agreed production rules
+
+- Keep the task panel on screen until the result is ready, so the handoff is easy to follow.
+- The user takes the narration.
+- Send the screen recording over for editing.
+- The user has the result and the final cut.
