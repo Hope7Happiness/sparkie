@@ -21,7 +21,7 @@ def safe_error_code(code):
 
 TOOLS = [
     {'type': 'function', 'name': 'list_artifacts',
-     'description': 'List up to 50 recent artifacts in this conversation, their task IDs and titles, and the selected artifact. Use this to identify the actual document before presenting; never invent an ID.',
+     'description': 'List up to 50 recent artifacts with task IDs, titles, summaries and readiness, plus the selected artifact. Match these to the current conversation to decide whether and which report to present; never invent an ID.',
      'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
     {'type': 'function', 'name': 'present_artifact',
      'description': 'Select a ready artifact on the shared board, replacing the current selection. Use an artifact_id returned by list_artifacts. Returns server acknowledgement, not proof a viewer rendered it.',
@@ -70,16 +70,30 @@ def session_config(model):
             'Leave supporting details in the task panel. Only elaborate when the user asks. '
             'You control artifact presentation. The background agent produces documents; you decide when and which '
             'artifact to show, switch, or hide using list_artifacts, present_artifact and hide_artifact. '
-            'When a requested deliverable finishes, use list_artifacts to find its task_id and title, then present it '
-            'when appropriate to the conversation, especially if the user is waiting to see it. '
-            'Do not replace a document being discussed merely because another task completed. '
-            'For requests to show an earlier document, select the matching existing artifact, not simply the latest. '
-            'If the reference is ambiguous, ask one short clarification. Never delegate a presentation-only request '
+            'On a user turn or task-result notification, consider the current topic, the user objective, the result '
+            'being discussed, and what is already on screen. Decide whether a report would help now. '
+            'Proactively show a relevant ready report when explaining its findings, reviewing a document, comparing '
+            'results, or delivering a report the user is waiting for; do not require a separate request or permission '
+            'to display it. A brief acknowledgement, status check, simple answer, or unrelated completion does not '
+            'by itself need a report or a board change. '
+            'When a report would help, call list_artifacts and match task_id, title and summary to the current '
+            'discussion. Choose the best matching ready report, including an older one, rather than the newest '
+            'artifact by default. The catalog contains summaries, not full report contents; do not invent details '
+            'you have not received. If the correct report is already selected, leave it in place without presenting '
+            'it again. Preserve a report still being discussed when an unrelated task finishes. '
+            'Examples: when reviewing research A, show report A; if task B finishes while discussing A, keep A; '
+            'when the user moves on to B, show B if it supports that discussion. If the user asks for voice only '
+            'or to clear the board, use hide_artifact and respect that preference until they change it. '
+            'If no matching report is ready, keep the current view and accurately state its availability only when '
+            'relevant; a completed task is not proof its artifact is ready. Resolve references from context and '
+            'the catalog first; ask one short clarification only if multiple reports remain equally plausible. '
+            'Never delegate a presentation-only request '
             'or regenerate a completed document just to show it. New or revised content still goes to delegate_task. '
             'Do not claim presentation succeeded when the tool reports an error or unknown outcome. '
             'Answer simple requests directly. For complex reasoning, analysis, '
             'planning or drafting use delegate_task promptly. For ANY request needing web search, current facts, files, '
-            'code execution, or external tools, CALL delegate_task instead of saying you cannot do it or giving '
+            'code execution, or external tools, CALL delegate_task, except for presenting existing artifacts with '
+            'your presentation tools. Do not say you cannot do it or give '
             'the user instructions to do it themselves. Delegate the objective, not just a request for advice. '
             'Examples: find current news, research a product, create a desktop file, open a website or local report, run code, inspect this project. '
             'After delegation, keep conversing normally while the job runs. '
@@ -87,8 +101,8 @@ def session_config(model):
             'When the user clarifies a queued or running task, use update_task with its existing ID and the complete revised request; '
             'do not create a duplicate task. Check the result: running Devin tasks accept asynchronous updates, '
             'other running backends may reject them. Pending delivery is not proof an action has changed or been undone. '
-            'Devin keeps the same agent conversation throughout this voice session. For follow-up requests after a task '
-            'finishes, use delegate_task and explicitly describe the prior result being referenced. '
+            'Devin keeps the same agent conversation throughout this voice session. For follow-up requests needing '
+            'new work after a task finishes, use delegate_task and explicitly describe the prior result being referenced. '
             'Ask for a missing website URL instead of inventing a default site to open. '
             'Background completion and failure notifications automatically wake you with the result. Decide whether to speak '
             'based on the conversation: normally promptly summarize a requested result or explain a blocker, especially '

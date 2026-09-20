@@ -323,6 +323,18 @@ The workspace socket accepts artifact.control with action=list|present|clear, re
 
 The board shows separate generation cards for queued/running tasks, with document shimmer animation while running and static waiting state while queued. Completion, failure, cancellation and reset remove the associated card; other in-progress tasks and the selected document remain visible. The animation indicates task activity, not incremental document contents or a measured completion percentage. Reduced-motion preferences disable motion.
 
+Realtime's presentation prompt now makes the decision context-dependent on user
+turns and task-result notifications: proactively present a ready report when it
+supports the current explanation/review or the user is waiting for it. Match task
+ID, title and summary, including older reports; keep the current selection for
+unrelated completions and avoid re-presenting an already selected report. Simple
+answers/status acknowledgements need no board change. Respect voice-only/clear
+requests and clarify only when context and catalog leave equally plausible
+reports. Catalog metadata does not imply access to the complete report body.
+These are model instructions, not a deterministic automatic selection policy.
+They apply when the next Realtime session starts; an existing connection retains
+its previous instructions. Reference: https://developers.openai.com/api/docs/guides/realtime-conversations .
+
 Validation: 301 Python tests, 34 frontend tests, frontend build and both offline demos passed. An isolated browser fixture traversed actual Workspace HTTP/WebSocket, Realtime tool handling and presentation events: generation/stop, reduced motion, no automatic selection on completion, explicit present/hide, refresh and session clearing. No new real-model, microphone or Zoom acceptance was performed. Realtime tool result handling follows https://developers.openai.com/api/docs/guides/realtime-conversations .
 
 ### Worker document content versus completion summary
