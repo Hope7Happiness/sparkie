@@ -1,40 +1,33 @@
 # Fast semantic wake routing via Devin
 
-Scope: decide whether a finalized human utterance is addressed to Sparkie and
-authorizes a reply. The research branch now includes an opt-in Gemini 3.5 Flash
-Minimal router through Devin. It does not classify acoustic speech, change
+Scope: decide whether a finalized human utterance calls for Sparkie to respond.
+The integrated Gemini 3.5 Flash Minimal router runs through Devin, independently
+of the background task worker. It does not classify acoustic speech, change
 350ms interruption recovery, or execute meeting tasks. ZoomOutputPolicy still
-owns output authorization and task-notification eligibility. Main retains its
-existing configuration; this implementation is on research/fast-wake-router.
+owns output authorization and task-notification eligibility.
 
 ## Run the integrated router
 
-On the prepared local research worktree, main's ignored .env has already been
-copied with owner-only permissions and these research-only settings enabled:
+The current example configuration selects:
 
     SPARKIE_WAKE_ROUTER=devin
     SPARKIE_WAKE_MODEL=gemini-3-5-flash-minimal
 
 The background worker remains SPARKIE_TASK_BACKEND=devin with
 DEVIN_MODEL=swe-1-6-fast. Both reuse the current Devin CLI login. No separate
-Gemini key or manual environment setup is needed on this machine.
+Gemini key is needed. Run from the repository with the existing .env:
 
-Run from the research worktree:
+    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 3600 --response-mode realtime
 
-    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 180 --response-mode realtime
-
-The native Zoom receiver, vendor assets and installed frontend dependencies are
-linked to main's local copies. Python dependencies were installed with uv sync
---frozen in a separate .venv so the editable package loads this branch's code.
-The copied .env is a snapshot; later changes in main are not automatically
-propagated. No credentials or machine-specific links are committed. No native
-rebuild is needed for this Python-only integration. Set SPARKIE_WAKE_ROUTER=rules
-to select the original synchronous wake policy.
+No native rebuild is needed for this Python-only change. Set
+SPARKIE_WAKE_ROUTER=rules to select the original synchronous wake policy.
 
 The router prewarms a dedicated tool-free summarizer ACP process. It handles the
 full finalized utterance asynchronously, outside the audio/turn lock, and accepts
-only exact JSON with a single decision key (accept or reject). It renews the ACP
-session every 32 decisions to bound retained conversation. It supplies no MCP
+only exact JSON with a single decision key (accept or reject). It creates a fresh ACP
+session for each decision while retaining the warm process. Each prompt receives
+only an explicit snapshot of the previous eight human/assistant entries plus the
+current utterance and its available speaker name/ID. It supplies no MCP
 servers and aborts on permission/tool requests. The summarizer can still persist
 its own summaries in Devin's local data directory; this is not stateless inference.
 
@@ -47,6 +40,46 @@ malformed output or provider failure leaves that utterance unanswered and logs a
 error; there is no regex fallback. Disposing a failed child can take an additional
 second without blocking audio. Eligible background results wait while routing is
 pending and resume after rejection/error when the normal quiet conditions hold.
+
+## Contextual routing trial (2026-09-20)
+
+The prompt now asks whether the meaning of the current utterance invites Sparkie
+to respond. Its name is neither required nor sufficient. Answers to its questions,
+follow-ups and corrections can be accepted; human-to-human discussion, quoted
+wake phrases and acknowledgments needing no answer should be rejected. Unclear
+recipients should be rejected. Earlier engagement is not permanent authorization.
+
+The eight-entry window includes rejected discussion. Assistant streaming text
+updates a single entry, labelled generated rather than confirmed heard. On
+interruption, unplayed output is removed and partial output is marked as possibly
+containing unheard words. Entries are ordered by first arrival at the agent, not
+reconstructed acoustic timing; delayed STT and simultaneous speakers remain limits.
+The window is separate from the full meeting ledger and resets with the meeting.
+
+Reproduce the small synthetic scenario check (without joining Zoom):
+
+    uv run --frozen python scripts/benchmark_contextual_wake.py --live --output /tmp/contextual-wake.json
+
+Omit --live to list cases without provider access. This uses the production
+adapter and its existing 2.5-second deadline; results include fresh-session
+overhead after prewarming. Expectations are hand-authored, not an accuracy study.
+
+One real Gemini run matched all 10 synthetic expectations: answers to Sparkie,
+follow-ups, corrections and a full eight-entry window accepted; answers to a
+human, switching to a human, third-person mentions, quotations, simple thanks
+and a context-free ambiguous fragment rejected. Decisions took 1243–2430 ms
+(median 1699.5 ms), excluding process prewarm but including per-case session
+creation after the first case. The slowest case was close to the unchanged
+2500 ms deadline. These are classifier calls, not Zoom or remote audible tests.
+Inputs, exact prompt and results: [contextual trial](experiments/wake-router-contextual-2026-09-20.json).
+
+Offline verification: all 307 Python tests, scripts/primitive.sh and scripts/demo.sh
+passed. Regressions cover the eight-entry bound, identities, rejected discussion,
+copied snapshots, assistant deduplication/eviction, interrupted/unplayed text,
+external human turns, stale decisions and existing output controls. For Zoom
+validation, restart with the command above and try a no-name follow-up, an answer
+to Sparkie's question, then switch explicitly to another participant. Actual
+meeting turn-taking and audibility for this change remain user-run checks.
 
 ## Integration verification (2026-09-20)
 
