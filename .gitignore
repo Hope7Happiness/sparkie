@@ -12,6 +12,8 @@ build/
 dist/
 *.egg-info/
 node_modules/
+# Also ignore a worktree's symlink to installed frontend dependencies.
+/frontend/node_modules
 **/.frontend-helper/traces/
 config/zoom.local.json
 deepgram_api.txt

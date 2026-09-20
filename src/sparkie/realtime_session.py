@@ -78,17 +78,24 @@ async def run(args):
     worker = configured_task_worker()
     center = TaskCenter(ledger, worker, emit)
     output_policy = None
+    wake_router = None
     if transport_name == 'zoom':
         from .zoom_output import ZoomOutputPolicy
         # EventOutput is initialized below before any asynchronous session work.
         output_policy = ZoomOutputPolicy(audio, lambda *a, **k: None)
+        router_mode = os.getenv('SPARKIE_WAKE_ROUTER') or 'rules'
+        if router_mode == 'devin':
+            from .wake_router import DevinWakeRouter
+            wake_router = DevinWakeRouter(model=os.getenv('SPARKIE_WAKE_MODEL') or 'gemini-3-5-flash-minimal')
+        elif router_mode != 'rules':
+            raise ValueError('SPARKIE_WAKE_ROUTER must be rules or devin')
     # Mirror the session into a meeting workspace when the server is reachable;
     # every client failure degrades to a no-op so the meeting is unaffected.
     from .workspace_client import WorkspaceClient
     workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
-                          output_policy=output_policy)
+                          output_policy=output_policy, wake_router=wake_router)
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
@@ -221,6 +228,9 @@ async def run(args):
     if output_policy is not None:
         output_policy.emit = emit
         emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
+        emit('zoom_wake_router_config', mode='devin' if wake_router else 'rules',
+             model=wake_router.model if wake_router else None,
+             timeout_seconds=wake_router.timeout if wake_router else None)
     try:
         external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
         kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')

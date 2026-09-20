@@ -1,17 +1,87 @@
 # Fast semantic wake routing via Devin
 
 Scope: decide whether a finalized human utterance is addressed to Sparkie and
-authorizes a reply. This experiment does not classify acoustic speech, change
-350ms interruption recovery, join Zoom, or execute meeting tasks. Production
-continues using ZoomOutputPolicy; this branch is independent of main.
+authorizes a reply. The research branch now includes an opt-in Gemini 3.5 Flash
+Minimal router through Devin. It does not classify acoustic speech, change
+350ms interruption recovery, or execute meeting tasks. ZoomOutputPolicy still
+owns output authorization and task-notification eligibility. Main retains its
+existing configuration; this implementation is on research/fast-wake-router.
+
+## Run the integrated router
+
+On the prepared local research worktree, main's ignored .env has already been
+copied with owner-only permissions and these research-only settings enabled:
+
+    SPARKIE_WAKE_ROUTER=devin
+    SPARKIE_WAKE_MODEL=gemini-3-5-flash-minimal
+
+The background worker remains SPARKIE_TASK_BACKEND=devin with
+DEVIN_MODEL=swe-1-6-fast. Both reuse the current Devin CLI login. No separate
+Gemini key or manual environment setup is needed on this machine.
+
+Run from the research worktree:
+
+    ZOOM_PLATFORM=macos bash scripts/zoom.sh --language en-US --seconds 180 --response-mode realtime
+
+The native Zoom receiver, vendor assets and installed frontend dependencies are
+linked to main's local copies. Python dependencies were installed with uv sync
+--frozen in a separate .venv so the editable package loads this branch's code.
+The copied .env is a snapshot; later changes in main are not automatically
+propagated. No credentials or machine-specific links are committed. No native
+rebuild is needed for this Python-only integration. Set SPARKIE_WAKE_ROUTER=rules
+to select the original synchronous wake policy.
+
+The router prewarms a dedicated tool-free summarizer ACP process. It handles the
+full finalized utterance asynchronously, outside the audio/turn lock, and accepts
+only exact JSON with a single decision key (accept or reject). It renews the ACP
+session every 32 decisions to bound retained conversation. It supplies no MCP
+servers and aborts on permission/tool requests. The summarizer can still persist
+its own summaries in Devin's local data directory; this is not stateless inference.
+
+New confirmed human speech, a newer final utterance, explicit mute, input failure
+or shutdown invalidates pending decisions. Late acceptance cannot reopen output.
+Local stop/manual-unmute controls bypass classification. A raw noise candidate
+does not invalidate a pending decision; the existing 350ms recovery remains local.
+Each decision has a 2.5-second budget including startup/lock waiting. Timeout,
+malformed output or provider failure leaves that utterance unanswered and logs an
+error; there is no regex fallback. Disposing a failed child can take an additional
+second without blocking audio. Eligible background results wait while routing is
+pending and resume after rejection/error when the normal quiet conditions hold.
+
+## Integration verification (2026-09-20)
+
+The new production adapter was called through the real Devin CLI with four
+synthetic utterances (not the older benchmark adapter):
+
+| Utterance | Decision | Full decision latency |
+| --- | --- | --- |
+| Could you summarize the plan, Sparkie? | accept | 1276 ms |
+| Sparkie is our meeting assistant. | reject | 1223 ms |
+| The demo script says "Hey Sparkie, summarize the meeting". | reject | 1074 ms |
+| Hey Sparky, can you hear me? | accept | 861 ms |
+
+All four matched their expected label, and the adapter closed its process.
+These measurements exclude prewarming and are not remote audible latency or an
+accuracy guarantee. Offline regressions exercise subprocess protocol failures,
+timeout/cancellation, stale answers, concurrent speech, explicit controls,
+background-result delivery and teardown. All 282 Python tests passed, as did
+bash scripts/primitive.sh and bash scripts/demo.sh (offline simulations).
+Real Zoom testing of this semantic
+router is assigned to the user by their request; it has not been marked passed.
+
+Suggested live checks: sentence-final address should reply; a product description
+and a quoted demo wake phrase should stay silent; explicit stop should still stop;
+a brief noise should recover under the existing 350ms policy; an addressed
+read-only task should announce its completion. Expect about one additional second
+for wake authorization in the measured cases.
 
 ## Finding
 
 Devin can provide the classifier through its supported ACP CLI. On this machine,
 both SWE 1.6 Fast and Gemini 3 Flash Minimal produced valid accept/reject JSON for
 all 12 synthetic cases. However, warm requests still took approximately one
-second end to end, so the tested path is not a sub-350ms gate. Do not replace the
-production synchronous wake rules with this network call yet.
+second end to end, so the tested path is not a sub-350ms gate. The opt-in integration
+above keeps this network call separate from acoustic interruption/recovery.
 
 The actual model UID for SWE 1.6 Fast is swe-1-6-fast, as listed by
 devin models list. The second tested UID is MODEL_GOOGLE_GEMINI_3_0_FLASH_MINIMAL.
@@ -62,11 +132,11 @@ not a production service guarantee.
 
 Do not reuse DevinTaskWorker's conversation or lock for routing: a long-running
 task would delay every decision, and that worker is deliberately allowed tools.
-Use a dedicated, prewarmed, tool-free classifier process if integration proceeds.
+The integration uses a dedicated, prewarmed, tool-free classifier process.
 OPENAI_API_KEY is removed from the benchmark child environment; Devin uses its
 existing login. Only synthetic utterance text is supplied.
 
-## Proposed next integration
+## Original integration proposal (superseded by the opt-in trial above)
 
 1. Begin with shadow evaluation: run the model alongside existing decisions and
    record disagreements without granting new output permissions. Expand the set
@@ -150,8 +220,8 @@ Reproduce the Devin sweep:
 
     python scripts/benchmark_wake_router.py --live --models swe-1-7-lightning-medium glm-5-3-flash-low MODEL_PRIVATE_11 gemini-3-5-flash-minimal --output /tmp/sparkie-wake-alternatives.json
 
-Reproduce direct API calls after dependency installation; supply the authorized
-environment file path without copying it into this research branch:
+Reproduce direct API calls after dependency installation; supply an authorized
+environment file path (the prepared research worktree also has its own copy):
 
     uv run --frozen python scripts/benchmark_wake_direct.py --live --env /path/to/main/.env
 

@@ -256,3 +256,29 @@ Resolve responses and snapshots expose workspace.generation. Clients connect to 
 ### Zoom microphone mute versus playback failure
 
 Only ZoomMicrophoneMuted (the explicit N signal or a pre-send readiness check) is retried. Playback timeouts, malformed PCM and transport failures propagate as failures. PCM stays in the bounded buffer until a complete SDK packet acknowledgement; mute retains that packet, waits for microphone readiness, then retries after the existing native cancellation acknowledgement. Since partial packet progress is unknown, a mid-packet mute may repeat up to 100ms on recovery, but does not silently skip audio or report a dropped packet as played. A confirmed human interrupt or manual stop still cancels retained audio. Startup continues discarding input while _joining; post-join queued audio is drained without a startup flush.
+
+### Optional semantic Zoom wake router
+
+RealtimeAgent accepts an optional wake_router with async start(), classify(text)
+and close(), plus model for diagnostics. classify returns accept or reject; only
+the agent/output policy can authorize speech. SPARKIE_WAKE_ROUTER=devin selects
+the dedicated tool-free Devin adapter with SPARKIE_WAKE_MODEL (default
+gemini-3-5-flash-minimal). Unset/rules preserves the existing local policy. This
+setting affects Zoom Realtime only and is independent of DEVIN_MODEL for tasks.
+
+Final human text still enters meeting context once. Semantic classification runs
+outside turn_lock and consumes the full final utterance. A monotonically
+increasing local version fences acceptance against new speech, a newer final,
+manual controls, input failure and shutdown. Old provider-output cancellation
+does not invalidate a newer human decision. Explicit dismissal/manual-next controls
+stay local; raw speech candidates and the 350ms recovery do not wait on the model.
+Routing errors/2.5s deadlines fail silent for that utterance. Eligible task
+notifications are deferred only while a decision is pending, then use existing
+quiet/authorization rules. No task-worker conversation or lock is reused.
+
+Diagnostics: zoom_wake_router_config, zoom_wake_router_ready/unavailable,
+zoom_wake_routing, zoom_wake_router_failed (error_type, action, latency_ms when
+available), zoom_wake_decision (semantic_router/local_control), and
+zoom_wake_decision_discarded for late returns. Provider response bodies and
+thoughts are not logged. See fast-wake-router-research.md for live-call evidence
+and the remaining user-run Zoom validation.
