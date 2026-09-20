@@ -20,6 +20,7 @@ from .browser_audio import BrowserAudio
 from .task_center import TranscriptLedger, TaskCenter
 from .task_workers import configured_task_worker
 from .event_output import EventOutput
+from .semantic_turns import SEMANTIC_EAGERNESS, SemanticTurnEars
 
 
 async def run(args):
@@ -78,32 +79,50 @@ async def run(args):
     worker = configured_task_worker()
     center = TaskCenter(ledger, worker, emit)
     output_policy = None
+    wake_router = None
     if transport_name == 'zoom':
         from .zoom_output import ZoomOutputPolicy
         # EventOutput is initialized below before any asynchronous session work.
         output_policy = ZoomOutputPolicy(audio, lambda *a, **k: None)
+        router_mode = os.getenv('SPARKIE_WAKE_ROUTER') or 'rules'
+        if router_mode == 'devin':
+            from .wake_router import DevinWakeRouter
+            wake_router = DevinWakeRouter(model=os.getenv('SPARKIE_WAKE_MODEL') or 'gemini-3-5-flash-minimal')
+        elif router_mode != 'rules':
+            raise ValueError('SPARKIE_WAKE_ROUTER must be rules or devin')
     # Mirror the session into a meeting workspace when the server is reachable;
     # every client failure degrades to a no-op so the meeting is unaffected.
     from .workspace_client import WorkspaceClient
     workspace = WorkspaceClient(os.getenv('SPARKIE_WORKSPACE_SERVER') or '127.0.0.1:8790')
     agent = RealtimeAgent(os.environ['OPENAI_API_KEY'], audio, center, emit,
                           model=os.getenv('OPENAI_REALTIME_MODEL') or 'gpt-realtime-2.1',
-                          output_policy=output_policy)
+                          output_policy=output_policy, wake_router=wake_router)
     dg_ready = asyncio.Event()
     ears = DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=24000,
                         model=os.getenv('DEEPGRAM_MODEL') or 'nova-3',
                         language=args.language, on_ready=dg_ready.set,
                         on_partial=lambda text: emit('transcript_partial', text=text))
     participant_stt = getattr(audio, 'participant_transcription', False)
+    turn_detection = 'deepgram'
     if participant_stt:
         from .participant_stt import ParticipantEars
         model = os.getenv('DEEPGRAM_MODEL') or 'nova-3'
+        turn_detection = os.getenv('SPARKIE_TURN_DETECTION') or 'semantic_vad'
+        if turn_detection not in ('semantic_vad', 'deepgram'):
+            raise ValueError('SPARKIE_TURN_DETECTION must be semantic_vad or deepgram')
+        semantic = turn_detection == 'semantic_vad'
+        def participant_ears():
+            if semantic:
+                return SemanticTurnEars(os.environ['DEEPGRAM_API_KEY'], os.environ['OPENAI_API_KEY'],
+                                        session_id, model=agent.model, stt_model=model,
+                                        language=args.language, on_event=emit)
+            return DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
+                                model=model, language=args.language)
         ears = ParticipantEars(
-            lambda: DeepgramEars(os.environ['DEEPGRAM_API_KEY'], session_id, rate=32000,
-                                model=model, language=args.language),
+            participant_ears,
             speaker_name=audio.meeting.speaker_name, is_self=audio.meeting.is_self,
             max_streams=int(os.getenv('SPARKIE_ZOOM_MAX_STT_STREAMS') or '32'), on_event=emit,
-            speech_events=True)
+            speech_events=True, continuous_silence=semantic, idle_seconds=15 if semantic else 1.5)
         ears.on_ready = dg_ready.set  # Router readiness; connections open when a participant speaks.
     queues = [asyncio.Queue(maxsize=150), asyncio.Queue(maxsize=150)]
     stop = asyncio.Event()
@@ -147,10 +166,14 @@ async def run(args):
                 except Exception:
                     stop.set()
                     raise
-            record = {'type': 'coverage_gap', 'reason': 'deepgram_unavailable',
+            record = {'type': 'coverage_gap',
+                      'reason': 'semantic_turn_unavailable' if turn_detection == 'semantic_vad' else 'deepgram_unavailable',
                       'timestamp_ms': round(audio.captured_samples / 24)}
             ledger.append(record)
-            emit('transcript_degraded', **{**failure_details(exc), 'provider': 'deepgram'}, record=record)
+            details = failure_details(exc)
+            if details['provider'] == 'unknown':
+                details['provider'] = 'semantic_turn' if turn_detection == 'semantic_vad' else 'deepgram'
+            emit('transcript_degraded', **details, record=record)
             dg_ready.set()
         finally:
             if participant_stt:
@@ -221,6 +244,9 @@ async def run(args):
     if output_policy is not None:
         output_policy.emit = emit
         emit('zoom_output_state', muted=True, reason='startup', remote_audibility_verified=False)
+        emit('zoom_wake_router_config', mode='devin' if wake_router else 'rules',
+             model=wake_router.model if wake_router else None,
+             timeout_seconds=wake_router.timeout if wake_router else None)
     try:
         external = os.getenv('ZOOM_MEETING_ID') if transport_name == 'zoom' else session_id
         kind = {'zoom': 'zoom_uuid', 'local': 'local_mic'}.get(transport_name, 'browser')
@@ -241,6 +267,7 @@ async def run(args):
              language=args.language, sample_rate=32000 if participant_stt else 24000,
              input_mode='per_participant' if participant_stt else 'mixed',
              foreground_input='participant_final_text' if participant_stt else 'mixed_audio',
+             turn_detection=turn_detection, semantic_eagerness=SEMANTIC_EAGERNESS if turn_detection == 'semantic_vad' else None,
              barge_in='participant_interim_text' if participant_stt else 'mixed_input')
         rt = asyncio.create_task(agent.run())
         dg = asyncio.create_task(transcribe())

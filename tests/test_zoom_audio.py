@@ -237,7 +237,8 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('zoom_playback_submitted', [x[0] for x in self.events])
 
     async def test_muted_microphone_rejects_playback(self):
-        with self.assertRaises(RuntimeError):
+        from sparkie.zoom_errors import ZoomMicrophoneMuted
+        with self.assertRaises(ZoomMicrophoneMuted):
             await self.meeting.play_audio(b'\0\0' * 320, 32000)
 
     async def test_cancel_sends_stop_and_cleans_pending_future(self):
@@ -258,11 +259,12 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.meeting.playbacks, {})
 
     async def test_mid_playback_mute_fails_pending_reply(self):
+        from sparkie.zoom_errors import ZoomMicrophoneMuted
         future = asyncio.get_running_loop().create_future()
         self.meeting.playbacks[1] = future
         self.meeting.reader.feed_data(packet(b'N'))
         self.meeting.reader_task = asyncio.create_task(self.meeting.receive())
-        with self.assertRaisesRegex(RuntimeError, 'muted during playback'):
+        with self.assertRaisesRegex(ZoomMicrophoneMuted, 'muted during playback'):
             await asyncio.wait_for(future, 1)
 
     async def test_leave_removes_only_owned_container_and_private_files(self):
@@ -308,6 +310,34 @@ class ZoomVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(self.meeting.failure, asyncio.QueueFull)
         warnings = [kw for kind, kw in self.events if kind == 'audio_warning']
         self.assertEqual(warnings, [{'reason': 'zoom_input_backlog', 'queued_frames': 250}])
+
+    async def test_joining_discards_input_without_building_a_backlog(self):
+        self.meeting._joining = True
+        self.meeting.reader.feed_data(packet(b'A', b'\x01\x00' * 320) * 1001)
+        task = asyncio.create_task(self.meeting.receive())
+        await asyncio.sleep(.1)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self.assertIsNone(self.meeting.failure)
+        self.assertEqual(self.meeting.startup_frames_discarded, 1001)
+        self.assertTrue(self.meeting.queue.empty())
+        self.assertTrue(self.meeting.audio_ready.is_set())
+        self.assertIn('zoom_startup_audio_discarded', [kind for kind, _ in self.events])
+
+    async def test_post_join_backlog_drains_without_losing_audio(self):
+        from sparkie.audio import AudioFrame
+        self.meeting.max_seconds = 60
+        for i in range(300):
+            self.meeting.queue.put_nowait(AudioFrame(i, b'\0\0'))
+        self.meeting._backlogged = True
+        stream = self.meeting.audio()
+        frames = [await anext(stream) for _ in range(300)]
+        await stream.aclose()
+        self.assertEqual([frame.sequence for frame in frames], list(range(300)))
+        self.assertTrue(all(frame.pcm == b'\0\0' for frame in frames))
+        self.assertFalse(self.meeting._backlogged)
+        kinds = [kind for kind, _ in self.events]
+        self.assertIn('zoom_input_recovered', kinds)
 
     async def test_transport_burst_reaches_stt_without_overflow_or_lost_frames(self):
         import json

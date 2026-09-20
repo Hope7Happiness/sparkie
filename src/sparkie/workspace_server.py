@@ -64,12 +64,13 @@ class WorkspaceServer:
             workspace_id = self.store.resolve_or_create(
                 kind, external, (query.get("title") or [""])[0])
             if (query.get("reset") or [None])[0] == "1":
-                self.store.reset(workspace_id)
-                self.bus.publish(workspace_id, {"type": "workspace.reset"})
+                self.runtime.reset_workspace(workspace_id)
             return _respond(200, self.store.get_workspace(workspace_id))
         match = WORKSPACE_PATH.match(path)
         if match:
             snapshot = self.store.snapshot(match.group(1))
+            if snapshot is not None:
+                snapshot['seq'] = self.bus.sequences.get(match.group(1), 0)
             return _respond(200 if snapshot else 404, snapshot or {"error": "unknown workspace"})
         match = ARTIFACT_PATH.match(path)
         if match:
@@ -87,11 +88,17 @@ class WorkspaceServer:
         return None if EVENTS_PATH.match(path) else _respond(404, {"error": "not found"})
 
     async def handle(self, connection):
-        match = EVENTS_PATH.match(connection.request.path)
+        url = urlparse(connection.request.path)
+        match = EVENTS_PATH.match(url.path)
         if not match or not self.store.get_workspace(match.group(1)):
             await connection.close(4404, "unknown workspace")
             return
         workspace_id = match.group(1)
+        generation = self.store.generation(workspace_id)
+        requested = (parse_qs(url.query).get('generation') or [str(generation)])[0]
+        if requested != str(generation):
+            await connection.close(4409, 'workspace session changed')
+            return
         queue = self.bus.subscribe(workspace_id)
         sender = asyncio.get_running_loop().create_task(self._send(connection, queue))
         try:
@@ -99,6 +106,12 @@ class WorkspaceServer:
                 try:
                     message = json.loads(raw)
                 except (TypeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(message, dict):
+                    continue
+                # Old session sockets cannot write into a freshly reset canvas.
+                # A browser may explicitly adopt the generation in its new snapshot.
+                if message.get('generation', generation) != self.store.generation(workspace_id):
                     continue
                 kind = message.get("type")
                 if kind == "utterance" and isinstance(message.get("text"), str):
@@ -135,6 +148,7 @@ async def workspace_session(args):
     args.db.parent.mkdir(parents=True, exist_ok=True)
     store = WorkspaceStore(args.db)
     bus = EventBus()
+    worker = None
     if args.worker in ("codex", "devin"):
         if args.worker == "devin":
             from .devin_acp import DevinTaskWorker
@@ -165,5 +179,11 @@ async def workspace_session(args):
     try:
         await server.serve_forever()
     finally:
-        await runtime.close()
-        store.close()
+        try:
+            await runtime.close()
+        finally:
+            try:
+                if worker is not None and hasattr(worker, 'close'):
+                    await worker.close()
+            finally:
+                store.close()

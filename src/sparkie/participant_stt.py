@@ -10,7 +10,8 @@ from .providers import ProviderError
 
 class ParticipantEars:
     def __init__(self, factory, *, speaker_name=lambda ident: ident, is_self=lambda ident: False,
-                 idle_seconds=1.5, max_streams=32, queue_frames=500, on_event=None, speech_events=False):
+                 idle_seconds=1.5, max_streams=32, queue_frames=500, on_event=None, speech_events=False,
+                 continuous_silence=False):
         if not 1 <= max_streams <= 64 or idle_seconds <= 0:
             raise ValueError('Invalid participant STT limits')
         self.factory, self.speaker_name, self.is_self = factory, speaker_name, is_self
@@ -18,6 +19,7 @@ class ParticipantEars:
         self.on_event = on_event or (lambda *a, **kw: None)
         self.on_ready = None
         self.speech_events = speech_events
+        self.continuous_silence = continuous_silence
 
     async def transcribe(self, frames):
         output = asyncio.Queue(maxsize=256)
@@ -26,12 +28,24 @@ class ParticipantEars:
 
         async def audio(state):
             cursor = 0
+            idle = 0
             try:
                 while True:
                     try:
-                        frame = await asyncio.wait_for(state['queue'].get(), self.idle_seconds)
+                        frame = await asyncio.wait_for(state['queue'].get(),
+                                                       .1 if self.continuous_silence else self.idle_seconds)
                     except TimeoutError:
-                        return
+                        if not self.continuous_silence:
+                            return
+                        idle += .1
+                        if idle >= self.idle_seconds:
+                            return
+                        # Zoom can omit silent callbacks. Semantic VAD still needs
+                        # elapsed audio, paced in real time, to finish its decision.
+                        yield AudioFrame(0, b'\0\0' * 3200)
+                        cursor += 3200
+                        continue
+                    idle = 0
                     if frame is None:
                         return
                     target = (frame.timestamp_ms - state['origin']) * 32
@@ -53,25 +67,33 @@ class ParticipantEars:
             yield AudioFrame(0, b'\0\0' * 16000)
 
         async def recognize(ident, state):
-            speaking = False
+            speaking = set()
             stream_id = f"{ident}:{state['serial']}"
             try:
                 ears = self.factory()
                 ears.speech_events = self.speech_events
+                if hasattr(ears, 'on_event'):
+                    original_emit = ears.on_event
+                    ears.on_event = lambda kind, **fields: original_emit(
+                        kind, speaker_id=ident, stream_id=stream_id, **fields)
                 ears.on_ready = lambda: self.on_event('participant_stt_ready', speaker_id=ident)
                 async with aclosing(ears.transcribe(padded_audio(state))) as stream:
                     async for event in stream:
                         if isinstance(event, SpeechActivity):
-                            speaking = event.phase in ('candidate', 'started')
-                            await output.put(replace(event, speaker_id=ident, stream_id=stream_id,
+                            activity_id = f'{stream_id}:{event.stream_id}' if event.stream_id is not None else stream_id
+                            if event.phase in ('candidate', 'started'):
+                                speaking.add(activity_id)
+                            else:
+                                speaking.discard(activity_id)
+                            await output.put(replace(event, speaker_id=ident, stream_id=activity_id,
                                                      timestamp_ms=state['origin'] + event.timestamp_ms))
                             continue
                         await output.put(replace(event, speaker_id=ident,
                             speaker=self.speaker_name(ident),
                             timestamp_ms=state['origin'] + event.timestamp_ms,
                             event_id=f"{ident}:{state['serial']}:{event.event_id}"))
-                if speaking:
-                    await output.put(SpeechActivity('stopped', round(state['last_ms']), ident, stream_id))
+                for activity_id in sorted(speaking):
+                    await output.put(SpeechActivity('stopped', round(state['last_ms']), ident, activity_id))
             except Exception as exc:
                 await output.put(exc)
             finally:

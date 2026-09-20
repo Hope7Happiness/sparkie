@@ -19,7 +19,7 @@ from test_zoom_audio import packet
 
 
 class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self, provider_failure=False):
+    async def exercise(self, provider_failure=False, turn_detection='semantic_vad'):
         sessions, received, snapshots, human_turns, activity, degraded = [], [], [], [], [], []
         class Meeting(ZoomMacAudioMeeting):
             async def join(self):
@@ -58,6 +58,9 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
                 async for frame in frames: packets.append(frame.pcm)
                 value = struct.unpack('<h', packets[0][:2])[0]
                 yield TranscriptEvent('test', 'dg-1', 20, f'words from {value}')
+        class SemanticEars(Ears):
+            def __init__(self, *a, **kw):
+                super().__init__(rate=32000, model=kw['stt_model'], language=kw['language'])
         class Worker:
             backend, model = 'fake', 'fake'
         with tempfile.TemporaryDirectory() as directory:
@@ -66,10 +69,12 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
             stream = os.fdopen(read_fd)
             previous = os.umask(0o077)
             try:
-                with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos'}), \
+                with patch.dict(os.environ, {'OPENAI_API_KEY':'fake', 'DEEPGRAM_API_KEY':'fake', 'ZOOM_PLATFORM':'macos',
+                                             'SPARKIE_TURN_DETECTION': turn_detection}), \
                      patch('sparkie.zoom_audio.ZoomMacAudioMeeting', Meeting), \
                      patch.object(realtime_session, 'RealtimeAgent', Agent), \
                      patch.object(realtime_session, 'DeepgramEars', Ears), \
+                     patch.object(realtime_session, 'SemanticTurnEars', SemanticEars), \
                      patch.object(realtime_session, 'configured_task_worker', return_value=Worker()), \
                      patch('sys.stdin', stream), redirect_stdout(io.StringIO()):
                     result = await realtime_session.run(args)
@@ -84,10 +89,12 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
         config = next(e for e in events if e['type']=='transcription_config')
         self.assertEqual(config['input_mode'], 'per_participant')
         self.assertEqual(config['sample_rate'], 32000)
+        self.assertEqual(config['turn_detection'], turn_detection)
         if provider_failure:
             self.assertEqual(degraded, [True])
             self.assertTrue(any(e['type']=='transcript_degraded' for e in events))
-            self.assertTrue(any(r.get('reason')=='deepgram_unavailable' for r in snapshots[0].records))
+            expected_reason = 'semantic_turn_unavailable' if turn_detection == 'semantic_vad' else 'deepgram_unavailable'
+            self.assertTrue(any(r.get('reason') == expected_reason for r in snapshots[0].records))
         else:
             self.assertEqual({r['speaker_id'] for r in human_turns}, {'zoom:10', 'zoom:20'})
             self.assertEqual(len(sessions), 2)
@@ -107,3 +114,6 @@ class RealtimeParticipantSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stt_failure_preserves_foreground_and_records_coverage_gap(self):
         await self.exercise(provider_failure=True)
+
+    async def test_legacy_deepgram_turn_detection_remains_selectable(self):
+        await self.exercise(turn_detection='deepgram')

@@ -100,7 +100,7 @@ def session_config(model):
 class RealtimeAgent:
     BARGE_IN_CONFIRM_SECONDS = .350
 
-    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None):
+    def __init__(self, key, audio: RealtimeAudioTransport, tasks, emit, model='gpt-realtime-2.1', connector=connect, output_policy=None, wake_router=None):
         self.key, self.audio, self.tasks, self.emit = key, audio, tasks, emit
         self.model, self.connector = model, connector
         self.ready = asyncio.Event()
@@ -146,6 +146,33 @@ class RealtimeAgent:
         self.participant_available = True
         self.last_speech_candidate = float('-inf')
         self.candidate_pause_timer = None
+        self.wake_router = wake_router
+        self.wake_version = 0
+        self.wake_pending = None
+        self.wake_tasks = set()
+        self.wake_closed = False
+
+    def invalidate_wake(self):
+        self.wake_version += 1
+        pending, self.wake_pending = self.wake_pending, None
+        if pending and pending is not asyncio.current_task():
+            pending.cancel()
+
+    async def warm_wake_router(self):
+        try:
+            await self.wake_router.start()
+            self.emit('zoom_wake_router_ready', model=self.wake_router.model)
+        except Exception as exc:
+            self.emit('zoom_wake_router_unavailable', error_type=type(exc).__name__)
+
+    async def close_wake_router(self):
+        self.wake_closed = True
+        self.invalidate_wake()
+        for task in self.wake_tasks:
+            task.cancel()
+        await asyncio.gather(*self.wake_tasks, return_exceptions=True)
+        if self.wake_router is not None:
+            await self.wake_router.close()
 
     def clear_candidate_pause(self):
         if self.candidate_pause_timer is not None:
@@ -227,7 +254,56 @@ class RealtimeAgent:
 
     async def _zoom_transcript(self, text, *, context_entered=False):
         policy = self.output_policy
-        decision, text = policy.evaluate(text)
+        if self.wake_router is not None and self.wake_closed:
+            return
+        self.invalidate_wake()
+        decision, selected = policy.evaluate(text, emit_decision=self.wake_router is None)
+        if self.wake_router is not None:
+            if decision == 'mute' or policy.manual_next:
+                # Explicit output controls stay local and never wait for a model.
+                self.emit('zoom_wake_decision', decision=decision, reason='local_control')
+            else:
+                version = self.wake_version
+                task = asyncio.create_task(self._classify_zoom_turn(text, context_entered, version))
+                self.wake_pending = task
+                self.wake_tasks.add(task)
+                task.add_done_callback(self.wake_tasks.discard)
+                self.emit('zoom_wake_routing', model=self.wake_router.model)
+                return
+        await self._apply_zoom_decision(decision, selected, context_entered=context_entered)
+
+    async def _classify_zoom_turn(self, text, context_entered, version):
+        started = time.monotonic()
+        try:
+            try:
+                decision = await self.wake_router.classify(text)
+                if decision not in ('accept', 'reject'):
+                    raise ValueError('invalid_wake_decision')
+            except Exception as exc:
+                self.emit('zoom_wake_router_failed', error_type=type(exc).__name__,
+                          action='remain_silent', latency_ms=round((time.monotonic() - started) * 1000))
+                return
+            async with self.turn_lock:
+                if version != self.wake_version:
+                    self.emit('zoom_wake_decision_discarded', reason='superseded_turn')
+                    return
+                self.wake_pending = None
+                result = 'wake' if decision == 'accept' else 'ignore'
+                self.emit('zoom_wake_decision', decision=result, reason='semantic_router',
+                          model=self.wake_router.model, latency_ms=round((time.monotonic() - started) * 1000))
+                await self._apply_zoom_decision(result, text, context_entered=context_entered)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # A background apply failure must not leave an unobserved exception.
+            self.emit('zoom_wake_router_failed', error_type=type(exc).__name__, action='stop_session')
+            self.audio.request_stop()
+        finally:
+            if self.wake_pending is asyncio.current_task():
+                self.wake_pending = None
+
+    async def _apply_zoom_decision(self, decision, text, *, context_entered=False):
+        policy = self.output_policy
         if decision == 'ignore':
             self.emit('zoom_response_not_requested', reason='wake_rejected')
             return
@@ -333,10 +409,15 @@ class RealtimeAgent:
             self.emit('background_notification_offered', announcements=offers, delivery_confirmed=False)
 
     async def run(self):
+        warm = asyncio.create_task(self.warm_wake_router()) if self.wake_router else None
         try:
             await self._run()
         finally:
             self.clear_candidate_pause()
+            if warm:
+                warm.cancel()
+                await asyncio.gather(warm, return_exceptions=True)
+            await self.close_wake_router()
 
     async def _run(self):
         url = 'wss://api.openai.com/v1/realtime?' + urlencode({'model': self.model})
@@ -366,7 +447,10 @@ class RealtimeAgent:
         async with self.turn_lock:
             await self._interrupt(cancel=cancel)
 
-    async def _interrupt(self, cancel=True, *, pause_notifications=None, reason='interrupted'):
+    async def _interrupt(self, cancel=True, *, pause_notifications=None, reason='interrupted',
+                         invalidate_pending_wake=True):
+        if invalidate_pending_wake:
+            self.invalidate_wake()
         self.clear_candidate_pause()
         if self.output_policy is not None:
             # Stopping the current audio is distinct from dismissing future task
@@ -689,7 +773,9 @@ class RealtimeAgent:
             if (response.get('status') == 'cancelled' and response_id not in self.cancelled and
                     response_id == self.response_id):
                 due = self.turn_response_due
-                await self._interrupt(cancel=False)
+                # Provider cancellation belongs to the old output, not a newer
+                # human utterance currently awaiting its semantic decision.
+                await self._interrupt(cancel=False, invalidate_pending_wake=False)
                 self.turn_response_due = due
                 # A provider cancellation without a human turn must not leave
                 # result notifications waiting for a speech-stop that cannot arrive.
@@ -739,6 +825,8 @@ class RealtimeAgent:
             self.emit('realtime_interrupted', item_id=item_id, played_ms=0)
 
     def notification_ready(self, *, explicit=False):
+        if self.wake_pending is not None:
+            return False
         if self.response_id or self.response_pending or self.user_speaking or self.awaiting_turn:
             return False
         if self.output_policy is not None:

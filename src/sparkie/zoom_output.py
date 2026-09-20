@@ -35,7 +35,7 @@ class ZoomOutputPolicy:
     def decision(self, text):
         return self.evaluate(text)[0]
 
-    def evaluate(self, text):
+    def evaluate(self, text, *, emit_decision=True):
         decision, selected, index, normalized = 'ignore', text, None, False
         starts = [0] + [m.end() for m in SENTENCE_END.finditer(text)]
         for number, start in enumerate(starts):
@@ -57,8 +57,9 @@ class ZoomOutputPolicy:
                   'mute': 'explicit_cancel'}[decision]
         if decision == 'ignore' and self.manual_next:
             decision, reason = 'wake', 'manual_next_turn'
-        self.emit('zoom_wake_decision', decision=decision, reason=reason,
-                  sentence_index=index, compact_greeting_normalized=normalized)
+        if emit_decision:
+            self.emit('zoom_wake_decision', decision=decision, reason=reason,
+                      sentence_index=index, compact_greeting_normalized=normalized)
         return decision, selected
 
     def open(self, reason):

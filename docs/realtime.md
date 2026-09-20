@@ -17,7 +17,9 @@ SPARKIE_TASK_BACKEND=devin
 DEVIN_MODEL=swe-1-6-fast
 ```
 
-用 `devin auth status` 核对登录，`devin models list` 核对当前账号的模型 UID。`swe-1-6-fast` 是本机 CLI 3000.10.31 已列出并实测的型号；其他账号的可用性需自行核对。配置只影响新会话，结束当前对话后重新开始。切回 Codex 使用 `SPARKIE_TASK_BACKEND=codex`。
+用 `devin auth status` 核对登录，`devin models list` 核对当前账号的模型 UID。`swe-1-6-fast` 是本机 CLI 3000.10.31 已列出并实测的型号；其他账号的可用性需自行核对。配置只影响新会话，结束当前对话后重新开始。workspace 服务未显式指定 --worker 时也沿用 SPARKIE_TASK_BACKEND，修改后需重启服务。切回 Codex 使用 `SPARKIE_TASK_BACKEND=codex`。
+
+2026-09-19 workspace 集成修复：269 项 Python 测试、30 项前端测试、生产构建和 primitive/demo 离线检查通过。覆盖重置后的旧任务/旧连接隔离、浏览器迟到请求、播放超时不能冒充静音成功，以及静音恢复重试未确认音频包。真实 DevinTaskWorker 使用 swe-1-6-fast 的无工具回复检查通过（冷启动加回复共 1422ms）；该数字不是唤醒分类或会议语音延迟。本轮没有重新进行真实 Zoom 静音/恢复验收；若 SDK 在包内中断，恢复可能重复最多 100ms，无法据此声称无缝续播。workspace 服务结束时会关闭常驻 Devin worker。
 
 Devin 使用常驻的 ACP 标准输入/输出连接。每次语音会话启动时并行初始化一个 CLI 进程和一个 agent 会话，不阻塞前台语音连接；之后的后台任务、追问和修改都复用该进程与上下文。使用现有登录、工具配置和项目目录，保持无审批权限，不设置单任务超时。启动握手有 60 秒上限，失败只影响后台；不会静默切换成另一个无上下文的 agent 或自动重放任务。
 
