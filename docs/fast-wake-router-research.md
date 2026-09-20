@@ -97,3 +97,63 @@ The live run uses 12 sequential requests per model. A 10-second per-case timeout
 ends testing that model and disposes its process rather than reusing a stuck turn.
 CLI stdout/stderr, private provider errors, and reasoning content are not saved;
 the result file contains only synthetic classification answers and timing.
+
+## Additional models and direct API comparison
+
+A second sweep on 2026-09-19 used the same 12 cases and prompt. The Devin models
+below were confirmed in the current local account catalog. Direct API calls use
+the existing OpenAI API key with Responses, store=false, max_output_tokens=32,
+no tools, and reasoning effort none for GPT-5.4 nano. Production settings and
+the SWE 1.6 Fast background task worker were not changed by this experiment.
+
+| Model / access path | Correct | Full decision p50 | Full decision p95 |
+| --- | --- | --- | --- |
+| SWE 1.7 Lightning Medium / Devin ACP | 12/12 | 1150.5 ms | 1295 ms |
+| GLM 5.3 Flash Low / Devin ACP | 12/12 | 1116.5 ms | 1601 ms |
+| Claude Haiku 4.5 / Devin ACP | 12/12 | 1141.5 ms | 2036 ms |
+| Gemini 3.5 Flash Minimal / Devin ACP | 12/12 | 974.5 ms | 1331 ms |
+| GPT-4.1 nano / direct Responses API | 7/12 | 1150 ms | 2413 ms |
+| GPT-5.4 nano / direct Responses API | 11/12 | 725 ms | 1513 ms |
+
+Devin UIDs are swe-1-7-lightning-medium, glm-5-3-flash-low, MODEL_PRIVATE_11
+(Haiku), and gemini-3-5-flash-minimal. Neither tested nano model appears in the
+current Devin catalog; their availability was verified through actual direct
+OpenAI API calls. GPT-5.4 nano is the fastest median measured so far, but its
+tail was slower than Gemini 3.5 Flash in this sample. It incorrectly accepted a
+quoted wake phrase in a demo script. GPT-4.1 nano missed four actual addresses
+and also accepted that quotation. Do not use either result as production
+permission to speak without broader evaluation and prompt/error analysis.
+
+The direct requests are stateless; Devin retains the sequence of cases in one
+session. The direct client reuses an HTTP connection, but the first call includes
+connection setup. This is a practical path comparison, not a controlled isolation
+of model inference speed. One pass of 12 examples cannot establish accuracy or
+latency guarantees. No tested path demonstrated reliable sub-350ms routing;
+changing model names alone has not produced an order-of-magnitude improvement.
+For a tighter latency budget, a local classifier is a separate unmeasured option
+that needs labelled data and a hardware-specific benchmark.
+
+Official OpenAI sources fetched for this comparison:
+
+- [GPT-5.4 nano](https://developers.openai.com/api/docs/models/gpt-5.4-nano):
+  classification is an explicit intended task; reasoning effort none is supported.
+- [GPT-4.1 nano](https://developers.openai.com/api/docs/models/gpt-4.1-nano):
+  documented as the fastest GPT-4.1 variant, without a reasoning step. That
+  relative positioning does not establish end-to-end latency in our environment.
+- [Text generation](https://developers.openai.com/api/docs/guides/text):
+  supported Responses API entry point.
+
+Raw evidence: [Devin alternatives](experiments/wake-router-alternatives-2026-09-19.json)
+and [direct API results](experiments/wake-router-direct-2026-09-19.json).
+
+Reproduce the Devin sweep:
+
+    python scripts/benchmark_wake_router.py --live --models swe-1-7-lightning-medium glm-5-3-flash-low MODEL_PRIVATE_11 gemini-3-5-flash-minimal --output /tmp/sparkie-wake-alternatives.json
+
+Reproduce direct API calls after dependency installation; supply the authorized
+environment file path without copying it into this research branch:
+
+    uv run --frozen python scripts/benchmark_wake_direct.py --live --env /path/to/main/.env
+
+Omitting --live performs no network requests. No credentials, real meeting
+transcripts, or private provider error bodies are written to results.
